@@ -1,0 +1,159 @@
+# 工商业储能 EMS —— 项目总览（BMS）
+
+> 工商业储能 EMS（Energy Management System）的多模块协作参考实现。
+> **A 组负责安全约束，B 组负责优化调度，三个实时控制器负责就地闭环，三者协同构成完整闭环。**
+
+| | |
+| --- | --- |
+| 上层设计文档 | [`docs/architecture.md`](./docs/architecture.md) |
+| 重构计划 | [`CHANGES.md`](./CHANGES.md)（已完成） |
+| 协作模型 | A 组（安全保护）+ B 组（策略优化），上层调度对接 |
+| 控制器时钟 | B 组优化：15 min 滚动；三个控制器：100 ms 实时 |
+| 编程语言 | C / C++17 / Python 3（仅做图表） |
+| 平台 | Windows（MinGW-w64 gcc/g++）+ Linux（求解器库 + 控制器可移植，仅 Windows HTTP 服务） |
+
+---
+
+## 1. 目录导览（新结构）
+
+```
+BMS/
+├── README.md                                  ← 本文件
+├── CHANGES.md                                 ← 重构变更记录
+├── docs/
+│   └── architecture.md                        ← 顶层设计书（必读）
+│
+├── scripts/
+│   └── build_all.bat                          ← 一键编译所有 C / C++ 组件
+│
+├── 01/                                       ← B 组 策略优化（纯 C · 自研 MILP · HTTP 服务）
+│   ├── src/                                  ← .c / .h 源文件
+│   ├── tests/                                ← 单元测试（test_solver.c）+ Python 校验
+│   ├── samples/                              ← 示例请求 JSON
+│   ├── bench/                                ← 96 时段性能基准脚本
+│   ├── docs/                                 ← README + API 文档
+│   ├── scripts/                              ← build.bat / run.bat
+│   ├── requirements.txt                      ← Python 工具链依赖
+│   └── build/                                ← 编译产物（git ignore）
+│
+├── 02/                                       ← A 组 安全约束（C++17 单文件骨架 + Mock + 单元测试）
+│   ├── src/safety_constraint_manager.cpp     ← 主程序（演示 3 策略）
+│   ├── tests/safety_test.cpp                 ← 11 个单元测试用例
+│   ├── docs/README.md                        ← A 组模块说明
+│   ├── scripts/                              ← build.bat / build_test.bat / run_demo.bat
+│   └── build/                                ← 编译产物
+│
+└── 03/                                       ← 实时控制器（C++ · 100ms 闭环）+ 共享 + 集成
+    ├── shared/                               ← 控制器共享代码
+    │   ├── clamper.h                         ← 通用 bms::clamp（删除了三处副本）
+    │   └── controller_types.h                ← 类型别名
+    ├── 防逆流控制器/                          ← AntiReverseController + 5 个仿真场景
+    ├── 光伏出力平抑控制器/                    ← SmoothingController + 6 个场景
+    ├── 需量管理控制器/                        ← DemandController + 4 个场景
+    └── integration/                          ← 三控制器集成（仅保留 IntegrationMain.cpp）
+                                                ⚠ 原名"三控制器集成"，因工具链兼容改为 integration
+```
+
+> **关于 `code/` 目录**：那是用户并行进行的另一份 Python 实现（`ems/` 工程）的只读汇总视图，**不属于本仓库**，不要在 C/C++ 重构时碰它。
+
+---
+
+## 2. 一分钟快速开始
+
+### 2.1 一键编译全部
+
+```bat
+scripts\build_all.bat
+```
+
+成功输出后各模块 `build\` 目录得到：
+
+```
+01\build\battery_server.exe                B 组 HTTP 服务（默认端口 :8000）
+02\build\safety_constraint_manager.exe     A 组仿真演示
+02\build\safety_test.exe                    A 组 11 个单元测试
+03\防逆流控制器\build\ar_sim.exe            防逆流仿真
+03\光伏出力平抑控制器\build\smoothing_sim.exe  光伏平抑仿真（6 场景）
+03\需量管理控制器\build\demand_sim.exe      需量仿真
+03\integration\build\integration_sim.exe   三控制器集成仿真
+```
+
+可选参数：`scripts\build_all.bat --no-test` 跳过 02/ 单元测试。
+
+### 2.2 跑 B 组 C 策略服务
+
+```bat
+cd 01
+scripts\build.bat
+scripts\run.bat                       :: 启动 HTTP 服务，监听 :8000
+:: 另开终端：
+python tests\test_client.py samples\sample_request.json          :: arbitrage
+python tests\test_client.py samples\sample_forecast.json         :: forecast
+python tests\test_client.py samples\sample_demand_response.json  :: demand_response
+python tests\verify_plan.py   samples\sample_request.json       :: 可行性校验
+python tests\verify_optimum.py                                     :: 与 scipy 暴力枚举的最优性对照
+python bench\bench_96.py                                           :: 96 时段性能基准
+```
+
+### 2.3 跑 A 组安全演示
+
+```bat
+cd 02
+scripts\build.bat                     :: 编译演示主程序
+scripts\build_test.bat                :: 编译并跑 11 个单元测试（应输出 ALL TESTS PASSED）
+scripts\run_demo.bat                  :: 跑 9s 时序仿真，日志 → log\out.txt（默认 UTF-16 LE）
+```
+
+### 2.4 跑实时控制器
+
+```bat
+:: 单个控制器
+cd 03\防逆流控制器        && scripts\run.bat
+cd 03\光伏出力平抑控制器  && scripts\run.bat
+cd 03\需量管理控制器      && scripts\run.bat
+
+:: 三控制器集成联调
+cd 03\integration && scripts\run.bat
+```
+
+---
+
+## 3. 架构层关系
+
+```
+上层调度 (15min)
+    │
+    ▼
+02/A组  ──► SafetyConstraints (统一安全边界)
+    │           │
+01/B组  ──► OptimizedPlan ◄─┤
+    │           │
+    ▼           ▼
+上层仲裁器 (合并 ①策略输出 + ②优化计划)
+    │
+    ▼ (100ms)
+03/integration ◄── 03/防逆流 + 03/光伏平抑 + 03/需量
+    │
+    ▼
+PCS / BMS
+```
+
+---
+
+## 4. 设计要点索引
+
+- **总策略、安全边界、五大控制思想** → [`docs/architecture.md`](./docs/architecture.md)
+- **A 组安全约束模块（BMS 禁止充放 / 降功率 / 变压器过载）** → [`02/docs/README.md`](./02/docs/README.md)
+- **B 组策略服务（MILP 求解、JSON 协议）** → [`01/docs/README.md`](./01/docs/README.md)、[`01/docs/api.md`](./01/docs/api.md)
+- **三控制器设计与集成** → [`03/防逆流控制器/docs/design.md`](./03/防逆流控制器/docs/design.md) 等各模块设计文档
+
+---
+
+## 5. 代码组织原则
+
+| 原则 | 说明 |
+|---|---|
+| **src/tests 分层** | 每个模块内部按 `src/` 源代码、`tests/` 测试、`samples/` 示例、`data/` 仿真 CSV、`figs/` 图、`docs/` 文档、`scripts/` 构建运行脚本、`build/` 产物分开。 |
+| **共享代码唯一副本** | `03/shared/clamper.h` 是三个控制器共用 clamp，原本每处一份（共三份 + `ar_clamp` 模板），现在统一为 `bms::clamp`。 |
+| **集成项目不复制源码** | `03/integration/src/IntegrationMain.cpp` 通过 `-I` 引用三个子项目的 header，源码不复制（原本有 6 份 `*.h/*.cpp` 重复，已删除）。 |
+| **构建可重现** | 每个模块一个 `scripts/build.bat`；顶层 `scripts/build_all.bat` 串联全部。修改任何模块后只需重跑所在模块的 build.bat。 |

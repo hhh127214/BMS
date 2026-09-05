@@ -1,0 +1,46 @@
+# =====================================================================
+#  .gitignore  for  BMS  project
+# =====================================================================
+
+# Compiled C / C++
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.pdb
+*.exp
+*.so
+*.dylib
+
+# Build output directories
+**/build/
+**/logs/
+**/log/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VSCode / IntelliJ
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# macOS
+.DS_Store
+
+# Temporary outputs
+*.bak
+*.tmp
+*.log
+
+# Read-only snapshots from external projects (do NOT commit)
+/code/

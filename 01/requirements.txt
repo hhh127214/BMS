@@ -1,0 +1,9 @@
+# This project is implemented in PURE C (no Python runtime required).
+#
+# The equivalent toolchain used to build/run it:
+#   - MinGW-w64 gcc (tested with 8.1.0)
+#   - Windows Winsock2 (ws2_32), linked via -lws2_32
+#
+# This file is kept for parity with the original Python spec
+# (fastapi/uvicorn/pulp/numpy/pandas). For this pure-C service no
+# pip dependencies are needed.
