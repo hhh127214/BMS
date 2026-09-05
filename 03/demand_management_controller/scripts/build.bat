@@ -1,6 +1,6 @@
 @echo off
 rem ====================================================================
-rem  Build the 需量管理控制器 module.
+rem  Build the demand_management_controller module.
 rem
 rem  Sources: src\DemandController.cpp
 rem  Tests:   tests\main_demand_csv.cpp + tests\demand_test.cpp

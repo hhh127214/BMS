@@ -1,6 +1,6 @@
 @echo off
 rem ====================================================================
-rem  Build the 光伏出力平抑控制器 module.
+rem  Build the pv_smoothing_controller module.
 rem
 rem  Sources: src\SmoothingController.cpp
 rem  Tests:   tests\main_smoothing_csv.cpp

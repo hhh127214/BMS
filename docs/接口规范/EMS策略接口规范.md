@@ -396,7 +396,7 @@ FallbackCommand:                    # 异常降级指令
 |---|---|
 | 名称 | `demand_management` |
 | 优先级 | **L2** |
-| 规划完成周 | Week 5（对应 `03/需量管理控制器/`） |
+| 规划完成周 | Week 5（对应 `03/demand_management_controller/`） |
 | 是否状态化 | 否（核心计算 pure；迟滞状态在控制器内部） |
 | 适用运行模式 | 全部 |
 
@@ -434,7 +434,7 @@ FallbackCommand:                    # 异常降级指令
 |---|---|
 | 名称 | `anti_reverse` |
 | 优先级 | **L2** |
-| 规划完成周 | Week 5（对应 `03/防逆流控制器/`） |
+| 规划完成周 | Week 5（对应 `03/anti_reverse_controller/`） |
 | 是否状态化 | 是（PI 积分项；持久化在 `_internal.integral`） |
 | 适用运行模式 | 全部 |
 
@@ -472,7 +472,7 @@ FallbackCommand:                    # 异常降级指令
 |---|---|
 | 名称 | `pv_smoothing` |
 | 优先级 | **L2** |
-| 规划完成周 | Week 5（对应 `03/光伏出力平抑控制器/`） |
+| 规划完成周 | Week 5（对应 `03/pv_smoothing_controller/`） |
 | 是否状态化 | 是（滤波状态 `_smooth_prev`） |
 | 适用运行模式 | 全部 |
 

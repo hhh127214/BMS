@@ -15,7 +15,7 @@
 ## 构建与运行
 
 ```bat
-cd 03\防逆流控制器
+cd 03\anti_reverse_controller
 scripts\build.bat       :: 编译生成 build\ar_sim.exe + build\test_ar.exe
 scripts\run.bat         :: 编译 + 跑 data\sim_sc1_pv_step.csv + 出 figs\sim_plot.png
 ```

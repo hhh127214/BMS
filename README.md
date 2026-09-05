@@ -43,15 +43,23 @@ BMS/
 │   ├── scripts/                              ← build.bat / build_test.bat / run_demo.bat
 │   └── build/                                ← 编译产物
 │
-└── 03/                                       ← 实时控制器（C++ · 100ms 闭环）+ 共享 + 集成
-    ├── shared/                               ← 控制器共享代码
-    │   ├── clamper.h                         ← 通用 bms::clamp（删除了三处副本）
-    │   └── controller_types.h                ← 类型别名
-    ├── 防逆流控制器/                          ← AntiReverseController + 5 个仿真场景
-    ├── 光伏出力平抑控制器/                    ← SmoothingController + 6 个场景
-    ├── 需量管理控制器/                        ← DemandController + 4 个场景
-    └── integration/                          ← 三控制器集成（仅保留 IntegrationMain.cpp）
-                                                ⚠ 原名"三控制器集成"，因工具链兼容改为 integration
+├── 03/                                       ← 实时控制器（C++ · 100ms 闭环）+ 共享 + 集成
+│   ├── shared/                               ← 控制器共享代码
+│   │   ├── clamper.h                         ← 通用 bms::clamp（删除了三处副本）
+│   │   └── controller_types.h                ← 类型别名
+│   ├── anti_reverse_controller/              ← AntiReverseController + 5 个仿真场景
+│   ├── pv_smoothing_controller/              ← SmoothingController + 6 个场景
+│   ├── demand_management_controller/         ← DemandController + 4 个场景
+│   └── integration/                          ← 三控制器集成（仅保留 IntegrationMain.cpp）
+│
+└── 04/                                       ← 策略管理层 + 仲裁器（C++17，对应周期 3 + 周期 4 + 周期 9）
+    ├── src/                                  ← data_models / strategy_base / manager / arbiter / strategies_9 + main.cpp
+    ├── tests/                                ← test_arbiter.cpp（17 用例 / 63 断言，全过；含设计方案 §7 全部 7 组合场景）
+    ├── data/                                 ← demo 用的实时快照/电网参数 JSON
+    ├── samples/                              ← 受命令字序列样本（按 S01-S09 排序）
+    ├── docs/                                 ← README.md + design.md
+    ├── scripts/                              ← build.bat / build_test.bat / run_demo.bat
+    └── build/                                ← strategy_demo.exe + test_arbiter.exe
 ```
 
 > **关于 `code/` 目录**：那是用户并行进行的另一份 Python 实现（`ems/` 工程）的只读汇总视图，**不属于本仓库**，不要在 C/C++ 重构时碰它。
@@ -72,10 +80,12 @@ scripts\build_all.bat
 01\build\battery_server.exe                B 组 HTTP 服务（默认端口 :8000）
 02\build\safety_constraint_manager.exe     A 组仿真演示
 02\build\safety_test.exe                    A 组 11 个单元测试
-03\防逆流控制器\build\ar_sim.exe            防逆流仿真
-03\光伏出力平抑控制器\build\smoothing_sim.exe  光伏平抑仿真（6 场景）
-03\需量管理控制器\build\demand_sim.exe      需量仿真
+03\anti_reverse_controller\build\ar_sim.exe            防逆流仿真
+03\pv_smoothing_controller\build\smoothing_sim.exe  光伏平抑仿真（6 场景）
+03\demand_management_controller\build\demand_sim.exe      需量仿真
 03\integration\build\integration_sim.exe   三控制器集成仿真
+04\build\strategy_demo.exe                 9 策略 + 仲裁器综合仿真（3 场景 + 故障注入）
+04\build\test_arbiter.exe                   04/ 单元测试（17 用例 / 63 断言；含 §7 全部 7 组合场景）
 ```
 
 可选参数：`scripts\build_all.bat --no-test` 跳过 02/ 单元测试。
@@ -108,13 +118,29 @@ scripts\run_demo.bat                  :: 跑 9s 时序仿真，日志 → log\ou
 
 ```bat
 :: 单个控制器
-cd 03\防逆流控制器        && scripts\run.bat
-cd 03\光伏出力平抑控制器  && scripts\run.bat
-cd 03\需量管理控制器      && scripts\run.bat
+cd 03\anti_reverse_controller        && scripts\run.bat
+cd 03\pv_smoothing_controller        && scripts\run.bat
+cd 03\demand_management_controller   && scripts\run.bat
 
 :: 三控制器集成联调
 cd 03\integration && scripts\run.bat
 ```
+
+### 2.5 跑策略管理层 + 仲裁器（周期 3 / 周期 4 / 周期 9 产出）
+
+```bat
+cd 04
+scripts\build.bat                     :: 编 strategy_demo.exe
+scripts\build_test.bat                :: 编 + 跑 17 个仲裁器单元测试（应输出 PASS=63 FAIL=0）
+scripts\run_demo.bat                  :: 跑 3 个综合场景 + 96 时段 24h 滚动 + 故障注入
+```
+
+`04/tests/test_arbiter.cpp` 覆盖范围：
+
+- **基础层（10 用例，T01-T10）**：Manager 生命周期、L0/L1 覆盖、L3 同层加权、跨层不平均、desired_clip、死区/滞环、RunMode 独占、tick 顺序
+- **§7 组合场景（7 用例，T11-T17）**：峰谷+BMS、峰谷+变压器、需量+防逆流、光伏平抑+防逆流、动态优化+需量、DR+峰谷+BMS、9 策略全量启用
+
+> 04/ 是上层调度与就地控制之间的"策略管理层"——把 9 套不同优先级的策略统一起来，按 L0→L3 区间收敛 + 同层加权的方式产生单一下发指令，从而解决 §2.5 接口规范里的"多策略同时发声"问题。详细设计见 [`04/docs/design.md`](./04/docs/design.md)。
 
 ---
 
@@ -129,14 +155,20 @@ cd 03\integration && scripts\run.bat
 01/B组  ──► OptimizedPlan ◄─┤
     │           │
     ▼           ▼
-上层仲裁器 (合并 ①策略输出 + ②优化计划)
-    │
+───── 04/ StrategyManager + StrategyArbiter (合并 9 策略 → 单下发指令) ─────
+    │           │           │
     ▼ (100ms)
-03/integration ◄── 03/防逆流 + 03/光伏平抑 + 03/需量
+03/integration ◄── 03/anti_reverse_controller + 03/pv_smoothing_controller + 03/demand_management_controller
     │
     ▼
 PCS / BMS
 ```
+
+**关于 04/ 在闭环里的位置**：
+
+- 9 个策略里，安全类（L0/L1）由 `02/` 提供基准约束；经济类（L3）里"基于优化的调度"由 `01/` 提供滚动计划（`ForecastOptStrategy` 接 `01/build` 出的 JSON 计划），其余"启发式经济策略"（`PeakValleyStrategy`、`DemandResponseStrategy`）就地实现。
+- `StrategyManager::tick()` 按 `Priority` 桶里逐层调用 `evaluate()`；`StrategyArbiter::arbitrate()` 按 L0→L3 取 **max(p_lower)** / **min(p_upper)**、同层加权出 desired、然后 `desired_clip` —— 完全遵守 `docs/接口规范/EMS策略接口规范.md` §2.5。
+- 最终唯一指令（`PowerCommand.p_bat_cmd_kw`）透出给 03/ 的就地控制器，由 100 ms 闭环继续做防逆流/平抑/需量二次修正。
 
 ---
 
@@ -145,7 +177,9 @@ PCS / BMS
 - **总策略、安全边界、五大控制思想** → [`docs/architecture.md`](./docs/architecture.md)
 - **A 组安全约束模块（BMS 禁止充放 / 降功率 / 变压器过载）** → [`02/docs/README.md`](./02/docs/README.md)
 - **B 组策略服务（MILP 求解、JSON 协议）** → [`01/docs/README.md`](./01/docs/README.md)、[`01/docs/api.md`](./01/docs/api.md)
-- **三控制器设计与集成** → [`03/防逆流控制器/docs/design.md`](./03/防逆流控制器/docs/design.md) 等各模块设计文档
+- **三控制器设计与集成** → [`03/anti_reverse_controller/docs/design.md`](./03/anti_reverse_controller/docs/design.md) 等各模块设计文档
+- **策略管理层 + 仲裁器（9 策略 / L0-L3 / 周期 3+4）** → [`04/docs/README.md`](./04/docs/README.md)、[`04/docs/design.md`](./04/docs/design.md)
+- **多策略协同的接口约定** → [`docs/接口规范/EMS策略接口规范.md`](./docs/接口规范/EMS策略接口规范.md)（§2.5 仲裁算法即 04/strategy_arbiter.h 的实现依据）
 
 ---
 

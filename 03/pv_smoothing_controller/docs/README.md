@@ -13,7 +13,7 @@
 ## 构建与运行
 
 ```bat
-cd 03\光伏出力平抑控制器
+cd 03\pv_smoothing_controller
 scripts\build.bat       :: 编译生成 build\smoothing_sim.exe
 scripts\run.bat         :: 编译 + 跑 S1~S6 六个场景 + 出 figs\S1~S6.png
 ```

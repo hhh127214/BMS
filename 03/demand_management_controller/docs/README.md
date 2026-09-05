@@ -15,7 +15,7 @@
 ## 构建与运行
 
 ```bat
-cd 03\需量管理控制器
+cd 03\demand_management_controller
 scripts\build.bat       :: 编译生成 build\demand_sim.exe + build\demand_test.exe
 scripts\run.bat         :: 编译 + 跑 demand_sim.csv + 出 figs\demand_sim_response.png
 ```

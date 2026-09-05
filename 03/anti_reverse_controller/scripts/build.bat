@@ -1,6 +1,6 @@
 @echo off
 rem ====================================================================
-rem  Build the 防逆流控制器 module.
+rem  Build the anti_reverse_controller module.
 rem
 rem  Sources: src\AntiReverseController.cpp
 rem  Tests:   tests\main.cpp (CLI simulator) + tests\test_ar.cpp (unit)
