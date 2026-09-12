@@ -304,3 +304,182 @@ using TimestampMs = std::uint32_t;
 - 各控制器的 `scripts/build.bat` 注释从中文改为对应英文模块名（注释，不影响构建）
 - `README.md`、`docs/接口规范/EMS策略接口规范.md` 里的路径链接全部更新
 - `04/docs/*` 内容里的中文用法均为"策略概念描述"（如"需量管理:放电 400 kW"），非路径引用，未改
+
+---
+
+## 11. 周期 5~8 实现（2026-09-12）
+
+按 `工商业储能EMS调控策略设计方案.md` §7 完成**周期 5 / 6 / 7 / 8**，新增模块 `05/`（纯头文件 C++17 库），并顺带修正了 04/ 共享代码中的两处真实缺陷。
+
+### 11.1 新增 `05/`（周期 5~8）
+
+| 文件 | 周期 | 职责 |
+| --- | --- | --- |
+| `05/src/safety_engine.h` | 5 | 9 类约束 → 统一 `(p_lower, p_upper)` 区间 + 逐条 trace |
+| `05/src/state_machine.h` | 6 | 7 状态 / 8 类故障源 / 输出门控 / SOE / 急停锁存复位 |
+| `05/src/plant_model.h` | 7 | PCS 死区 + 一阶惯性 + 物理变化率 + 效率 + 温升 + 噪声/故障注入 |
+| `05/src/plan_loader.h` | 8 | 自研 JSON 解析（兼容 01/ MILP 响应）+ 贪心兜底优化器 |
+| `05/src/dispatch_coordinator.h` | 8 | 滚动重优化（15 min）+ 三项有界纠偏 + `PlanTrackingStrategy` |
+| `05/src/realtime_loop.h` | 7+8 | `EmsRuntime` 11 步闭环总编排 + `OutputShaper` + `LoopMetrics` |
+| `05/src/main.cpp` | 5~8 | 四场景演示（A/B/C/D） |
+| `05/tests/test_runtime.cpp` | 5~8 | T01~T20 / **6594 断言全过** |
+| `05/data/day_plan_sample.json` | 8 | 01/ MILP 计划样例（96 点 × 15 min） |
+| `05/scripts/*.bat` + `gen_day_plan_sample.py` | — | 构建 / 测试 / 演示 / 样例生成 |
+
+同时更新：`README.md`（目录树、构建产物、§2.6 快速开始、架构图、设计索引）、`scripts/build_all.bat`（9 步 → 11 步）。
+
+### 11.2 04/ 共享代码缺陷修正
+
+1. **`04/src/strategies_9.h` — 需量管理方向反了（v1.2）**
+   原实现 `err = D_target − p_pred_avg`，只要预测均值**低于**目标就放电 → 轻载时段无意义放电、SOC 被抽干（24h 场景实测放电塌到 26 kWh）。
+   改为 `err = p_pred_avg − D_target`，仅在**将超限**时放电削峰，低于目标保持待机。
+
+2. **`04/src/data_models.h` — 新增 `RealtimeSnapshot::p_bat_actual_kw`**
+   周期 7 实时闭环需要把 PCS 执行后的**实测值**回灌下一拍，原结构体缺该字段。
+
+3. **`04/src/strategy_manager.h` — 新增 `clear()`**
+   `StrategyManager` 内含 `std::mutex`，无法整体赋值；`EmsRuntime::init()` 需幂等重置，故补一个加锁的 `clear()`。
+
+### 11.3 设计与踩坑记录（详见 `05/docs/design.md`）
+
+- **变化率不是区间约束**：写成 `[p_last−d, p_last+d]` 参与求交会冷启动锁死，并与"必须满充"类约束产生**假区间矛盾**（下界 > 上界 → 输出永久锁死）。改为后置 slew limiter（`binds_interval = false`）。
+- **区间矛盾 ≠ 紧急停机**：满充 + 光伏大发 + 不许倒送是"无可行非零功率"，唯一安全动作是输出 0。早期把它并入紧急条件导致 EMERGENCY **锁存**，24h 场景里储能 11 小时失去调节能力（计划跟踪偏差均值 90 kW）。改为进 DERATED（可自恢复）。
+- **并网边界抖动必须从量测侧根治**：`base = P_load − P_pv` 带噪声 → 安全边界抖动 → `apply()` 把指令压到抖动边界上，下游死区完全无效（因为安全层优先级最高）。新增 `SafetyParams::grid_filter_alpha` 低通滤波；配合死区滞环后指令总行程 −70%、方向反转 −77%，`无振荡` 由不成立转成立。
+- **`OutputShaper` 的"同方向保持"分支是错的**：导致小信号永远被保持而非清零，死区形同虚设（开关两档结果一模一样）。改为"持续落在死区内即归零，越出立即跟随"。
+- **L2 纠偏的绝对/增量语义混用**：防逆流与需量管理的 `p_desired` 是绝对目标，光伏平抑是增量；一律相加会把"目标"当"增量"重复计入（有日计划时指令被顶到边界）。改为对前两者做 floor/ceiling 转换。
+- **贪心兜底优化器需预留光伏余电裕度**：原实现把每个谷段都充到 `soc_max`，凌晨 3 点满充 → 白天余电无处可去被迫倒送。改为从后往前累加余电需求并压低充电 SOC 上限（经济上也更优：免费余电优于 0.30 元/kWh 谷电）。倒送从 83.5 kW / 113.6 s 降到 **0.0 kW / 0.0 s**。
+- **`LoopMetrics` 用 `cmd_travel` 替代 `cmd_reversals` 作抖动主指标**：反转计数会把死区造成的 bang-bang 输出也计入，无法反映死区收益。
+
+### 11.4 验证清单
+
+```
+scripts\build_all.bat            → [BUILD ALL OK] All 11 components built.
+  02/tests                      → ALL TESTS PASSED
+  04/tests (test_arbiter)       → PASS=63   FAIL=0
+  05/tests (test_runtime)       → PASS=6594 FAIL=0
+  05/demo 场景 A                → 19 用例：L0 禁闭 9 / L1 降额 6 / 紧急停机 3 / 区间矛盾 0
+  05/demo 场景 B                → 13 次 SOE 迁移；非运行态非零指令 0 次
+  05/demo 场景 C                → 无延迟=成立 无振荡=成立；抖动治理 −70%/−77%
+  05/demo 场景 D                → 96 次滚动重优化；峰值 350.0kW（契约 350）；倒送 0.0kW；mean_err=0.016kW
+```
+
+### 11.5 未完成 / 边界
+
+- 周期 8 的滚动重优化在**进程内**用启发式近似；真实部署应把实测 SOC 回灌给 `01/` 的 MILP HTTP 服务重解（接口不变，演示输出已标注该降级）。
+- 电池满充 + 光伏余电超过吸收能力时物理上只能倒送或限发；`05/` 无光伏逆变器控制通道，只能由安全层检出区间矛盾并安全降级。根治手段是光伏限功率。
+- `05/src/safety_engine.h` 目前**复用** `02/` 的变压器负载估算口径（`|P_grid| + 0.1·P_load`），尚未直接链接 `02/` 的类；后续可把 `SafetyConstraints` 适配成一条 `ConstraintResult`。
+
+---
+
+## 12. 周期 5~8 拆分为 05 / 06 / 07 / 08 四个模块（2026-09-12）
+
+§11 把周期 5~8 全部塞在一个 `05/` 里。本轮按设计方案 §7 的**周期粒度**拆成四个独立模块，使
+模块编号（`05/06/07/08`）与周期编号**一一对应**，每个模块可独立编译 / 测试 / 跑演示。
+
+### 12.1 模块 ↔ 周期 ↔ 文件映射
+
+| 模块 | 周期 | `src/` | `tests/` | 演示 | 数据 |
+| --- | --- | --- | --- | --- | --- |
+| `05/` | 5 统一安全约束引擎 | `safety_engine.h` | `test_safety_engine.cpp`（T01~T06） | `main.cpp` 场景 A | — |
+| `06/` | 6 EMS 状态机 | `state_machine.h` | `test_state_machine.cpp`（T07~T10） | `main.cpp` 场景 B（**重写为纯状态机口径**） | — |
+| `07/` | 7 实时控制闭环 | `plant_model.h` `realtime_loop.h` | `test_realtime_loop.cpp`（T11~T16） | `main.cpp` 场景 C | `samples/` |
+| `08/` | 8 优化调度与实时控制协同 | `plan_loader.h` `dispatch_coordinator.h` | `test_dispatch_coordinator.cpp`（T17~T20） | `main.cpp` 场景 D | `data/day_plan_sample.json` |
+
+四个模块均按项目统一结构建齐 `src/ tests/ data/ samples/ docs/ scripts/ build/`。
+`05/` 与 `06/` 原本没有 `data/` `samples/`，现按约定补上空目录占位。
+
+### 12.2 测试拆分映射（**断言总数不变**）
+
+| 原 `05/tests/test_runtime.cpp` | 现文件 | 断言 |
+| --- | --- | --- |
+| T01–T06 | `05/tests/test_safety_engine.cpp` | 66 |
+| T07–T10 | `06/tests/test_state_machine.cpp` | 34 |
+| T11–T16 | `07/tests/test_realtime_loop.cpp` | 6050 |
+| T17–T20 | `08/tests/test_dispatch_coordinator.cpp` | 444 |
+| **T01–T20** | — | **6594（与原单文件完全一致）** |
+
+- 用例编号（T01~T20）**保持不变**，便于与 §11 的记录互相追溯。
+- T11「输出门控不变量」原属周期 6 语义，但它需要闭环链路才能观察到功率指令，故归入 `07/`；
+  `06/` 的门控判定则由演示的**实测真值表**覆盖（对每种状态实际构造一台状态机再读门控位）。
+- `05/tests` 需 `-I ../06/src`：T03 末尾用状态机交叉验证「矛盾 → DERATED 且仍允许输出」。
+
+### 12.3 演示拆分
+
+原 `05/src/main.cpp` 的四个场景拆成四个独立演示程序：
+
+| 程序 | 场景 | 说明 |
+| --- | --- | --- |
+| `05/build/safety_demo.exe` | A 安全约束引擎 | 19 个用例逐条对照（原样迁移） |
+| `06/build/fsm_demo.exe` | B EMS 状态机 | **重写**：只驱动 `EmsStateMachine`，不引入 `EmsRuntime`；新增**实测**门控真值表 |
+| `07/build/loop_demo.exe` | C 实时控制闭环 | 3 个试验（原样迁移） |
+| `08/build/coord_demo.exe` | D 优化调度协同 | 24h 分层协同（原样迁移，计划文件路径改为 `08/data/`） |
+
+### 12.4 构建脚本
+
+- 新增 `05/06/07/08/scripts/{build,build_test,run_demo}.bat`（各 3 个，共 12 个）。
+- 根 `scripts/build_all.bat`：**11 步 → 17 步**（`[BUILD ALL OK] All 17 components built.`）。
+- 每个模块的 `build.bat` 头部注明自己的 `-I` 搜索路径。
+
+### 12.5 踩坑：UTF-8 的 .bat 被 CP936 读取时会"吞掉 CR"
+
+**现象**：`08/scripts/build.bat` 报 `'浠舵悳绱㈣矾寰勶細src' 不是内部或外部命令`，
+但**退出码仍是 0**（静默失败），`build_all.bat` 仍报 `[BUILD ALL OK]`。
+
+**根因**：`.bat` 是 UTF-8，而 `cmd.exe` 按 CP936（GBK）逐字节解码。若某一行的**末尾**恰好落在
+一个双字节字符的**前导字节**上（即该行的 UTF-8 字节数为奇数、且扫描指针会越过行尾），
+这个前导字节就会与行尾的 `\r` 配成一对被吃掉 → 该行没有正常结束 → **下一行的 `REM` / `echo`
+前缀被吞掉**，整行文本被当成命令执行。
+
+**判定与修法**（`_split_tmp/fix_bat_cr.py`，已执行后删除）：
+
+```python
+def scan_overrun(b):        # 模拟 CP936 逐字节扫描
+    i, n = 0, len(b)
+    while i < n:
+        c = b[i]
+        i += 1 if (c < 0x80 or c == 0x80 or c > 0xFE) else 2
+    return i > n            # 越过行尾 = 吞掉了 \r
+```
+
+对 `scan_overrun` 为真的行**末尾补一个空格**，让前导字节吃掉空格而不是 `\r`。
+共修补 20 行（12 个模块脚本 + 根脚本）。
+
+> 另一个纯显示层的现象：非 ASCII 片段字节数为奇数时，CP936 解码会丢一个字节并显示为 `?`
+> （如 `编译并运行` → `缂栬瘧骞惰繍琛?`）。这只影响回显、不影响执行，且 `04/scripts/build_test.bat`
+> 早有同样表现，故未处理。
+
+### 12.6 验证清单
+
+```
+scripts\build_all.bat                   → [BUILD ALL OK] All 17 components built.
+  02/tests                              → ALL TESTS PASSED
+  04/tests  (test_arbiter)              → PASS=63   FAIL=0
+  05/tests  (test_safety_engine)        → PASS=66   FAIL=0
+  06/tests  (test_state_machine)        → PASS=34   FAIL=0
+  07/tests  (test_realtime_loop)        → PASS=6050 FAIL=0
+  08/tests  (test_dispatch_coordinator) → PASS=444  FAIL=0
+  ── 05+06+07+08 合计 6594 断言，与拆分前单文件完全一致 ──
+  05/demo A → 19 用例：L0 禁闭 9 / L1 降额 6 / 紧急停机 3 / 区间矛盾 0
+  06/demo B → 13 次 SOE 迁移；门控真值表 7 态全部符合预期；构造不变量破坏 0
+  07/demo C → 无延迟=成立 无振荡=成立；抖动治理 总行程 −70% / 反转 −77%
+  08/demo D → 96 次滚动重优化；峰值 350.0kW（契约 350）；倒送 0.0kW；mean_err=0.016kW
+```
+
+### 12.7 文档
+
+- 每个模块新增 `docs/README.md` 与 `docs/design.md`（由原合并文档按 §1/§2/§3/§4 章节拆分，
+  并各自补上「关键不变量」与「已知边界」两节）。
+- 根 `README.md`：目录树扩成 4 个模块、构建产物 8 个 exe、§2.6~§2.9 四段快速开始、
+  §3 增加「模块依赖方向（头文件层，无环）」表、§4 设计索引拆成 4 条。
+
+### 12.8 模块依赖方向（头文件层无环）
+
+```
+04/ ──► 05/ ──► 06/ ──┐
+ ▲                    ├──► 07/ ──► 08/
+ └────────────────────┴──────────────┘
+```
+
+- `07/` 与 `08/` 互为**运行时调用关系**（闭环调用优化层 / 端到端用闭环），
+  但 `08/src/*.h` **不包含** `07/` 的任何头文件 —— header-only 库编译顺序无关，
+  只需把对应的 `-I` 路径都加上。

@@ -199,14 +199,16 @@ public:
         double p_grid_now = rt.p_grid_kw;
         p_pred_avg += p_grid_now * ratio_remain;
 
-        double err = D_target - p_pred_avg;
-        // 期望放电 = err * Kp（正 = 需放电）
-        double p_des = Kp * err;
+        // 需量管理的目标是"**不突破**契约需量"，而不是"把窗口均值填到目标"。
+        // 因此只在预测均值**将超过** D_target 时才动作（放电削峰），
+        // 低于目标时保持待机 —— 否则会在轻载时段无意义地放电（v1.2 修正）。
+        double err = p_pred_avg - D_target;   // >0 = 将超限，需要放电
+        double p_des = (err > 0.0) ? Kp * err : 0.0;
         // 限幅
-        p_des = std::max(r.p_lower, std::min(r.p_upper, p_des));
+        p_des = std::max(0.0, std::min(r.p_upper, p_des));
 
         r.p_desired = p_des;
-        r.active    = std::abs(err) > get_param("deadband", 1.0);
+        r.active    = err > get_param("deadband", 1.0);
         r.reason    = r.active ? "demand_active" : "demand_within";
         return r;
     }

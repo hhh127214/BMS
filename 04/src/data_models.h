@@ -133,6 +133,9 @@ struct RealtimeSnapshot {
     double    p_grid_kw = 0.0;       // 关口并网点实时功率（>0 进口, <0 馈网）
     double    p_pv_kw   = 0.0;       // 光伏出力（>0 发电）
     double    p_load_kw = 0.0;       // 本地负荷（>0 用电）
+    // 实际电池功率反馈（P_bat 约定：放电为正）。
+    // 周期 7 实时闭环用：PCS 执行后的**实测值**回灌下一拍，形成闭环。
+    double    p_bat_actual_kw = 0.0;
     double    soc       = 0.5;       // 当前 SOC [0.0, 1.0]
     double    temperature_c = 25.0;  // 电池温度
     double    soh       = 1.0;       // 电池健康度 [0.0, 1.0]

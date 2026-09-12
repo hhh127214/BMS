@@ -72,6 +72,15 @@ public:
         status_.erase(id);
     }
 
+    // 清空全部注册（幂等重初始化用；会先回调每个策略的 on_unregister）
+    void clear() {
+        std::lock_guard<std::mutex> lk(mu_);
+        for (auto& kv : registry_) kv.second->on_unregister();
+        registry_.clear();
+        status_.clear();
+        run_mode_ = RunMode::kIdle;
+    }
+
     // ---- 启动 / 停止 ----
     // start() 把策略置为 started=true（参与 tick）
     // stop() 把策略置为 started=false（不参与 tick 但保留注册）
