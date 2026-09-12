@@ -2,8 +2,10 @@
 
 ## 工程结构约定
 
-- **模块编号沿用时间线**：01 = B 组优化、02 = A 组安全、03 = 三实时控制器（anti_reverse_controller / pv_smoothing_controller / demand_management_controller + integration + shared）、04 = 策略管理层+仲裁器。
-  新增模块请用 05+ 或子目录扩展，不要打破编号。
+- **模块编号沿用时间线**：01 = B 组优化、02 = A 组安全、03 = 三实时控制器（anti_reverse_controller / pv_smoothing_controller / demand_management_controller + integration + shared）、04 = 策略管理层+仲裁器、
+  **05 = 周期 5 统一安全约束引擎 / 06 = 周期 6 EMS 状态机 / 07 = 周期 7 实时控制闭环 / 08 = 周期 8 优化调度与实时控制协同**
+  （2026-09-12 把原单体 `05/` 按周期粒度拆开，编号与周期一一对应）。
+  **下一个可用编号是 `09`**（周期 11 系统联调 / 周期 12 最终验收）。不要打破编号，不要复用旧号。
 - **03/ 子目录统一英文**（2026-09-06 重组完成，旧中文名已 `git mv` 改名；git log + CHANGES.md §10 留有变更记录）
 - **每个模块统一结构**：`src/` `tests/` `data/` `samples/` `docs/` `scripts/build.bat` `build/`（产物）；图表汇总用 `figs/`
 - **统一 Windows 入口**：根 `scripts\build_all.bat` 一键编全部，新模块必须在其中挂上分步号。
@@ -61,6 +63,19 @@
 - 用户偏好 C++17 + MinGW-w64 + 单文件可编译，Header-only 实现多于 .cpp 类拆分。
 - gtest 不强依赖——`tests/` 用项目自带 `EXPECT_*` 宏（见 `03/防逆流控制器/tests/` 和 `04/tests/`）。
 - bat 脚本直接 g++ 调用，避免中文路径在 git-bash 下编码问题。
+- **bat 脚本必须 CRLF + 防"吞 CR"**（两个都会**静默失败，退出码仍是 0**）：
+  1. LF 行尾 → `cmd` 解析出 `'曟搸' 不是内部或外部命令`。写完转 CRLF。
+  2. **UTF-8 被 CP936 读取时，若某行末尾落在双字节字符的前导字节（0x81–0xFE）上，
+     该字节会与行尾 `\r` 配成一对被吃掉 → 下一行的 `REM`/`echo` 前缀被吞，整行中文被当命令执行。**
+     实测：65 字节（奇数）的中文标题行 + 下一行中文 REM → 报错；标题行加 1 个空格（66 字节）→ 干净。
+     修法：模拟 CP936 扫描（`i += 1 if (c<0x80 or c==0x80 or c>0xFE) else 2`），
+     越界（`i > n`）的行末尾补一个空格。纯 ASCII 行不受影响。
+     完整脚本与说明见 skill `bms-ems-module`。
+- **跨模块 include 是扁平的**（`#include "xxx.h"` 不带路径），靠 `-I` 搜索路径解析。
+  因此**搬头文件到别的模块不用改任何 include**，只需给该模块配好 `-I`。
+  各模块 `-I`：`05: src ../04/src (+../06/src 仅测试)`、`06: src ../04/src ../05/src`、
+  `07: src ../04/src ../05/src ../06/src ../08/src`、`08: src ../04/src ../05/src ../06/src ../07/src`。
+  头文件层无环；`07/` 与 `08/` 互为运行时调用关系。
 - `code/` 目录是 Python 并行实现，不要碰、不要在重构里引用。
 
 ## 周期完成状态（V2.0 12 周计划）
