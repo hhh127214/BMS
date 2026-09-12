@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-生成 05/data/day_plan_sample.json —— 模拟 01/ MILP 优化层产出的日间运行计划。
+生成 08/data/day_plan_sample.json —— 模拟 01/ MILP 优化层产出的日间运行计划。
 
 用途：
   周期 8 的协同演示优先加载本文件（走"01/ 优化层 → 实时层纠偏 → 安全层兜底"的真实链路），

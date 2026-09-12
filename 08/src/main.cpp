@@ -230,8 +230,16 @@ static void scenario8_dispatch_coordination() {
     std::printf("\n  ── ⑦ 闭环指标 ──\n");
     std::printf("    %s\n", m.to_string().c_str());
 
-    rt.dump_csv("build/scenario8_24h.csv");
-    std::printf("\n  详细时序已导出：build/scenario8_24h.csv\n");
+    // 从 08/ 目录跑（run_demo.bat 会 cd 到模块根）写出到 build/；从仓库根跑则落到 08/build/
+    const char* csv_ok = nullptr;
+    for (const char* p : {"build/scenario8_24h.csv", "08/build/scenario8_24h.csv"}) {
+        if (rt.dump_csv(p)) { csv_ok = p; break; }
+    }
+    if (csv_ok) {
+        std::printf("\n  详细时序已导出：%s\n", csv_ok);
+    } else {
+        std::printf("\n  详细时序导出失败（build/ 目录不存在，请先跑 scripts\\build.bat）\n");
+    }
 
     sub("分层协同职责小结");
     std::printf("  预测分析层 : 96 点负荷/光伏/电价时序（%.0f min 分辨率）\n", fc.step_s / 60.0);
