@@ -121,8 +121,15 @@ struct ConstraintResult {
         r.priority    = level;
         r.active      = active;
         r.weight      = 1.0;
-        r.p_lower     = p_lower;
-        r.p_upper     = p_upper;
+        // **不参与区间求交的约束（变化率）必须以"不收紧"的区间导出。**
+        // 求交规则在 evaluate() 内按 binds_interval 过滤，但 as_results() 这条
+        // 出口是**另一条路径**，必须保持一致，否则会绕过该规则：
+        //   变化率约束的区间是"相对上一拍指令的邻域"（例 [−20, +20]），
+        //   若把它与硬安全区间（例 并网要求 [42, 250]）求交，即得 42 > 20，
+        //   仲裁器误判为区间矛盾 → 塌缩为 [0,0] → 指令被迫为 0，
+        //   反而突破并网/需量边界（周期 9 场景 S3/S4 实测逃逸 3724/1016 拍）。
+        r.p_lower     = binds_interval ? p_lower : -1e18;
+        r.p_upper     = binds_interval ? p_upper :  1e18;
         r.p_desired   = 0.0;   // L0/L1 不参与 desired 收敛（接口规范 §2.5）
         r.reason      = reason;
         return r;
@@ -327,11 +334,52 @@ public:
             }
         }
 
-        if (clipped) cmd.clamped = true;
-
         // 区间同步透出（设备端按 PermissionRange 限幅执行，接口规范 §5）
         cmd.p_lower = std::max(cmd.p_lower, last_verdict_.p_lower);
         cmd.p_upper = std::min(cmd.p_upper, last_verdict_.p_upper);
+
+        // 2.5) 区间一致性兜底：仲裁区间 ∩ 安全区间 为空时，安全区间权威接管。
+        //
+        // 为什么会为空：仲裁器只认"逐层求交"，当 L2/L3 策略（或安全层自身导出
+        // 的某个约束）给出与安全区间互斥的边界时，它会把区间塌缩成 [0,0]；
+        // 而本函数随后又用安全区间把其中一侧"撑"回去 → 得到 p_lower > p_upper
+        // 的空区间。空区间下**任何** p_cmd 都会逃逸（设备端按 PermissionRange
+        // 限幅时行为也不确定），必须显式消解。
+        // 消解原则与全系统一致：**安全边界是硬约束**，故以安全区间为准；
+        // 仅当安全区间自身也矛盾（无可行功率）时才退回 [0,0]。
+        if (cmd.p_lower > cmd.p_upper) {
+            if (last_verdict_.p_lower <= last_verdict_.p_upper) {
+                cmd.p_lower = last_verdict_.p_lower;
+                cmd.p_upper = last_verdict_.p_upper;
+                cmd.reason += "+interval_fallback_safety";
+            } else {
+                cmd.p_lower = 0.0;
+                cmd.p_upper = 0.0;
+                cmd.reason += "+interval_fallback_zero";
+            }
+            clipped = true;
+        }
+
+        // 3) 最终一致性夹：保证下发的 p_cmd 一定落在**声明的权限区间**内。
+        //
+        // 为什么必须放在最后：上面两步都可能把指令推出区间 ——
+        //   ① slew limiter 是"相对上一拍指令的邻域"，当区间在**本拍刚收紧**时
+        //      （典型：光伏突增，并网边界从 +200 收到 −50），上一拍指令已落在
+        //      本拍区间之外，ramp 会把指令拉回那个"已失效的邻域"→ 逃出安全区间；
+        //   ② 上游 OutputShaper 的滞环保持返回的是"上一拍整形输出"，同样可能逃逸。
+        // 安全边界是**硬约束**，优先级高于平滑；且接口规范 §5 要求设备端按
+        // PermissionRange 限幅执行 —— 若 p_cmd 越界，实际执行值会与 EMS 预期不符。
+        if (cmd.p_bat_cmd_kw > cmd.p_upper) {
+            cmd.p_bat_cmd_kw = cmd.p_upper;
+            clipped = true;
+            cmd.reason += "+reclip_upper";
+        } else if (cmd.p_bat_cmd_kw < cmd.p_lower) {
+            cmd.p_bat_cmd_kw = cmd.p_lower;
+            clipped = true;
+            cmd.reason += "+reclip_lower";
+        }
+
+        if (clipped) cmd.clamped = true;
         return clipped;
     }
 
@@ -554,7 +602,12 @@ private:
     }
 
     // -----------------------------------------------------------------
-    // 6. 变压器容量限制（L1，两道防线：轻度过载限功率 / 极端过载禁放）
+    // 6. 变压器容量限制（L1）
+    //
+    // 两道防线：轻度过载 → 按可行区间限功率；极端过载 → 同一套区间逻辑，
+    //   但标记为 extreme（供上层决定是否升级告警）。**注意**：不再有
+    //   "极端过载一律禁放" —— 变压器负载看的是关口功率的**绝对值**，进口方向
+    //   过载时放电恰恰是缓解手段，禁放会南辕北辙（详见下方方向说明）。
     // -----------------------------------------------------------------
     ConstraintResult check_transformer(const RealtimeSnapshot& rt,
                                        const DeviceLimits& dev) {
@@ -566,15 +619,34 @@ private:
         const double pcs_chg = std::max(0.0, dev.pcs_rated_chg_kw);
         const double cap     = dev.transformer_capacity_kw;
 
+        c.p_lower = -pcs_chg;
+        c.p_upper =  pcs_dis;
+
         if (cap <= 0.0) {
-            c.p_lower = -pcs_chg;
-            c.p_upper =  pcs_dis;
-            c.reason  = "tr_no_capacity";
+            c.reason = "tr_no_capacity";
             return c;
         }
 
-        // 负载估算（与 04/ 同口径）：|P_grid| + 0.1·P_load
-        const double tr_load = std::fabs(rt.p_grid_kw) + rt.p_load_kw * p_.tr_load_pv_share;
+        // ---- 负载估算：取「量测值」与「在途指令预测值」中的较劣者 ----
+        // 口径与 04/ 一致：tr_load = |P_grid| + 0.1·P_load，且 P_grid = base − P_bat。
+        //
+        // **为什么要预测（原实现的缺陷）**：
+        //   若只用**电表量测**判定，约束只能在负载率**已经**越过阈值之后才动作。
+        //   但 PCS 存在传输延时 + 一阶惯性（现场必然如此），此刻被控对象已
+        //   "带着动量"，必然再冲过一段 —— 阈值留多少余量都不够用
+        //   （周期 9 场景 S2 实测：阈值 0.95 时冲高到 1.014；即便收到 0.90
+        //    仍在一次指令翻转中冲高到 286 kW 而越限）。
+        //   改用「上一拍指令落地后」的预测负载参与判定，约束就能在**指令下发
+        //   之前**拦住会导致过载的指令 —— 这才是变压器保护应有的前馈特性。
+        // **为什么取 max(量测, 预测) 而不是只取预测**：
+        //   两者分别代表"现在的负载"与"指令落地后的负载"，任一越限都必须收敛，
+        //   取较劣者最安全；且被控对象稳态时两者相等，不影响既有行为。
+        const double base0 = rt.p_load_kw - rt.p_pv_kw;
+        const double tr_load_meas = std::fabs(rt.p_grid_kw)
+                                  + rt.p_load_kw * p_.tr_load_pv_share;
+        const double tr_load_pred = std::fabs(base0 - last_p_cmd_)
+                                  + rt.p_load_kw * p_.tr_load_pv_share;
+        const double tr_load = std::max(tr_load_meas, tr_load_pred);
         const double ratio   = tr_load / cap;
         c.margin_kw = (p_.tr_overload_th - ratio) * cap;
 
@@ -582,27 +654,65 @@ private:
         if (ratio > p_.tr_overload_th) tr_overload_latched_ = true;
         else if (ratio < p_.tr_overload_th - p_.tr_hysteresis) tr_overload_latched_ = false;
 
-        if (ratio > p_.tr_extreme_th) {
-            c.active  = true;
-            c.p_upper = 0.0;          // 强制禁放
-            c.p_lower = -pcs_chg;
-            c.reason  = "tr_extreme_overload";
-            return c;
-        }
-        if (tr_overload_latched_) {
-            // 允许放电 = 阈值容量 − 当前负载
-            double headroom = p_.tr_overload_th * cap - tr_load;
-            if (headroom < 0.0) headroom = 0.0;
-            c.active  = true;
-            c.p_upper = std::min({pcs_dis, headroom, dev.bms_dis_limit_kw});
-            c.p_lower = -pcs_chg;
-            c.reason  = "tr_overload";
+        const bool extreme = (ratio > p_.tr_extreme_th);
+        if (!tr_overload_latched_ && !extreme) {
+            c.reason = "tr_normal";
             return c;
         }
 
-        c.p_lower = -pcs_chg;
-        c.p_upper =  pcs_dis;
-        c.reason  = "tr_normal";
+        // -----------------------------------------------------------------
+        // 过载：推导 P_bat 的可行区间
+        //
+        // 设 base = P_load − P_pv（储能不动作时的关口功率），则 P_grid = base − P_bat。
+        // 要求  |P_grid| + 0.1·P_load ≤ 阈值·cap
+        //   ⟺  |base − P_bat| ≤ half,  half = 阈值·cap − 0.1·P_load
+        //   ⟺  P_bat ∈ [base − half, base + half]
+        //
+        // **方向说明（原实现的缺陷）**：
+        //   原实现把余量一律当作 p_upper（= 禁止放电）。但变压器负载看的是
+        //   **关口功率的绝对值**，而放电（P_bat > 0）会降低 P_grid —— 恰恰是
+        //   缓解过载的手段。在"进口方向过载"（最常见）下，禁放会让储能无法削峰，
+        //   负载率持续越限（周期 9 场景 S2 实测越限 3577 拍）。
+        //   正确做法是把约束表达为上述**区间**：既限制充电（抬高 p_lower，
+        //   防止加剧过载），也限制过度放电（压低 p_upper，防止反向馈网同样抬高负载）。
+        // -----------------------------------------------------------------
+        const double base = rt.p_load_kw - rt.p_pv_kw;
+        const double half = p_.tr_overload_th * cap - rt.p_load_kw * p_.tr_load_pv_share;
+
+        c.active = true;
+
+        if (half <= 0.0) {
+            // 变压器容量已被固定负荷吃满（仅 0.1·P_load 折算就超阈值）→
+            // 储能无论怎么动都无法把负载压回阈值内。此时最安全的是"不加剧"：
+            // 禁止充电（p_lower ≥ 0），允许放电（有助于缓解）。
+            c.p_lower = std::max(c.p_lower, 0.0);
+            c.reason  = "tr_saturated";
+            return c;
+        }
+
+        // ---- 可行带 [lo, hi] 与设备区间求交；无交时**投影到最近端点** ----
+        //
+        // 为什么不能直接 `max/min` 了事：若可行带与设备区间**完全错位**
+        //   （变压器已被压到 132%，只有放电 ≥370 kW 才能压回阈值，而 PCS 上限
+        //    只有 250 kW），直接求交会得到 p_lower(370) > p_upper(250) 的**空区间**，
+        //   一路传导成"区间矛盾 → 输出 0" —— 而 0 恰恰是最差的动作（既不缓解
+        //   过载，也不比现在好）。正确做法是**尽力而为**：顶到设备能力的边界上，
+        //   把负载率压到最低。这也是现场保护装置的行为（饱和输出，而非放弃）。
+        const double lo = base - half;
+        const double hi = base + half;
+        if (lo > c.p_upper) {
+            // 需要更多放电才能缓解，但设备放不了这么多 → 顶到放电上限
+            c.p_lower = c.p_upper;
+            c.reason  = extreme ? "tr_extreme_sat_discharge" : "tr_sat_discharge";
+        } else if (hi < c.p_lower) {
+            // 需要更多充电才能缓解（馈网方向过载）→ 顶到充电上限
+            c.p_upper = c.p_lower;
+            c.reason  = extreme ? "tr_extreme_sat_charge" : "tr_sat_charge";
+        } else {
+            c.p_lower = std::max(c.p_lower, lo);
+            c.p_upper = std::min(c.p_upper, hi);
+            c.reason  = extreme ? "tr_extreme_overload" : "tr_overload";
+        }
         return c;
     }
 

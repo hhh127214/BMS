@@ -56,7 +56,7 @@ BMS/
 │
 ├── 04/                                       ← 策略管理层 + 仲裁器（C++17，对应周期 3 + 周期 4 + 周期 9）
 │   ├── src/                                  ← data_models / device_io / strategy_base / manager / arbiter / strategies_9 + main.cpp
-│   ├── tests/                                ← test_arbiter.cpp（17 用例 / 63 断言，全过；含设计方案 §7 全部 7 组合场景）
+│   ├── tests/                                ← test_arbiter.cpp（17 用例 / 65 断言，全过；含设计方案 §7 全部 7 组合场景·单拍仲裁级）
 │   ├── data/                                 ← demo 用的实时快照/电网参数 JSON
 │   ├── samples/                              ← 受命令字序列样本（按 S01-S09 排序）
 │   ├── docs/                                 ← README.md + design.md
@@ -66,7 +66,7 @@ BMS/
 ├── 05/                                       ← 周期 5：统一安全约束引擎（C++17 头文件库）
 │   ├── src/safety_engine.h                   ← 9 类约束 → 统一 (p_lower, p_upper) + 逐条 trace
 │   ├── src/main.cpp                          ← 场景 A：19 个用例逐条触发对照表
-│   ├── tests/test_safety_engine.cpp          ← T01~T06（66 断言）
+│   ├── tests/test_safety_engine.cpp          ← T01~T06（68 断言）
 │   ├── docs/                                 ← README.md + design.md
 │   ├── scripts/                              ← build.bat / build_test.bat / run_demo.bat
 │   └── build/                                ← safety_demo.exe + test_safety_engine.exe
@@ -91,15 +91,22 @@ BMS/
 │   ├── scripts/                              ← build.bat / build_test.bat / build_test_device_io.bat / run_demo.bat
 │   └── build/                                ← loop_demo.exe + test_realtime_loop.exe + test_device_io.exe
 │
-└── 08/                                       ← 周期 8：优化调度与实时控制协同（C++17 头文件库）
-    ├── src/plan_loader.h                     ← 01/ MILP 计划 JSON 解析 + 贪心兜底规划器
-    ├── src/dispatch_coordinator.h            ← 滚动重优化 + 3 项实时纠偏 + PlanTrackingStrategy
-    ├── src/main.cpp                          ← 场景 D：24h 分层协同
-    ├── tests/test_dispatch_coordinator.cpp   ← T17~T20（444 断言）
-    ├── data/day_plan_sample.json             ← 01/ MILP 计划样例（96 点 × 15 min）
-    ├── docs/                                 ← README.md + design.md
-    ├── scripts/                              ← build.bat / build_test.bat / run_demo.bat / gen_day_plan_sample.py
-    └── build/                                ← coord_demo.exe + test_dispatch_coordinator.exe
+├── 08/                                       ← 周期 8：优化调度与实时控制协同（C++17 头文件库）
+│   ├── src/plan_loader.h                     ← 01/ MILP 计划 JSON 解析 + 贪心兜底规划器
+│   ├── src/dispatch_coordinator.h            ← 滚动重优化 + 3 项实时纠偏 + PlanTrackingStrategy
+│   ├── src/main.cpp                          ← 场景 D：24h 分层协同
+│   ├── tests/test_dispatch_coordinator.cpp   ← T17~T20（444 断言）
+│   ├── data/day_plan_sample.json             ← 01/ MILP 计划样例（96 点 × 15 min）
+│   ├── docs/                                 ← README.md + design.md
+│   ├── scripts/                              ← build.bat / build_test.bat / run_demo.bat / gen_day_plan_sample.py
+│   └── build/                                ← coord_demo.exe + test_dispatch_coordinator.exe
+│
+└── 09/                                       ← 周期 9：多策略组合测试（闭环时序级，C++17 头文件库）
+    ├── src/scenario_runner.h                 ← 7 场景定义 + 闭环运行器 + 稳态判定窗口
+    ├── tests/test_multi_strategy.cpp         ← T91~T97（77 断言，12000 拍/场景）
+    ├── docs/README.md                        ← 场景表 / 不变量口径 / 4 个真实缺陷复盘
+    ├── scripts/build_test.bat                ← 编译 + 运行
+    └── build/                                ← test_multi_strategy.exe
 ```
 
 > **为什么周期 5~8 拆成 4 个模块**：`05/06/07/08` 与设计方案 §7 的四个周期**一一对应**，
@@ -129,9 +136,9 @@ scripts\build_all.bat
 03\demand_management_controller\build\demand_sim.exe      需量仿真
 03\integration\build\integration_sim.exe   三控制器集成仿真
 04\build\strategy_demo.exe                 9 策略 + 仲裁器综合仿真（3 场景 + 故障注入）
-04\build\test_arbiter.exe                   04/ 单元测试（17 用例 / 63 断言；含 §7 全部 7 组合场景）
+04\build\test_arbiter.exe                   04/ 单元测试（17 用例 / 65 断言；含 §7 全部 7 组合场景·单拍仲裁级）
 05\build\safety_demo.exe                    周期 5 场景 A：9 类约束逐条触发对照表
-05\build\test_safety_engine.exe             05/ 单元测试（T01~T06 / 66 断言）
+05\build\test_safety_engine.exe             05/ 单元测试（T01~T06 / 68 断言）
 06\build\fsm_demo.exe                       周期 6 场景 B：全状态流转 + 门控真值表
 06\build\test_state_machine.exe             06/ 单元测试（T07~T10 / 34 断言）
 07\build\loop_demo.exe                      周期 7 场景 C：阶跃跟随 + 抖动治理 + 变化率对照
@@ -139,7 +146,11 @@ scripts\build_all.bat
 07\build\test_device_io.exe                 产品化 P0/P0.5 适配器可换性（T21~T24 / 79 断言）
 08\build\coord_demo.exe                     周期 8 场景 D：24h 分层协同
 08\build\test_dispatch_coordinator.exe      08/ 单元测试（T17~T20 / 444 断言）
+09\build\test_multi_strategy.exe            09/ 单元测试（T91~T97 / 77 断言；7 场景 × 12000 拍闭环）
 ```
+
+**全量回归：6817 断言全绿**（04=65 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / 09=77），
+`[BUILD ALL OK] All 19 components built.`
 
 可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ 的单元测试（共 18 步 → 只跑 10 步）。
 
@@ -309,6 +320,33 @@ scripts\build_test_device_io.bat       :: 编 + 跑 T21~T24（应输出 PASS=79 
 > 而是通过 `IDeviceIO*` 读写设备。现场部署时只需 `attach_device()` 注入真实适配器（Modbus/RT_DB），
 > **算法源码零改动**。详细设计见 [`docs/产品化/P0-架构分层.md`](./docs/产品化/P0-架构分层.md)。
 
+### 2.11 跑多策略组合测试（周期 9 产出 · 闭环时序级）
+
+```bat
+cd 09
+scripts\build_test.bat                 :: 编 + 跑 T91~T97（应输出 PASS=77 FAIL=0）
+```
+
+7 个场景各跑 **12000 拍（1200 s @ 10 Hz）**，真实策略 + 真实安全引擎 + 真实状态机 + 真实被控对象：
+
+| ID | 场景 | 重点 |
+| --- | --- | --- |
+| T91 / S1 | 峰谷套利 + BMS 降功率 | BMS 降功率时峰谷指令不得越限（互相覆盖） |
+| T92 / S2 | 峰谷套利 + 变压器过载 | `\|P_grid\| + 0.1·P_load` 不越变压器阈值 |
+| T93 / S3 | 需量管理 + 防逆流 | 需量不突破 **且** 不倒送（两个 L2 从严合并） |
+| T94 / S4 | 光伏平抑 + 防逆流 | 光伏剧烈波动下平抑与不倒送并存 |
+| T95 / S5 | 动态优化 + 需量管理 | 优化层计划被需量约束正确压缩，计划跟踪不失效 |
+| T96 / S6 | 需求响应 + 峰谷套利 + BMS 限制 | BMS 限值压过 DR/峰谷（跨层优先级） |
+| T97 / S7 | 9 策略全量同时启用 | 全部策略 + 全部安全约束同时生效（压力测试） |
+
+断言维度：指令逃逸 / 功率超限 / 门控不变量（**逐拍**硬判定）、双向充放电 / 频繁切换（时序）、
+关口越界 / 变压器越限 / SOC 越界（**稳态**判定，排除门控期与 PCS 启动过渡）。
+
+> **与 04/ T11~T17 不是重复**：那是单拍仲裁级（手工构造 `StrategyResult`，调一次 `arbitrate()`）；
+> 本模块是闭环时序级 —— **单拍正确 ≠ 时序正确**。本周期实测暴露并修复了 4 个架构级缺陷
+> （变化率区间从 `as_results()` 逃逸造成假区间矛盾、区间同步后为空、门控时权限区间未收成 `[0,0]`、
+> 变压器约束的方向性错误 + 缺前馈）。详见 [`09/docs/README.md`](./09/docs/README.md)。
+
 ---
 
 ## 3. 架构层关系
@@ -365,9 +403,11 @@ PCS / BMS
 
 ```
   04/ ──► 05/ ──► 06/ ──┐
-    │                   ├──► 07/ ──► 08/
+    │                   ├──► 07/ ──► 08/ ──► 09/
     └───────────────────┴──────────────┘
         04/ 被所有模块复用（策略基类 / 数据模型 / 仲裁器 / **device_io**）
+        09/ 是**验证层**（周期 9）：装配 04~08 全栈跑 12000 拍闭环时序，
+            不产出被其他模块依赖的头文件
 ```
 
 | 模块 | 头文件搜索路径 | 说明 |
@@ -376,6 +416,7 @@ PCS / BMS
 | `06/` | `src` `../04/src` `../05/src` | 只用 `SafetyVerdict`，不依赖 07/ |
 | `07/` | `src` `../04/src` `../05/src` `../06/src` `../08/src` | `EmsRuntime` 装配 08/ 的协同层；P0 新增 `device_io.h` |
 | `08/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` | 演示与 T20 用 07/ 做端到端 |
+| `09/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 只用 07/ 的 `EmsRuntime`，不反向被依赖 |
 
 > `07/` 与 `08/` 互为**运行时调用关系**（闭环调用优化层 / 端到端用闭环），但**头文件层面无环**：
 > `08/src/*.h` 不包含 `07/` 的任何头文件。这是 header-only 库的天然优势 —— 编译顺序无关，
@@ -400,6 +441,7 @@ PCS / BMS
 - **EMS 状态机（周期 6）** → [`06/docs/README.md`](./06/docs/README.md)、[`06/docs/design.md`](./06/docs/design.md)
 - **实时控制闭环（周期 7）** → [`07/docs/README.md`](./07/docs/README.md)、[`07/docs/design.md`](./07/docs/design.md)
 - **优化调度与实时控制协同（周期 8）** → [`08/docs/README.md`](./08/docs/README.md)、[`08/docs/design.md`](./08/docs/design.md)
+- **多策略组合测试（周期 9 · 闭环时序级）** → [`09/docs/README.md`](./09/docs/README.md)
 - **产品化 P0：算法 ↔ 设备解耦（IDeviceIO / SimDeviceIO / MemoryDeviceIO）** → [`docs/产品化/P0-架构分层.md`](./docs/产品化/P0-架构分层.md)
 - **多策略协同的接口约定** → [`docs/接口规范/EMS策略接口规范.md`](./docs/接口规范/EMS策略接口规范.md)（§2.5 仲裁算法即 04/strategy_arbiter.h 的实现依据）
 

@@ -113,46 +113,69 @@ public:
         r.weight      = 1.0;
         r.p_desired   = 0.0;  // L1 不参与 desired 收敛
 
-        // 估算变压器负载率
-        // P_transformer = P_load - P_pv + P_chg (P_chg < 0)
-        // 近似：负载率 ≈ |P_grid + P_bat|/capacity
-        double tr_load_kw = std::abs(rt.p_grid_kw) +
-                             rt.p_load_kw * 0.1; // 简化估算
-        double capacity = dev.transformer_capacity_kw;
-        double overload_th  = get_param("overload_threshold", 0.95);
-        double extreme_th   = get_param("extreme_threshold", 1.10);
+        const double p_chg    = dev.pcs_rated_chg_kw;
+        const double p_dis    = dev.pcs_rated_dis_kw;
+        const double capacity = dev.transformer_capacity_kw;
+
+        // 默认按 PCS 额定幅度给区间
+        r.p_lower = -p_chg;
+        r.p_upper =  p_dis;
 
         if (capacity <= 0) {
             r.p_lower = -1e18; r.p_upper = 1e18;
             r.reason  = "tr_no_capacity";
             return r;
         }
-        double ratio = tr_load_kw / capacity;
 
-        // 默认按 PCS 额定幅度给区间
-        double p_chg = dev.pcs_rated_chg_kw;
-        double p_dis = dev.pcs_rated_dis_kw;
+        const double overload_th = get_param("overload_threshold", 0.95);
+        const double extreme_th  = get_param("extreme_threshold", 1.10);
 
-        if (ratio > extreme_th) {
-            // 极端过载：强制禁放
-            r.active   = true;
-            r.p_upper  = 0.0;  // 禁放
-            r.p_lower  = -p_chg;
-            r.reason   = "tr_extreme_overload";
-        } else if (ratio > overload_th) {
-            // 轻度过载：按余量限功率
-            double headroom_kw = std::max(0.0,
-                capacity * (1.0 - ratio) / std::max(overload_th, 1e-6));
-            double limit = std::min({p_dis, headroom_kw,
-                                     dev.bms_dis_limit_kw});
-            r.active   = true;
-            r.p_upper  = limit;
-            r.p_lower  = -p_chg;
-            r.reason   = "tr_overload";
+        // 负载估算（与 05/ 同口径）：tr_load = |P_grid| + 0.1·P_load
+        const double tr_load_kw = std::abs(rt.p_grid_kw) + rt.p_load_kw * 0.1;
+        const double ratio = tr_load_kw / capacity;
+
+        if (ratio <= overload_th) {
+            r.reason = "tr_normal";
+            return r;
+        }
+
+        // -----------------------------------------------------------------
+        // 过载：把约束表达为 P_bat 的**可行带**，而不是"禁放"。
+        //
+        // 设 base = P_grid + P_bat（储能不动作时的关口功率），则 P_grid = base − P_bat。
+        //   |base − P_bat| + 0.1·P_load ≤ th·cap  ⟺  P_bat ∈ [base − half, base + half]
+        //   half = th·cap − 0.1·P_load
+        //
+        // **方向性修正（周期 9 发现）**：变压器负载看的是关口功率的**绝对值**。
+        //   原实现在极端过载时一律"禁放"（p_upper = 0）—— 但进口方向过载时
+        //   放电（P_bat > 0）会降低 P_grid，恰恰是缓解手段；禁放反而让过载持续。
+        //   正确做法是上面的区间：既限充（防止加剧），也限过放（防止反向馈网）。
+        //   可行带与设备能力完全错位时**投影到最近端点**（尽力缓解），而非放弃。
+        // 权威实现见 05/src/safety_engine.h::check_transformer（含量测+预测双判据）。
+        // -----------------------------------------------------------------
+        const double base = rt.p_grid_kw + rt.p_bat_actual_kw;
+        const double half = overload_th * capacity - rt.p_load_kw * 0.1;
+
+        r.active = true;
+        if (half <= 0.0) {
+            r.p_lower = std::max(r.p_lower, 0.0);   // 容量已吃满：只禁充，允许放电缓解
+            r.reason  = "tr_saturated";
+            return r;
+        }
+        const double lo = base - half;
+        const double hi = base + half;
+        if (lo > r.p_upper) {
+            r.p_lower = r.p_upper;                  // 顶到放电上限（尽力缓解）
+            r.reason  = (ratio > extreme_th) ? "tr_extreme_sat_discharge"
+                                             : "tr_sat_discharge";
+        } else if (hi < r.p_lower) {
+            r.p_upper = r.p_lower;                  // 顶到充电上限
+            r.reason  = (ratio > extreme_th) ? "tr_extreme_sat_charge"
+                                             : "tr_sat_charge";
         } else {
-            r.p_lower = -p_chg;
-            r.p_upper =  p_dis;
-            r.reason  = "tr_normal";
+            r.p_lower = std::max(r.p_lower, lo);
+            r.p_upper = std::min(r.p_upper, hi);
+            r.reason  = (ratio > extreme_th) ? "tr_extreme_overload" : "tr_overload";
         }
         return r;
     }

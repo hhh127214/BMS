@@ -559,6 +559,11 @@ public:
         bool state_gated = false;
         if (cfg_.enable_state_machine && !fsm_.output_enabled()) {
             cmd.p_bat_cmd_kw = 0.0;
+            // 权限区间必须与门控一致收成 [0,0]。否则会出现"指令 0 却声明
+            // 允许区间 [42, 250]"的矛盾：设备端按 PermissionRange 限幅执行时
+            // 会把 0 抬到 42 —— 恰恰违反门控（非运行态不得动作）。
+            cmd.p_lower = 0.0;
+            cmd.p_upper = 0.0;
             cmd.reason = std::string("state_gate:") + fsm_.state_str();
             state_gated = true;
             shaper_.reset();          // 非运行态复位整形器，恢复时从 0 起步
@@ -568,6 +573,10 @@ public:
         bool hold_last = false;
         if (data_stale && cfg_.hold_last_on_comm_loss) {
             cmd.p_bat_cmd_kw = last_cmd_.p_bat_cmd_kw;
+            // 同理：保持指令的同时把权限区间钉在该指令上（单点），
+            // 保证 p_cmd ∈ [p_lower, p_upper] 这条硬不变量在任何路径下都成立。
+            cmd.p_lower = cmd.p_bat_cmd_kw;
+            cmd.p_upper = cmd.p_bat_cmd_kw;
             cmd.reason = "hold_last";
             hold_last = true;
         }

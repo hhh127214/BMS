@@ -213,7 +213,16 @@ static void test_01_per_constraint_intervals() {
         EXPECT_NEAR(c ? c->p_lower : 0.0, -80.0, 1e-6);
         EXPECT_NEAR(c ? c->p_upper : 0.0,  60.0, 1e-6);
     }
-    // --- 变压器极端过载 → 禁放 ---
+    // --- 变压器极端过载 → 尽力放电（饱和到 PCS 上限）---
+    //
+    // 语义修正说明（周期 9 发现）：原实现把"极端过载"处理为**禁放**
+    //   （p_upper = 0）。但变压器负载看的是关口功率的**绝对值**，而本例是
+    //   进口方向过载（P_grid = +1200）—— 放电降低 P_grid，恰恰是缓解手段；
+    //   禁放反而让过载持续。修正后：变压器约束统一表达为 P_bat 的可行带
+    //     |base − P_bat| ≤ half,  half = th·cap − 0.1·P_load
+    //   本例 base = 1200, half = 950 − 120 = 830 → 可行带 [370, 2030]；
+    //   与设备区间 [−200, 200] **完全错位**（370 > 200）→ 投影到最近端点，
+    //   即顶到放电上限 200 kW（尽力把负载率压到最低，而不是放弃输出 0）。
     {
         SafetyEngine e2;
         SafetyParams p2 = p;
@@ -226,7 +235,9 @@ static void test_01_per_constraint_intervals() {
         auto v = e2.evaluate(rt, dev, grid, 0.0, 0.1);
         const auto* c = find_item(v, SafetyEngine::kTransformer);
         EXPECT(c && c->active);
-        EXPECT_NEAR(c ? c->p_upper : 1.0, 0.0, 1e-6);
+        EXPECT(c && c->reason == "tr_extreme_sat_discharge");
+        EXPECT_NEAR(c ? c->p_upper : 0.0, 200.0, 1e-6);   // 顶到放电上限
+        EXPECT_NEAR(c ? c->p_lower : 0.0, 200.0, 1e-6);   // 单点饱和
     }
     // --- 并网频率越限 → 紧急 + [0,0] ---
     {

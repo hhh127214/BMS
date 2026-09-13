@@ -229,7 +229,7 @@ static void scenario5_safety() {
     std::printf("%-22s %-4s %s\n", "battery_temp", "L0", "≥55℃ 禁充放（紧急）；≥45℃ 折减 50%");
     std::printf("%-22s %-4s %s\n", "bms_derate", "L1", "min(BMS 上送限值, PCS 额定)");
     std::printf("%-22s %-4s %s\n", "pcs_limit", "L1", "PCS 额定充放幅度 × 折减系数");
-    std::printf("%-22s %-4s %s\n", "transformer_limit", "L1", "轻度过载按余量限放；极端过载禁放");
+    std::printf("%-22s %-4s %s\n", "transformer_limit", "L1", "过载 → P_bat 可行带 [base−half, base+half]；与设备区间无交则饱和投影（尽力缓解）");
     std::printf("%-22s %-4s %s\n", "grid_connect", "L1", "P_grid ≥ g_min → p_upper ≤ base−g_min；P_grid ≤ g_max → p_lower ≥ base−g_max");
     std::printf("%-22s %-4s %s\n", "grid_quality", "L1", "频率/电压越限 → [0,0]（并网合规）");
     std::printf("%-22s %-4s %s\n", "ramp_rate", "L1", "|p_cmd − p_last| ≤ ramp_kw_per_s × dt");

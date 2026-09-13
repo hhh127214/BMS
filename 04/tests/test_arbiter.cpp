@@ -297,7 +297,7 @@ static void test_06_desired_clip(Fixture& f) {
 
     // 上界压到 200（典型场景的最终值）
     f.dev.bms_dis_limit_kw = 250.0;
-    f.dev.transformer_capacity_kw = 200.0;  // 强制变压器极端过载 → 禁放 → 上界 0
+    f.dev.transformer_capacity_kw = 200.0;  // 变压器过载（P_bat 可行带下界被抬高）
     // 但 BMS 上限 250 已经覆盖，这里直接构造更窄的上界
     // 用一个更直接的方式：把 L1 的上界收紧到 200
     // 已通过 BmsDerate 把上界设为 min(250, pcs_dis)=100.0
@@ -480,7 +480,8 @@ static void test_11_peakvalley_plus_bms_derate(Fixture& f) {
 
 // ---------------------------------------------------------------------
 // T12: 峰谷套利 + 变压器过载（设计方案 §7 场景 2）
-// 期望：PeakValley 想 +200，变压器极端过载 → 上界 → 0，最终 ≤ 0
+// 期望：PeakValley 想 +200，变压器过载把 P_bat 可行带抬到 [15, 145]，
+//       与 PCS [−100, 100] 求交 → [15, 100]，最终指令落在该带内（正向放电）
 // ---------------------------------------------------------------------
 static void test_12_peakvalley_plus_transformer(Fixture& f) {
     std::cerr << "[T12] 峰谷套利 + 变压器过载 ..." << std::endl;
@@ -492,8 +493,7 @@ static void test_12_peakvalley_plus_transformer(Fixture& f) {
 
     f.mgr.set_param(strategy_id::kPeakValley, "P_discharge", 200.0);
 
-    // 强制变压器极端过载：capacity=100, |P_grid|+0.1*P_load > 1.10*100=110
-    // 设 P_grid=80, P_load=300 → (80+30)/100 = 1.10  ← 触发禁放
+    // 变压器过载（**进口方向**）：capacity=100，|P_grid|+0.1·P_load = 80+30 = 110
     f.dev.transformer_capacity_kw = 100.0;
     rt.p_grid_kw = 80.0;
     rt.p_load_kw = 300.0;
@@ -501,10 +501,21 @@ static void test_12_peakvalley_plus_transformer(Fixture& f) {
     auto results = f.mgr.tick(rt, f.dev);
     auto cmd = f.arb.arbitrate(results, rt.timestamp);
 
-    // 变压器极端过载 → 禁放，上界 ≤ 0
-    EXPECT(cmd.p_upper <= 0.0 + 1e-6);
-    // 不允许放电
-    EXPECT(cmd.p_bat_cmd_kw <= 0.0 + 1e-6);
+    // 期望可行带 [15, 100]：
+    //   base = P_grid + P_bat = 80 + 0 = 80
+    //   half = 0.95·cap − 0.1·P_load = 95 − 30 = 65
+    //   → P_bat ∈ [15, 145]，与 PCS [−100, 100] 求交 → [15, 100]
+    //
+    // **语义修正（周期 9）**：原实现把过载一律处理为"禁放"（p_upper = 0）。
+    //   但变压器负载看的是关口功率的**绝对值** —— 本例是进口方向过载
+    //   （P_grid = +80），放电会降低 P_grid，恰恰是缓解手段；禁放反而让过载
+    //   持续。修正后约束表达为上述**区间**：下界被抬到 +15（必须放电 ≥15 kW
+    //   才能把负载率压回阈值内），上界保持设备能力。权威实现见
+    //   05/src/safety_engine.h::check_transformer。
+    EXPECT_NEAR(cmd.p_lower, 15.0, 1e-6);
+    EXPECT_NEAR(cmd.p_upper, 100.0, 1e-6);
+    EXPECT(cmd.p_bat_cmd_kw >= 15.0 - 1e-6);   // 允许（且要求）放电
+    EXPECT(cmd.p_bat_cmd_kw <= 100.0 + 1e-6);
 
     std::cerr << "  PASS  T12\n";
 }
