@@ -12,6 +12,8 @@
 | 单元测试 | `tests/test_realtime_loop.cpp`，**T11~T16 / 6050 断言，全过** |
 | 演示 | `src/main.cpp` → 场景 C：阶跃跟随 + 抖动治理三档对照 + 变化率对照 |
 | 关键常量 | 控制周期 `dt = 100 ms`；实时层纠偏上限 `l2_correction_max_kw = ±100 kW`；输出死区 `2 kW` / 滞环 `3` 拍 |
+| 设备 I/O 抽象 | 接口在 `04/src/device_io.h`（P0）；本模块提供 3 个实现：`src/sim_device_io.h`（仿真）、`src/memory_device_io.h`（P0.5 进程内点表）、`src/rtdb/rtdb_device_io.h`（RT_DB 共享内存） |
+| RT_DB 接入测试 | `tests/test_rtdb_device_io.cpp`，**T25~T28 / 519 断言，全过**（`scripts\build_test_rtdb.bat`） |
 
 ---
 
@@ -21,6 +23,7 @@
 cd 07
 scripts\build.bat          :: 编 test_realtime_loop.exe + loop_demo.exe
 scripts\build_test.bat     :: 编 + 跑 T11~T16（应输出 PASS=6050 FAIL=0 / ALL TESTS PASSED）
+scripts\build_test_rtdb.bat:: 编 + 跑 RT_DB 接入 T25~T28（应输出 PASS=519 FAIL=0）
 scripts\run_demo.bat       :: 跑场景 C，输出 → build\demo_output.txt
 ```
 
@@ -35,12 +38,20 @@ scripts\run_demo.bat       :: 跑场景 C，输出 → build\demo_output.txt
 ```
 07/
 ├── src/plant_model.h              ← 被控对象：PCS 死区 + 一阶惯性 + 变化率 + 效率 + 温升 + 噪声/故障注入
+├── src/sim_device_io.h            ← P0 仿真适配器：把 PlantModel 接到 IDeviceIO
+├── src/memory_device_io.h         ← P0.5 进程内点表适配器（RT_DB 的进程内等价物）
+├── src/rtdb/rtdb_device_io.h      ← **RT_DB 接入**：共享内存实时库适配器 + 设备侧写点器
+├── src/rtdb/ems_point_table.h|.c  ← 30 点 EMS 点表（C/C++ 共用，点名与 mem_point:: 逐字相同）
+├── src/rtdb/ems_rt_db_setup.h|.c  ← 点表初始化器（建段 + 注册 30 点；补 RT_DB 无注册 API 的缺口）
 ├── src/realtime_loop.h            ← EmsRuntime 11 步闭环 + OutputShaper + LoopConfig/StepRecord/LoopMetrics
 ├── src/main.cpp                   ← 场景 C：3 个试验
 ├── tests/test_realtime_loop.cpp   ← T11~T16
+├── tests/test_device_io.cpp       ← T21~T24（P0/P0.5 适配器可换性）
+├── tests/test_rtdb_device_io.cpp  ← T25~T28（RT_DB 接入：点表契约 / 跨内存边界闭环等价 / 双连接 / 故障）
+├── vendor/rt_db/                  ← RT_DB 源码快照（rt_db_api.c/.h + structs + private）
 ├── docs/README.md                 ← 本文件
 ├── docs/design.md                 ← 设计说明（闭环时序 / 第⑨步顺序 / 整形语义 / 指标口径 / 抖动治理）
-├── scripts/{build,build_test,run_demo}.bat
+├── scripts/{build,build_test,build_test_device_io,build_test_rtdb,run_demo}.bat
 └── build/                         ← 产物（git ignore；`build\demo_output.txt` 为演示输出）
 ```
 
@@ -149,3 +160,72 @@ OutputShaper（死区/滞环去抖） → SafetyEngine::apply()（区间限幅 +
 
 闭环时序、第 ⑨ 步顺序论证、`OutputShaper` 语义、被控对象建模顺序、指标口径、
 抖动三层治理的完整设计说明见 [`docs/design.md`](./design.md)。
+
+---
+
+## 8. RT_DB 接入（共享内存实时库适配器）
+
+P0.5 只用 `MemoryDeviceIO` 证明了「换数据源不改算法」在**进程内**成立；
+现场换掉的是**另一个进程**。本节把 RT_DB（共享内存实时库）接进 `IDeviceIO`，
+把那条证明从「同一容器」升级到「同一段物理内存」。
+
+### 8.1 两个方向，两个人
+
+```
+        写 MEAS/STA/CFG ↓                         ↑ 读 MEAS/STA/CFG
+   设备 / SCADA 进程（RtDbPointWriter）       EMS 进程（RtDbDeviceIO）
+        ↑ 读 CMD.*                              ↓ 写 CMD.*（指令 + 权限区间）
+                 └──────── RT_DB 共享内存段 ────────┘
+```
+
+- **设备侧**只写 `MEAS.*` / `STA.*` / `CFG.*`；**EMS 侧**只写 `CMD.*`。
+  这条边界就是现场「谁拥有这个点」的约定，越界会让事后追溯一团乱麻
+  （`RtDbPointWriter` 与 `RtDbDeviceIO` 分成两个类，就是为了让越界变成编译期错误）。
+- 算法层**看不到任何点名**：它只经 `IDeviceIO` 拿 `RealtimeSnapshot` /
+  `DeviceLimits` / `DeviceStatus`，指令也只经 `PowerCommand` 出去。
+
+### 8.2 `execute()` 的语义（与仿真适配器的根本区别）
+
+| 适配器 | `execute()` 做什么 | 返回值 |
+| --- | --- | --- |
+| `SimDeviceIO` / `MemoryDeviceIO` | 积分被控对象（死区/惯性/变化率/SOC） | 本拍实际功率（可信） |
+| `RtDbDeviceIO` | **只把指令写进实时库 + 等一拍**（真实 PCS 亦如此） | 本拍量测的「尽力反馈」，**仅供记录** |
+
+因此真实适配器下**闭环必须走下一拍的 `read_snapshot()`**（接口契约 ③）。
+单进程测试/演示需要闭环时，用 `set_device_pump()` 把「设备进程」搬进本进程
+（不设置 = 纯下发，不做任何物理积分）。
+
+### 8.3 采集失败与品质位
+
+- 读点失败时**保留最近一次有效值**并计入 `stale_reads()`（契约 ①：绝不返回半成品）。
+- `data_valid` = 实时库的数据有效位 **且** 量测点品质位全为 GOOD。
+  品质位**随采集刷新**，所以 `read_status().data_valid` 反映「最近一次采集」——
+  `EmsRuntime::step()` 固定先 `read_snapshot` 再 `read_status`，顺序天然正确。
+
+### 8.4 运行
+
+```bat
+cd 07
+scripts\build_test_rtdb.bat    :: gcc 编 C 实时库 → g++ 编适配器与测试 → 跑 T25~T28
+                               :: 期望 PASS=519 FAIL=0 / ALL TESTS PASSED
+```
+
+| 用例 | 覆盖点 | 结论 |
+| --- | --- | --- |
+| T25 | 点表契约：共享内存点表 ↔ 编译期点表 ↔ 设备侧点表；常量/品质位漂移守卫；两个方向的读写；`CFG.*`→`DeviceLimits`；品质位语义 | 三方一致（30 点点名/单位/索引） |
+| T26 | **跨内存边界闭环等价**：一路 `RtDbDeviceIO`（数据全经共享内存）+ 设备侧泵，一路直连 `MemoryDeviceIO`，装配序列/环境脚本完全相同 | 400 拍**逐位一致**（峰值指令 100 kW，SOC 0.5→0.4993） |
+| T27 | 两个独立连接（两次 `rt_db_init`）看同一段内存：写 A 读 B、写 B 读 A、段级写计数共享 | 「跨进程」不是进程内副本 |
+| T28 | 故障经共享内存驱动状态机：设备侧写 `STA.PCS_FAULT` → EMS 进 FAULT → 指令归零/撤销许可 → 恢复后停在 READY 不自动带载 | 设备→EMS 方向的真闭环 |
+
+### 8.5 现场部署的三个约束（都是本次接入踩出来的）
+
+1. **Windows 下初始化器不能是「短命进程」**：段是页面文件支撑的文件映射对象，
+   最后一个句柄关闭即销毁。`ems_rt_db_setup()` 会保留一个本进程的存活句柄；
+   若把初始化器做成 `init.exe` 跑完就退出，运行时必然报
+   `Shared memory not found. Please run init tool first.`
+   （Linux 的 `shmget` 段在 `shmdt` 后依然存在，所以同一份代码在 Linux 上「看起来是对的」）。
+2. **初始化器必须在所有连接建立之前调用**：`reset` 会 `memset` 整个段，
+   连接计数等段级元数据会被清零。
+3. **一个进程一条连接**：RT_DB 的 `create/open_shared_memory()` 共用一个进程级全局
+   句柄，因此装配层应统一持有一条连接（`RtDbDeviceIO(rt_db_handle_t*)` 借用），
+   而不是每个适配器各自 `open_owned()`。

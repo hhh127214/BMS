@@ -27,6 +27,31 @@
 #include <string.h>
 
 // ---------------------------------------------------------------------
+// 共享内存「存活句柄」
+//
+// Windows 的段是**页面文件支撑的文件映射对象**：最后一个句柄关闭即销毁。
+// 而本初始化器的语义是"写完就撒手"（不能像官方 init_rt_db.c 那样常驻做
+// monitor 循环），如果这里也把句柄关掉，调用方随后的 rt_db_init() 必然报
+//   "Shared memory not found. Please run init tool first."
+// —— 这正是接入 RT_DB 时踩到的第一个坑（Linux 下 shmget 的段在 shmdt 之后
+//    依然存在，所以同一份代码在 Linux 上"看起来是对的"）。
+//
+// 因此 Windows 下**必须由本进程持有段**（进程退出时随进程释放 → 段自然销毁）。
+// 为什么不复用 vendor 的全局句柄：create_shared_memory()/open_shared_memory()
+// 是**同一个全局变量**，下一次调用会把它覆盖/关闭；自己再开一个只读句柄，
+// 才能保证段在整个进程生命周期内不消失（名字与 vendor 的 SHARED_MEMORY_NAME
+// 一致，此处是唯一的硬编码处）。
+// ---------------------------------------------------------------------
+#ifdef _WIN32
+static HANDLE g_keepalive_handle = NULL;
+static void keep_segment_alive(void) {
+    if (g_keepalive_handle == NULL) {
+        g_keepalive_handle = OpenFileMappingA(FILE_MAP_READ, FALSE, "RT_DB_SHARED_MEMORY");
+    }
+}
+#endif
+
+// ---------------------------------------------------------------------
 // 创建或打开共享内存，返回映射地址；失败返回 NULL
 // *out_created 返回是否是本次新建
 // ---------------------------------------------------------------------
@@ -132,7 +157,15 @@ bool ems_rt_db_setup(bool reset, bool* out_created) {
     if (out_created) *out_created = created;
 
     unmap_shared_memory(addr, sizeof(SharedMemorySegment));
+
+#ifdef _WIN32
+    // Windows：**故意不关句柄** —— 段必须活着（见 keep_segment_alive 的说明）。
+    // 这里既关掉 vendor 全局句柄，又留下本进程自己的只读存活句柄。
+    keep_segment_alive();
     destroy_shared_memory(0);
+#else
+    destroy_shared_memory(0);
+#endif
     return true;
 }
 

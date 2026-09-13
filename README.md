@@ -79,17 +79,22 @@ BMS/
 │   ├── scripts/                              ← build.bat / build_test.bat / run_demo.bat
 │   └── build/                                ← fsm_demo.exe + test_state_machine.exe
 │
-├── 07/                                       ← 周期 7：实时控制闭环 + 产品化 P0（C++17 头文件库）
+├── 07/                                       ← 周期 7：实时控制闭环 + 产品化 P0 / RT_DB 接入（C++17 头文件库）
 │   ├── src/plant_model.h                     ← 被控对象：PCS 死区 + 惯性 + 变化率 + 效率 + 温升
 │   ├── src/sim_device_io.h                   ← P0 仿真适配器：把 PlantModel 接到 IDeviceIO
 │   ├── src/memory_device_io.h                ← P0.5 进程内点表适配器（RT_DB 的进程内等价物）
+│   ├── src/rtdb/rtdb_device_io.h             ← RT_DB 接入：共享内存实时库适配器 + 设备侧写点器
+│   ├── src/rtdb/ems_point_table.h|.c         ← 30 点 EMS 点表（C/C++ 共用，点名与 mem_point:: 一致）
+│   ├── src/rtdb/ems_rt_db_setup.h|.c         ← 点表初始化器（建段 + 注册 30 点）
 │   ├── src/realtime_loop.h                   ← EmsRuntime 11 步闭环 + OutputShaper + LoopMetrics
 │   ├── src/main.cpp                          ← 场景 C：阶跃跟随 + 抖动治理三档对照 + 变化率对照
+│   ├── vendor/rt_db/                         ← RT_DB 源码快照（api .c/.h + structs + private）
 │   ├── tests/test_realtime_loop.cpp          ← T11~T16（6050 断言）
 │   ├── tests/test_device_io.cpp              ← T21~T24（79 断言，P0/P0.5 适配器可换性）
+│   ├── tests/test_rtdb_device_io.cpp         ← T25~T28（519 断言，RT_DB 接入：跨内存边界闭环等价）
 │   ├── docs/                                 ← README.md + design.md
-│   ├── scripts/                              ← build.bat / build_test.bat / build_test_device_io.bat / run_demo.bat
-│   └── build/                                ← loop_demo.exe + test_realtime_loop.exe + test_device_io.exe
+│   ├── scripts/                              ← build.bat / build_test.bat / build_test_device_io.bat / build_test_rtdb.bat / run_demo.bat
+│   └── build/                                ← loop_demo.exe + test_realtime_loop.exe + test_device_io.exe + test_rtdb_device_io.exe
 │
 ├── 08/                                       ← 周期 8：优化调度与实时控制协同（C++17 头文件库）
 │   ├── src/plan_loader.h                     ← 01/ MILP 计划 JSON 解析 + 贪心兜底规划器
@@ -177,6 +182,7 @@ scripts\build_all.bat
 07\build\loop_demo.exe                      周期 7 场景 C：阶跃跟随 + 抖动治理 + 变化率对照
 07\build\test_realtime_loop.exe             07/ 单元测试（T11~T16 / 6050 断言）
 07\build\test_device_io.exe                 产品化 P0/P0.5 适配器可换性（T21~T24 / 79 断言）
+07\build\test_rtdb_device_io.exe            RT_DB 接入（T25~T28 / 519 断言，共享内存实时库）
 08\build\coord_demo.exe                     周期 8 场景 D：24h 分层协同
 08\build\test_dispatch_coordinator.exe      08/ 单元测试（T17~T20 / 444 断言）
 09\build\test_multi_strategy.exe            09/ 单元测试（T91~T97 / 77 断言；7 场景 × 12000 拍闭环）
@@ -188,10 +194,10 @@ P2\build\ems_observe.exe                      产品化 P2 可观测性：汇总
 P2\build\test_observe.exe                     P2/ 单元测试（T301~T315 / 434 断言）
 ```
 
-**全量回归：7566 断言全绿**（04=65 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / 09=77 / 10=144 / P1=171 / P2=434），
-`[BUILD ALL OK] All 22 components built.`
+**全量回归：8085 断言全绿**（04=65 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / **RT_DB=519** / 09=77 / 10=144 / P1=171 / P2=434），
+`[BUILD ALL OK] All 23 components built.`
 
-可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ + 09/ + 10/ + P1/ + P2/ 的单元测试。
+可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ + 07(RT_DB)/ + 09/ + 10/ + P1/ + P2/ 的单元测试。
 
 ### 2.2 跑 B 组 C 策略服务
 
@@ -547,6 +553,36 @@ build\ems_observe.exe --export out 24      :: 导出 soe.csv / soe.json / metric
 
 ---
 
+### 2.15 RT_DB 接入：换数据源不改算法（从进程内到跨进程）
+
+```bat
+cd 07
+scripts\build_test_rtdb.bat    :: 期望 PASS=519 FAIL=0 / ALL TESTS PASSED
+```
+
+P0.5 用 `MemoryDeviceIO` 证明了「换数据源不改算法」在**进程内**成立；现场要换的是
+**另一个进程**。本步把共享内存实时库 RT_DB 接进 `IDeviceIO`（`RtDbDeviceIO`），
+方向边界是：**设备侧只写 `MEAS/STA/CFG`，EMS 侧只写 `CMD`**，算法层看不到任何点名。
+
+**核心证据（T26）**：同一套 `EmsRuntime`，一路数据全经共享内存（`RtDbDeviceIO` +
+设备侧泵），一路直连进程内点表（`MemoryDeviceIO`），装配序列/环境脚本完全相同 ——
+**400 拍记录逐位一致**（含 `p_cmd` / `p_actual` / `p_grid` / `soc` / 区间 / 状态 / reason）。
+
+| 用例 | 证明什么 |
+| --- | --- |
+| T25 | 共享内存点表 ↔ 编译期点表 ↔ 设备侧点表**三方一致**（30 点的点名/单位/索引 + 常量漂移守卫） |
+| T26 | 跨内存边界闭环**逐位等价**（峰值指令 100 kW，SOC 0.5→0.4993） |
+| T27 | 两个独立连接（两次 `rt_db_init`）看到**同一段内存**（写 A 读 B / 写 B 读 A） |
+| T28 | 设备侧写 `STA.PCS_FAULT` → EMS 进 FAULT → 指令归零并撤销许可 → 恢复后停在 READY **不自动带载** |
+
+> **现场三个约束**（本次接入踩出来的）：① Windows 下段是页面文件映射对象，
+> **初始化器不能是「跑完就退」的短命进程**（`ems_rt_db_setup` 会保留存活句柄）；
+> ② 初始化器必须在所有连接之前调用（`reset` 会清空段级元数据）；
+> ③ 一个进程一条连接（RT_DB 的 open/create 共用一个进程级全局句柄）。
+> 详见 [`07/docs/README.md`](./07/docs/README.md) §8。
+
+---
+
 ## 3. 架构层关系
 
 ```
@@ -589,10 +625,11 @@ PCS / BMS
    设备 I/O  04/device_io.h：IDeviceIO 抽象接口（产品化 P0）
         │
         ▼
-   ┌────┴────┬──────────────┬──────────────┐
-   │ Sim     │ Memory       │ Modbus/RT_DB │  ← 适配器可换，算法零改动
-   │ DeviceIO│ DeviceIO     │ / IEC104 ... │
-   └─────────┴──────────────┴──────────────┘
+   ┌─────────┬──────────────┬──────────────┬─────────────┐
+   │ Sim     │ Memory       │ RT_DB        │ Modbus /    │  ← 适配器可换，
+   │ DeviceIO│ DeviceIO     │ RtDbDeviceIO │ IEC104      │     算法零改动
+   │ (P0)    │ (P0.5)       │ (已接入 ✅)  │ (P3 待接)   │
+   └─────────┴──────────────┴──────────────┴─────────────┘
 ```
 
 > 一句话区分 02/ 与 05/：**02/ 是设备侧安全处理器，05/ 是系统级安全边界统一器** —— 前者回答"这台设备能不能动"，后者回答"整站这一拍最终允许多少功率"。
@@ -617,7 +654,7 @@ PCS / BMS
 | --- | --- | --- |
 | `05/` | `src` `../04/src` | 测试另需 `../06/src`（T03 交叉验证"矛盾→DERATED 仍允许输出"） |
 | `06/` | `src` `../04/src` `../05/src` | 只用 `SafetyVerdict`，不依赖 07/ |
-| `07/` | `src` `../04/src` `../05/src` `../06/src` `../08/src` | `EmsRuntime` 装配 08/ 的协同层；P0 新增 `device_io.h` |
+| `07/` | `src` `../04/src` `../05/src` `../06/src` `../08/src` | `EmsRuntime` 装配 08/ 的协同层；P0 新增 `device_io.h`；**RT_DB 接入测试另需 `src/rtdb` `vendor/rt_db`（并链接 `rt_db_api.c` / `ems_point_table.c` / `ems_rt_db_setup.c` 三个 C 文件）** |
 | `08/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` | 演示与 T20 用 07/ 做端到端 |
 | `09/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 只用 07/ 的 `EmsRuntime`，不反向被依赖 |
 | `10/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 只用 07/ 的 `EmsRuntime`；曲线复用 08/ 的 `ForecastSeries` |
@@ -652,6 +689,7 @@ PCS / BMS
 - **产品化 P0：算法 ↔ 设备解耦（IDeviceIO / SimDeviceIO / MemoryDeviceIO）** → [`docs/产品化/P0-架构分层.md`](./docs/产品化/P0-架构分层.md)
 - **产品化 P1：配置化（字段绑定表 / 装配顺序 / 校验 / 模板与文档生成）** → [`P1/docs/README.md`](./P1/docs/README.md)
 - **产品化 P2：可观测性（边沿检测→SOE / 时间窗抑制 / O(1) 增量指标 / 指标与 log_every 解耦 / 三个正交旋钮）** → [`P2/docs/README.md`](./P2/docs/README.md)
+- **RT_DB 接入：共享内存实时库适配器（跨内存边界闭环等价 / 点表契约 / 双连接 / Windows 存活句柄）** → [`07/docs/README.md`](./07/docs/README.md) §8
 - **多策略协同的接口约定** → [`docs/接口规范/EMS策略接口规范.md`](./docs/接口规范/EMS策略接口规范.md)（§2.5 仲裁算法即 04/strategy_arbiter.h 的实现依据）
 
 ---

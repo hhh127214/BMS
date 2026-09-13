@@ -58,6 +58,20 @@
 - **回退计划器要预留光伏余电裕度**：凌晨就充到 `soc_max` → 中午光伏无处可去 → 被迫倒送。
   用 `surplus_ahead[]` 反推每个时刻的 `soc_cap_at(k)`。
 
+### RT_DB 接入（共享内存实时库，2026-09-13）
+
+- **两个方向两个人**：`07/src/rtdb/rtdb_device_io.h` 里 `RtDbDeviceIO`（EMS 侧，只写 `CMD.*`）
+  与 `RtDbPointWriter`（设备侧，只写 `MEAS/STA/CFG`）。点名只允许出现在适配器内部。
+- **`execute()` 不做物理积分**（真实 PCS 亦如此）：只写指令 + 等一拍，返回值不可信；
+  闭环走下一拍 `read_snapshot()`。测试/演示用 `set_device_pump()` 模拟设备进程。
+- **点表是真相源**：`src/rtdb/ems_point_table.h`（30 点，点名与 `mem_point::` 逐字相同）→
+  `MemoryDeviceIO` 与 `RtDbDeviceIO` 可互做对照测试；`self_check()` 校验点名/单位/索引。
+- **Windows 段存活**：段是页面文件映射对象，最后一个句柄关闭即销毁 → `ems_rt_db_setup()`
+  保留只读存活句柄；初始化器**不能**做成"跑完就退"的短命进程（Linux 无此约束，极易漏）。
+- **`reset` 会 memset 整个段**（段级连接计数被清零）→ 初始化器必须在所有连接之前跑。
+- **一个进程一条连接**（create/open 共用进程级全局句柄）→ 适配器借用 `rt_db_handle_t*`。
+- 断言基线：07 新增 **RT_DB = 519**（T25~T28），全量 **8085**；`All 23 components built`。
+
 ## 项目相关偏好与坑
 
 - 用户偏好 C++17 + MinGW-w64 + 单文件可编译，Header-only 实现多于 .cpp 类拆分。
@@ -75,6 +89,7 @@
   因此**搬头文件到别的模块不用改任何 include**，只需给该模块配好 `-I`。
   各模块 `-I`：`05: src ../04/src (+../06/src 仅测试)`、`06: src ../04/src ../05/src`、
   `07: src ../04/src ../05/src ../06/src ../08/src`、`08: src ../04/src ../05/src ../06/src ../07/src`。
+  RT_DB 接入测试另需 `-I src/rtdb -I vendor/rt_db`，并链接 `rt_db_api.c` / `ems_point_table.c` / `ems_rt_db_setup.c`。
   头文件层无环；`07/` 与 `08/` 互为运行时调用关系。
 - `code/` 目录是 Python 并行实现，不要碰、不要在重构里引用。
 

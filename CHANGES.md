@@ -1475,3 +1475,144 @@ EXPECT(o10.totals().cmd_travel_kw > 1000.0);
 | `README.md` | 目录树 + §2.1（22 步 / 7566 断言）+ §2.14（P2）+ 依赖图 + include 表 + 设计索引；**修复既有的裸 CR 缺陷** |
 | `.gitignore` | 增加 `**/out/`（P2 演示产物目录） |
 | `CHANGES.md` | 新增 §17（本文件） |
+
+---
+
+# 18. RT_DB 接入：共享内存实时库适配器（2026-09-13）
+
+> **前置**：`2448e7b`（vendor RT_DB 源码 + 30 点 EMS 点表 + 补上点表注册 API）。
+> 本节把「点表已经能建起来」推进到「**算法真的经共享内存跑闭环**」——
+> 也就是 P0 立下的那份承诺在**真正的现场介质**上兑现。
+
+## 18.1 本次交付
+
+| 项 | 内容 |
+| --- | --- |
+| 新增 `07/src/rtdb/rtdb_device_io.h` | `RtDbDeviceIO`（实现 `IDeviceIO`）+ `RtDbPointWriter`（设备侧写点器）|
+| 新增 `07/tests/test_rtdb_device_io.cpp` | T25~T28，**519 断言** |
+| 新增 `07/scripts/build_test_rtdb.bat` | gcc 编 3 个 C 文件 → g++ 链接测试（CRLF + 已过"吞 CR"扫描）|
+| 修复 `07/src/rtdb/ems_rt_db_setup.c` | Windows 段存活句柄（见 18.4）|
+| `scripts/build_all.bat` | 22 步 → **23 步**（新增 `19/23`，其后 4 步顺延）|
+| 文档 | 根 `README.md`（§2.15 / 目录树 / 产物 / 8085 断言 / 依赖图 / include 表 / 设计索引）、`07/docs/README.md`（§8）|
+
+## 18.2 为什么不能"等 P3 之后再说"
+
+P0.5 用 `MemoryDeviceIO` 证明了"换数据源不改算法"，但那是**进程内**的点表；
+现场换掉的是**另一个进程**。两者的差别不是"实现细节"，而是三种真实故障模式的入口：
+
+1. **跨进程可见性**：进程内 unordered_map 永远不可能出现"另一个进程看不到"的问题；
+2. **段的生命周期**：进程内点表随对象生死，共享内存段的生死由句柄/内核决定（见 18.4）；
+3. **数据品质**：跨进程数据必须回答"这值可信吗"（品质位），进程内点表不需要。
+
+所以在写 Modbus 之前先把 RT_DB 接上，代价最小、暴露的问题最真。
+
+## 18.3 两个方向、两个人
+
+```
+   写 MEAS/STA/CFG ↓                        ↑ 读 MEAS/STA/CFG
+设备/SCADA 进程（RtDbPointWriter）      EMS 进程（RtDbDeviceIO）
+   ↑ 读 CMD.*                             ↓ 写 CMD.*（指令 + 权限区间）
+            └──────── RT_DB 共享内存段 ────────┘
+```
+
+- 两个方向拆成**两个类**（而不是一个类两套方法）：越界使用会变成编译期错误，
+  而不是"现场第二天才发现设备侧把 EMS 的指令点覆盖了"。
+- 算法层**看不到任何点名** —— 这条 P0 纪律在真实适配器里第一次被真正检验：
+  `IDeviceIO` 的六个方法全部只谈业务语义结构体（`RealtimeSnapshot` /
+  `DeviceLimits` / `DeviceStatus` / `DeviceActuals` / `PowerCommand`）。
+
+## 18.4 踩坑 1：Windows 的段会被"善意"的释放动作杀掉 ⚠️
+
+`ems_rt_db_setup()` 的设计语义是"写完就撒手"（官方 `init_rt_db.c` 是常驻 monitor，
+无法用于自动化测试），因此结尾 `unmap + destroy_shared_memory(0)`。
+
+**在 Linux 上这是对的**（`shmget` 的段在 `shmdt` 之后依然存在）；
+**在 Windows 上这是错的** —— 段是页面文件支撑的**文件映射对象**，
+最后一个句柄关闭即销毁。于是调用方随后的 `rt_db_init()` 得到：
+
+```
+Shared memory not found. Please run init tool first.
+```
+
+修法：Windows 下另开一个**只读存活句柄**（`keep_segment_alive()`）并保留，
+让段活到进程退出（随进程释放 → 段自然销毁，测试之间不互相污染）。
+
+> **部署含义**：Windows 下**初始化器不能是"跑完就退"的短命进程**。
+> 这条约束在 Linux 上不存在，因此"同一份代码在 Linux 看着是对的"极具欺骗性 ——
+> 这也是为什么这类缺陷必须靠**真跑一遍**才能发现（本节任务的全部价值之一）。
+
+## 18.5 踩坑 2：`near` 是 `windef.h` 的遗留宏
+
+测试里写了个辅助函数 `near(a, b, eps)`，编译报
+`expected unqualified-id before 'double'`。原因：`windef.h`（经 `windows.h` 引入）里
+`#define near` / `#define far` 是 16 位时代的遗留空宏，会**把函数名直接吃掉**。
+改名 `almost_equal` 即可。
+
+> 注意本适配器**刻意不 include `rt_db_structs.h`**：它会带进 `windows.h`，
+> 其 `min`/`max` 宏会破坏项目里大量 `std::max` / `std::min`（必须定义 `NOMINMAX`）。
+> 适配器只镜像它需要的 3 个常量，并在 T25 里做**漂移守卫**（一旦 vendor 改了长度/品质位，测试立刻失败）。
+
+## 18.6 踩坑 3：`reset` 会清空段级元数据
+
+`ems_rt_db_setup(reset=true)` 会 `memset` 整个段，**连接计数等段级元数据被清零**。
+测试里因此不能断言"连接数 ≥ 2"，只能断言"新连接让计数 +1"。
+
+> **部署含义**：初始化器必须在**所有连接建立之前**调用（现场就是"先起初始化器，再起 EMS"）。
+> 若在系统运行中重启初始化器，段级计数器会与真实连接数脱节。
+
+## 18.7 踩坑 4：品质位是"随采集刷新"的，不是"翻一下就好"
+
+第一版 T25 断言"把 `QUALITY_BAD` 改回 `QUALITY_GOOD` 后 `data_valid` 立刻为真" —— **失败**。
+正确的语义是：品质位在**采集**时被读入缓存（`read_snapshot` / `read_actuals`），
+`read_status().data_valid` 反映的是"最近一次采集"的印象。所以恢复需要**再采集一次**。
+
+这条语义和 `EmsRuntime::step()` 的固定顺序（① `read_snapshot` → ② `read_status`）正好对上，
+因此链路里不会出问题；但如果哪天有人调换了这两步，`data_valid` 就会永远滞后一拍。
+测试里把这条**明写出来**（先断言"未重采集仍不可信"，再断言"重采集后可信"），
+就是防止后人把它"优化"掉。
+
+## 18.8 核心证据：T26 跨内存边界闭环逐位等价
+
+```
+运行 A：EmsRuntime ── MemoryDeviceIO（进程内点表，P0.5 已证）
+运行 B：EmsRuntime ── RtDbDeviceIO ──[共享内存段]── 设备侧泵（MemoryDeviceIO）
+```
+
+两路的装配序列、环境脚本（380±120 kW 负荷 / 白天 150±60 kW 光伏）、算法参数
+**完全相同**，唯一差别是数据走不走共享内存。逐拍比对 17 个字段
+（`p_cmd` / `p_actual` / `p_grid` / `soc` / `temp` / `p_lower` / `p_upper` /
+`plan_target` / `correction` / `t` / `state` / `clamped` / `safety_clip` /
+`state_gated` / `hold_last` / `fault_bits` / `reason`）：
+
+**400 拍逐位一致，差异 0 拍**（峰值指令 100 kW，SOC 0.5 → 0.4993）。
+反向守卫同时成立：峰值指令 > 50 kW、SOC 确实变化、`stale_reads() == 0`
+（否则"两边都恒 0"也能骗过等价性断言）。
+
+## 18.9 其余用例
+
+| 用例 | 覆盖点 |
+| --- | --- |
+| T25 | 点表契约：共享内存点表 ↔ 编译期点表 ↔ 设备侧点表三方一致（30 点点名/单位/索引）；常量与品质位漂移守卫；两个方向读写（含按名字读写）；`CFG.*` → `DeviceLimits`；品质位语义；段级写计数 |
+| T26 | 跨内存边界闭环**逐位等价**（400 拍） |
+| T27 | 两个独立连接（两次 `rt_db_init`）看**同一段**内存：写 A 读 B、写 B 读 A；段级写计数共享；点表自检与索引映射不依赖连接 |
+| T28 | 故障经共享内存驱动状态机：设备侧写 `STA.PCS_FAULT` → EMS 进 FAULT → 指令归零 + 撤销运行许可 → 恢复后停在 READY **不自动带载** |
+
+## 18.10 全量回归
+
+- `scripts\build_all.bat --no-test`：`[BUILD ALL OK] All 23 components built.`
+- 逐步实跑（每个 `build_test.bat` 单独跑过，均 `ALL TESTS PASSED`）：
+  02 / 04=65 / **05=68** / **06=34** / **07=6050** / **07(RT_DB)=519** / **08=444** /
+  P0+P0.5=79 / 09=77 / 10=144 / P1=171 / P2=434 → **合计 8085 断言全绿**。
+
+## 18.11 涉及文件
+
+| 文件 | 变更 |
+| --- | --- |
+| `07/src/rtdb/rtdb_device_io.h` | **新增**（`RtDbDeviceIO` + `RtDbPointWriter`，纯头文件）|
+| `07/tests/test_rtdb_device_io.cpp` | **新增**（T25~T28 / 519 断言）|
+| `07/scripts/build_test_rtdb.bat` | **新增**（gcc 编 C 库 + g++ 链接；CRLF；已过"吞 CR"扫描）|
+| `07/src/rtdb/ems_rt_db_setup.c` | **修复**：Windows 段存活句柄（`keep_segment_alive()`）|
+| `scripts/build_all.bat` | 22 步 → **23 步**（新增 `19/23 07\ RT_DB 接入`）|
+| `README.md` | §2.15（新增）+ 07/ 目录树 + 构建产物 + 8085 断言 + 23 组件 + 适配器架构图 + include 表 + 设计索引 |
+| `07/docs/README.md` | 新增 §8（RT_DB 接入：两个方向 / `execute()` 语义 / 品质位 / 现场三约束）+ 文件导览 |
+| `CHANGES.md` | 新增 §18（本文件）|
