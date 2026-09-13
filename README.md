@@ -21,7 +21,9 @@ BMS/
 ├── README.md                                  ← 本文件
 ├── CHANGES.md                                 ← 重构变更记录
 ├── docs/
-│   └── architecture.md                        ← 顶层设计书（必读）
+│   ├── architecture.md                        ← 顶层设计书（必读）
+│   └── 产品化/
+│       └── P0-架构分层.md                      ← 产品化 P0：算法 ↔ 设备解耦（IDeviceIO）
 │
 ├── scripts/
 │   └── build_all.bat                          ← 一键编译所有 C / C++ 组件
@@ -53,7 +55,7 @@ BMS/
 │   └── integration/                          ← 三控制器集成（仅保留 IntegrationMain.cpp）
 │
 ├── 04/                                       ← 策略管理层 + 仲裁器（C++17，对应周期 3 + 周期 4 + 周期 9）
-│   ├── src/                                  ← data_models / strategy_base / manager / arbiter / strategies_9 + main.cpp
+│   ├── src/                                  ← data_models / device_io / strategy_base / manager / arbiter / strategies_9 + main.cpp
 │   ├── tests/                                ← test_arbiter.cpp（17 用例 / 63 断言，全过；含设计方案 §7 全部 7 组合场景）
 │   ├── data/                                 ← demo 用的实时快照/电网参数 JSON
 │   ├── samples/                              ← 受命令字序列样本（按 S01-S09 排序）
@@ -77,14 +79,17 @@ BMS/
 │   ├── scripts/                              ← build.bat / build_test.bat / run_demo.bat
 │   └── build/                                ← fsm_demo.exe + test_state_machine.exe
 │
-├── 07/                                       ← 周期 7：实时控制闭环（C++17 头文件库）
+├── 07/                                       ← 周期 7：实时控制闭环 + 产品化 P0（C++17 头文件库）
 │   ├── src/plant_model.h                     ← 被控对象：PCS 死区 + 惯性 + 变化率 + 效率 + 温升
+│   ├── src/sim_device_io.h                   ← P0 仿真适配器：把 PlantModel 接到 IDeviceIO
+│   ├── src/memory_device_io.h                ← P0.5 进程内点表适配器（RT_DB 的进程内等价物）
 │   ├── src/realtime_loop.h                   ← EmsRuntime 11 步闭环 + OutputShaper + LoopMetrics
 │   ├── src/main.cpp                          ← 场景 C：阶跃跟随 + 抖动治理三档对照 + 变化率对照
 │   ├── tests/test_realtime_loop.cpp          ← T11~T16（6050 断言）
+│   ├── tests/test_device_io.cpp              ← T21~T24（79 断言，P0/P0.5 适配器可换性）
 │   ├── docs/                                 ← README.md + design.md
-│   ├── scripts/                              ← build.bat / build_test.bat / run_demo.bat
-│   └── build/                                ← loop_demo.exe + test_realtime_loop.exe
+│   ├── scripts/                              ← build.bat / build_test.bat / build_test_device_io.bat / run_demo.bat
+│   └── build/                                ← loop_demo.exe + test_realtime_loop.exe + test_device_io.exe
 │
 └── 08/                                       ← 周期 8：优化调度与实时控制协同（C++17 头文件库）
     ├── src/plan_loader.h                     ← 01/ MILP 计划 JSON 解析 + 贪心兜底规划器
@@ -131,11 +136,12 @@ scripts\build_all.bat
 06\build\test_state_machine.exe             06/ 单元测试（T07~T10 / 34 断言）
 07\build\loop_demo.exe                      周期 7 场景 C：阶跃跟随 + 抖动治理 + 变化率对照
 07\build\test_realtime_loop.exe             07/ 单元测试（T11~T16 / 6050 断言）
+07\build\test_device_io.exe                 产品化 P0/P0.5 适配器可换性（T21~T24 / 79 断言）
 08\build\coord_demo.exe                     周期 8 场景 D：24h 分层协同
 08\build\test_dispatch_coordinator.exe      08/ 单元测试（T17~T20 / 444 断言）
 ```
 
-可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ 的单元测试（共 17 步 → 只跑 9 步）。
+可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ 的单元测试（共 18 步 → 只跑 10 步）。
 
 ### 2.2 跑 B 组 C 策略服务
 
@@ -285,6 +291,24 @@ python scripts\gen_day_plan_sample.py :: 重新生成 01/ 计划样例（可选�
 > 08/ 建立「**优化层规划、实时层纠偏、安全层兜底**」的分层体系：优化层与实时层都**无法**
 > 突破 05/ 的安全边界。详细设计见 [`08/docs/design.md`](./08/docs/design.md)。
 
+### 2.10 产品化 P0：验证设备 I/O 抽象（新增）
+
+```bat
+cd 07
+scripts\build_test_device_io.bat       :: 编 + 跑 T21~T24（应输出 PASS=79 FAIL=0）
+```
+
+| 测试 | 验证内容 |
+| --- | --- |
+| **T21** 适配器等价性 | 同一套算法，SimDeviceIO（物理模型）与 MemoryDeviceIO（纯点表）的指令/实际/SOC/关口序列**逐位一致**（maxΔ=0） |
+| **T22** 点名 ↔ 结构体映射 | 写指令入点表、从点表装配快照、限制点读取、执行动力学、故障 fail-safe |
+| **T23** `attach_device()` 生效 | 换适配器后限值随之改变（PCS 200kW → 50kW，指令被卡在 50kW） |
+| **T24** 点表自检 | 30 个点齐全、闭环 200 拍无缺失点读取 |
+
+> P0 是"能交付"与"只是实验室 demo"的分界线：从这一步起，算法不再直接持有 `PlantModel`，
+> 而是通过 `IDeviceIO*` 读写设备。现场部署时只需 `attach_device()` 注入真实适配器（Modbus/RT_DB），
+> **算法源码零改动**。详细设计见 [`docs/产品化/P0-架构分层.md`](./docs/产品化/P0-架构分层.md)。
+
 ---
 
 ## 3. 架构层关系
@@ -326,6 +350,13 @@ PCS / BMS
         │
         ▼
    执行层   07/PlantModel：PCS 死区 + 惯性 + 变化率 + 效率，实际功率回灌下一拍
+   设备 I/O  04/device_io.h：IDeviceIO 抽象接口（产品化 P0）
+        │
+        ▼
+   ┌────┴────┬──────────────┬──────────────┐
+   │ Sim     │ Memory       │ Modbus/RT_DB │  ← 适配器可换，算法零改动
+   │ DeviceIO│ DeviceIO     │ / IEC104 ... │
+   └─────────┴──────────────┴──────────────┘
 ```
 
 > 一句话区分 02/ 与 05/：**02/ 是设备侧安全处理器，05/ 是系统级安全边界统一器** —— 前者回答"这台设备能不能动"，后者回答"整站这一拍最终允许多少功率"。
@@ -334,16 +365,16 @@ PCS / BMS
 
 ```
   04/ ──► 05/ ──► 06/ ──┐
-    ▲                   ├──► 07/ ──► 08/
+    │                   ├──► 07/ ──► 08/
     └───────────────────┴──────────────┘
-        04/ 被所有模块复用（策略基类 / 数据模型 / 仲裁器）
+        04/ 被所有模块复用（策略基类 / 数据模型 / 仲裁器 / **device_io**）
 ```
 
 | 模块 | 头文件搜索路径 | 说明 |
 | --- | --- | --- |
 | `05/` | `src` `../04/src` | 测试另需 `../06/src`（T03 交叉验证"矛盾→DERATED 仍允许输出"） |
 | `06/` | `src` `../04/src` `../05/src` | 只用 `SafetyVerdict`，不依赖 07/ |
-| `07/` | `src` `../04/src` `../05/src` `../06/src` `../08/src` | `EmsRuntime` 装配 08/ 的协同层 |
+| `07/` | `src` `../04/src` `../05/src` `../06/src` `../08/src` | `EmsRuntime` 装配 08/ 的协同层；P0 新增 `device_io.h` |
 | `08/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` | 演示与 T20 用 07/ 做端到端 |
 
 > `07/` 与 `08/` 互为**运行时调用关系**（闭环调用优化层 / 端到端用闭环），但**头文件层面无环**：
@@ -369,6 +400,7 @@ PCS / BMS
 - **EMS 状态机（周期 6）** → [`06/docs/README.md`](./06/docs/README.md)、[`06/docs/design.md`](./06/docs/design.md)
 - **实时控制闭环（周期 7）** → [`07/docs/README.md`](./07/docs/README.md)、[`07/docs/design.md`](./07/docs/design.md)
 - **优化调度与实时控制协同（周期 8）** → [`08/docs/README.md`](./08/docs/README.md)、[`08/docs/design.md`](./08/docs/design.md)
+- **产品化 P0：算法 ↔ 设备解耦（IDeviceIO / SimDeviceIO / MemoryDeviceIO）** → [`docs/产品化/P0-架构分层.md`](./docs/产品化/P0-架构分层.md)
 - **多策略协同的接口约定** → [`docs/接口规范/EMS策略接口规范.md`](./docs/接口规范/EMS策略接口规范.md)（§2.5 仲裁算法即 04/strategy_arbiter.h 的实现依据）
 
 ---

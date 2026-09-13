@@ -9,7 +9,7 @@
 //
 // 闭环时序（每 100 ms 一拍）：
 //
-//   ① 采集层   plant.sample()            ← 电表实时数据（含噪声/通信状态）
+//   ① 采集层   io_->read_snapshot()      ← 电表实时数据（含噪声/通信状态）
 //   ② 故障判定 detect_faults()           ← BMS/PCS/电表通信、数据有效性
 //   ③ 安全预判 safety.evaluate()          ← 供状态机判定 DERATED / EMERGENCY
 //   ④ 状态机   fsm.update()              ← 状态流转 + 输出门控
@@ -18,7 +18,7 @@
 //   ⑦ 仲裁层   arbiter.arbitrate()        ← L0→L3 区间收敛 + desired 加权 + 死区滞环
 //   ⑧ 纠偏叠加 L2 实时控制器修正量叠加到 L3 目标（防逆流 > 需量 > 平抑）
 //   ⑨ 安全兜底 safety.apply()             ← 指令压回安全区间（安全层兜底）
-//   ⑩ 执行层   plant.step()              ← PCS 执行（死区 + 惯性 + 变化率）
+//   ⑩ 执行层   io_->execute()            ← PCS 执行（死区 + 惯性 + 变化率）
 //   ⑪ 反馈     实际功率回灌下一拍 ①
 //
 // 编译：纯头文件，实现全部 inline。
@@ -27,9 +27,11 @@
 #pragma once
 
 #include "data_models.h"
+#include "device_io.h"
 #include "dispatch_coordinator.h"
 #include "plant_model.h"
 #include "safety_engine.h"
+#include "sim_device_io.h"
 #include "state_machine.h"
 #include "strategy_base.h"
 #include "strategy_manager.h"
@@ -348,6 +350,11 @@ struct LoopMetrics {
 
 // =====================================================================
 // EmsRuntime —— 周期 5/6/7/8 的总编排（由 07/ 提供，装配 05/06/08 的能力）
+//
+// 产品化 P0（架构分层）：本类**不再直接持有 PlantModel**，而是通过
+// IDeviceIO* 读写设备（见 04/src/device_io.h）。默认挂 SimDeviceIO（仿真），
+// 现场部署用 attach_device() 换成 RT_DB / Modbus 适配器，**算法代码零改动**。
+// 这是"能交付"与"只是实验室 demo"的分界线。
 // =====================================================================
 class EmsRuntime {
 public:
@@ -357,6 +364,11 @@ public:
     // 初始化：注册策略、接好优化器、复位状态机
     // -----------------------------------------------------------------
     void init() {
+        // --- P0 设备 I/O 抽象：默认挂仿真适配器 ---
+        // 若装配层已通过 attach_device() 注入真实适配器（RT_DB / Modbus），
+        // 则保留注入的那个 —— init() 幂等，不得覆盖外部注入。
+        if (io_ == nullptr) io_ = static_cast<IDeviceIO*>(&sim_io_);
+
         // --- 策略注册：L2 三个实时控制器 + L3 三个经济策略 ---
         // L0/L1 由 SafetyEngine 统一承担（见 safety_engine.h），不再注册
         // strategies_9.h 里的 BmsForbid / BmsDerate / TransformerLimit 三个 MOCK。
@@ -381,7 +393,7 @@ public:
         coord_ = DispatchCoordinator(coord_cfg_);
         coord_.set_optimizer(&optimizer_);
         coord_.set_device_params(safety_params_.soc_min, safety_params_.soc_max,
-                                 plant_.config().battery_capacity_kwh,
+                                 io_->battery_capacity_kwh(),
                                  dev_.pcs_rated_chg_kw, dev_.pcs_rated_dis_kw);
 
         arbiter_.set_deadband(0.0);      // 死区/滞环统一放到输出最后一级（OutputShaper）
@@ -407,17 +419,43 @@ public:
         safety_.reset();
     }
 
-    // 更换被控对象配置（会同步刷新设备限制），可在 init() 之后调用
+    // 更换被控对象配置（会同步刷新设备限制），可在 init() 之后调用。
+    // 注：本方法只对**仿真适配器**有意义（真实设备不接受配置注入）。
+    //     现场部署时不调用它，改由 attach_device() 注入真实适配器。
     void configure_plant(const PlantConfig& pc) {
-        plant_.set_config(pc);
+        sim_io_.set_config(pc);
         refresh_device_limits();
         if (plan_tracker_) {
             plan_tracker_->set_bounds(dev_.pcs_rated_chg_kw, dev_.pcs_rated_dis_kw);
         }
         coord_.set_device_params(safety_params_.soc_min, safety_params_.soc_max,
-                                 pc.battery_capacity_kwh,
+                                 io_->battery_capacity_kwh(),
                                  dev_.pcs_rated_chg_kw, dev_.pcs_rated_dis_kw);
     }
+
+    // -----------------------------------------------------------------
+    // 注入设备适配器（产品化 P0 的入口）
+    //
+    // 装配层（进程入口）在 init() 之前或之后调用：
+    //     EmsRuntime rt;
+    //     RtDbDeviceIO io(shared_mem_name);
+    //     rt.attach_device(&io);      // 此后算法只经 io 读写设备
+    //     rt.init();                  // 幂等，不会覆盖已注入的 io
+    //
+    // 传 nullptr 表示恢复默认仿真适配器。适配器生命周期由调用方管理
+    // （EmsRuntime 只持有裸指针，不拥有）。
+    // -----------------------------------------------------------------
+    void attach_device(IDeviceIO* io) {
+        io_ = io ? io : static_cast<IDeviceIO*>(&sim_io_);
+        // 立刻按新设备的限制刷新一次，并把设备参数同步给优化协同层。
+        // 否则优化层仍在用旧设备的额定/容量做 96 点规划，与实时层不一致。
+        refresh_device_limits();
+        coord_.set_device_params(safety_params_.soc_min, safety_params_.soc_max,
+                                 io_->battery_capacity_kwh(),
+                                 dev_.pcs_rated_chg_kw, dev_.pcs_rated_dis_kw);
+    }
+    IDeviceIO* device() { return io_; }
+    const IDeviceIO* device() const { return io_; }
 
     // -----------------------------------------------------------------
     // 一拍闭环
@@ -429,7 +467,10 @@ public:
         t_ += dt_s;
 
         // ---------- ① 采集层：冻结快照 ----------
-        RealtimeSnapshot rt = plant_.sample(t_);
+        // 经 IDeviceIO 读量测 —— 算法不知道底层是 PlantModel / RT_DB / Modbus。
+        // 采集品质（通信中断、数据无效）由 ② 的 read_status() 反映，不在此处分支。
+        RealtimeSnapshot rt;
+        io_->read_snapshot(t_, rt);
         fill_context(rt, dt_s);
 
         // ---------- ② 故障判定 ----------
@@ -534,19 +575,22 @@ public:
         last_cmd_ = cmd;
 
         // ---------- ⑩ 执行层：PCS 执行 ----------
-        double p_actual = plant_.step(cmd.p_bat_cmd_kw, dt_s);
+        // 经 IDeviceIO 下发。返回值在仿真下即本拍实际功率；真实适配器下只是
+        // "尽力反馈"，**闭环不依赖它** —— 闭环走下一拍的 ① 量测（p_bat_actual_kw）。
+        double p_actual = io_->execute(cmd.p_bat_cmd_kw, dt_s);
 
         // ---------- ⑪ 反馈 + 记录 ----------
+        DeviceActuals act = io_->read_actuals();
         StepRecord rec;
         rec.t           = t_;
         rec.state       = fsm_.state();
-        rec.p_load      = plant_.p_load();
-        rec.p_pv        = plant_.p_pv();
-        rec.p_grid      = plant_.p_grid_actual();
+        rec.p_load      = act.p_load_kw;
+        rec.p_pv        = act.p_pv_kw;
+        rec.p_grid      = act.p_grid_kw;
         rec.p_cmd       = cmd.p_bat_cmd_kw;
         rec.p_actual    = p_actual;
-        rec.soc         = plant_.soc();
-        rec.temp        = plant_.temperature_c();
+        rec.soc         = act.soc;
+        rec.temp        = act.temperature_c;
         rec.p_lower     = cmd.p_lower;
         rec.p_upper     = cmd.p_upper;
         rec.plan_target = plan_target;
@@ -622,12 +666,16 @@ public:
         fsm_.set_config(fsm_cfg_);
         coord_.set_config(coord_cfg_);
         coord_.set_device_params(safety_params_.soc_min, safety_params_.soc_max,
-                                 plant_.config().battery_capacity_kwh,
+                                 io_->battery_capacity_kwh(),
                                  dev_.pcs_rated_chg_kw, dev_.pcs_rated_dis_kw);
     }
 
-    PlantModel& plant() { return plant_; }
-    const PlantModel& plant() const { return plant_; }
+    // 默认仿真适配器的被控对象。**仅在未 attach_device() 时有效** ——
+    // 注入真实适配器后它返回的是一个未被使用的仿真对象。
+    // 保留此访问器是为了兼容既有 6594 条断言（大量使用 plant().set_pcs_fault()
+    // 等仿真注入）。新增的生产代码请改用 device()。
+    PlantModel& plant() { return sim_io_.plant(); }
+    const PlantModel& plant() const { return sim_io_.plant(); }
     DeviceLimits& device_limits() { return dev_; }
     const DeviceLimits& device_limits() const { return dev_; }
     GridQuality& grid() { return grid_; }
@@ -643,8 +691,10 @@ public:
     const std::vector<StepRecord>& log() const { return log_; }
     Timestamp now() const { return t_; }
 
+    // 环境注入（负荷 / 光伏）。**仅对仿真适配器有效** —— 真实系统里负荷与
+    // 光伏来自电表量测，由采集层提供，算法不得设置。现场部署时请勿调用。
     void set_environment(double p_load_kw, double p_pv_kw) {
-        plant_.set_environment(p_load_kw, p_pv_kw);
+        sim_io_.set_environment(p_load_kw, p_pv_kw);
     }
     void set_forecast(const ForecastSeries& fc) {
         fc_ = fc;
@@ -668,25 +718,23 @@ public:
 
     FaultFlags detect_faults() const {
         FaultFlags f;
-        const auto& pc = plant_.config();
-        f.bms_comm_lost   = !pc.comm_ok_bms || pc.device_offline;
-        f.pcs_comm_lost   = !pc.comm_ok_pcs;
-        f.meter_comm_lost = !pc.comm_ok_meter;
-        f.pcs_fault       = pc.pcs_fault;
-        f.data_invalid    = !pc.data_valid;
-        f.device_offline  = pc.device_offline;
-        f.temp_fault      = plant_.temperature_c() >= safety_.params().temp_fault_c;
+        const DeviceStatus st = io_->read_status();
+        f.bms_comm_lost   = !st.bms_comm_ok || st.device_offline;
+        f.pcs_comm_lost   = !st.pcs_comm_ok;
+        f.meter_comm_lost = !st.meter_comm_ok;
+        f.pcs_fault       = st.pcs_fault;
+        f.data_invalid    = !st.data_valid;
+        f.device_offline  = st.device_offline;
+        f.temp_fault      = io_->read_actuals().temperature_c >= safety_.params().temp_fault_c;
         return f;
     }
 
 private:
-    // 设备限制与 plant 配置对齐
+    // 设备限制刷新：唯一入口是 IDeviceIO::read_limits()。
+    // 现场 BMS 动态降功率就是通过这个入口每拍刷进 dev_ 的。
     void refresh_device_limits() {
-        dev_ = DeviceLimits{};
-        dev_.pcs_rated_chg_kw = plant_.config().pcs_max_chg_kw;
-        dev_.pcs_rated_dis_kw = plant_.config().pcs_max_dis_kw;
-        dev_.bms_chg_limit_kw = plant_.config().pcs_max_chg_kw;
-        dev_.bms_dis_limit_kw = plant_.config().pcs_max_dis_kw;
+        if (io_ == nullptr) return;
+        io_->read_limits(dev_);
     }
 
     // ---- 填充快照上下文（TOU 电价 / 需量窗口）----
@@ -759,7 +807,12 @@ private:
     CoordinatorConfig coord_cfg_{};
     StateMachineConfig fsm_cfg_{};
 
-    PlantModel        plant_{};
+    // --- P0 设备 I/O 抽象 ---
+    // sim_io_ 是默认适配器，持有 PlantModel；io_ 是算法唯一可见的设备句柄。
+    // 声明顺序有讲究：sim_io_ 必须先于 init() 使用而构造（成员先于构造函数体）。
+    SimDeviceIO       sim_io_{};
+    IDeviceIO*        io_ = nullptr;
+
     SafetyEngine      safety_{};
     EmsStateMachine   fsm_{};
     StrategyManager   mgr_{};

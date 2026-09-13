@@ -476,10 +476,62 @@ scripts\build_all.bat                   → [BUILD ALL OK] All 17 components bui
 
 ```
 04/ ──► 05/ ──► 06/ ──┐
- ▲                    ├──► 07/ ──► 08/
+ │                    ├──► 07/ ──► 08/
  └────────────────────┴──────────────┘
 ```
 
 - `07/` 与 `08/` 互为**运行时调用关系**（闭环调用优化层 / 端到端用闭环），
   但 `08/src/*.h` **不包含** `07/` 的任何头文件 —— header-only 库编译顺序无关，
   只需把对应的 `-I` 路径都加上。
+
+---
+
+## 13. 产品化 P0：架构分层（2026-09-13）
+
+### 13.1 目标
+
+让**算法**与**设备数据来源**彻底解耦。一句话验收标准：**换数据源，不改算法**。
+
+### 13.2 新增文件
+
+| 文件 | 职责 |
+| --- | --- |
+| `04/src/device_io.h` | `IDeviceIO` 抽象接口 + `DeviceStatus` + `DeviceActuals` |
+| `07/src/sim_device_io.h` | 仿真适配器：把 `PlantModel` 接到 `IDeviceIO`（保真通道） |
+| `07/src/memory_device_io.h` | P0.5 进程内点表适配器（30 个点，`RT_DB` 的进程内等价物） |
+| `07/tests/test_device_io.cpp` | T21~T24（79 断言）：等价性 / 点名映射 / attach 生效 / 点表自检 |
+| `docs/产品化/P0-架构分层.md` | 设计文档（接口纪律、适配器、等价性证明、现场用法） |
+| `07/scripts/build_test_device_io.bat` | P0/P0.5 测试构建脚本 |
+
+### 13.3 修改文件
+
+| 文件 | 改动 |
+| --- | --- |
+| `07/src/realtime_loop.h` | `EmsRuntime` 所有 `plant_` 直接调用改走 `io_` 指针；保留 `plant()`/`configure_plant()`/`set_environment()` 兼容测试；新增 `attach_device()` |
+| `scripts/build_all.bat` | 17 步 → 18 步（新增 P0 测试） |
+| `README.md` | 目录树扩 P0 文件、§2.10 快速开始、架构图加 IDeviceIO 层、设计索引 |
+
+### 13.4 关键设计纪律
+
+1. **接口参数一律是业务语义结构体，绝不出现点名**（如 `"BMS_01.SOC"`）—— 点名只允许在适配器内部。
+2. **接口只表达五件事**：读量测 / 读限制 / 读状态 / 写指令 / 推进一拍。
+3. **算法不得假设 `execute()` 返回值可信** —— 闭环走下一拍 `read_snapshot()` 的 `p_bat_actual_kw`。
+
+### 13.5 等价性证明（T21）
+
+同一条 300 s 环境脚本，分别驱动 `SimDeviceIO`（物理模型）与 `MemoryDeviceIO`（纯点表），
+3000 拍逐位比较：
+
+```
+maxΔcmd=0  maxΔsoc=0  maxΔgrid=0  状态序列完全一致
+```
+
+### 13.6 全量回归
+
+```
+04/  PASS=63    05/  PASS=66    06/  PASS=34
+07/  PASS=6050  08/  PASS=444   P0+P0.5  PASS=79
+[BUILD ALL OK] All 18 components built.
+```
+
+**6594（周期 5~8）+ 79（P0/P0.5）= 6673 断言全绿**，重构未改变任何既有行为。
