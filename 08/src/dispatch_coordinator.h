@@ -361,6 +361,14 @@ public:
         dev_p_dis_max_ = p_dis_max_kw;
     }
 
+    // 只读访问器（P1 配置化：校验"协同层设备参数与 DeviceLimits 一致"；
+    // 也是 P2 可观测性要导出的量）。
+    double device_soc_min()     const { return dev_soc_min_; }
+    double device_soc_max()     const { return dev_soc_max_; }
+    double device_capacity_kwh() const { return dev_capacity_kwh_; }
+    double device_p_chg_max_kw() const { return dev_p_chg_max_; }
+    double device_p_dis_max_kw() const { return dev_p_dis_max_; }
+
 private:
     CoordinatorConfig cfg_{};
     IOptimizer*  opt_ = nullptr;

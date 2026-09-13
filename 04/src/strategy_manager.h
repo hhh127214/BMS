@@ -230,6 +230,15 @@ public:
         return v;
     }
 
+    // 只读拿到策略实例（P1 配置化：导出当前参数用）。
+    // 返回 shared_ptr 拷贝，调用方持锁外访问是安全的（策略自身无并发约束，
+    // 与 set_param 一样要求调用方在控制线程内使用）。
+    StrategyPtr get_strategy(const std::string& id) const {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = registry_.find(id);
+        return (it == registry_.end()) ? StrategyPtr() : it->second;
+    }
+
     size_t size() const {
         std::lock_guard<std::mutex> lk(mu_);
         return registry_.size();

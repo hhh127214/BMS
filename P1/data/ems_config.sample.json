@@ -1,0 +1,180 @@
+// =====================================================================
+// EMS 现场配置样例 —— 某工业园区 1# 配电房
+//
+// 这个文件是"现场部署只改配置"的实际样子。它只写**和默认值不同**的项：
+// 没出现的字段一律沿用各层结构体的默认值（见 docs/README.md 或
+// `ems-config --dump-doc` 生成的完整清单）。
+//
+// 本文件支持注释（// 与 #）与尾逗号 —— 现场临时注释掉一行参数不会导致
+// 整个配置加载失败。
+//
+// 用法：
+//     ems-config --check     data/ems_config.sample.json    # 只校验
+//     ems-config --apply     data/ems_config.sample.json    # 校验 + 装配 + 跑 24h
+//     ems-config --roundtrip data/ems_config.sample.json    # 存取往返一致性
+// =====================================================================
+{
+  // ---- 元信息：不参与控制，用于归档 / 审计 / 交接 ----
+  "name":        "park-1st-500kwh",
+  "description": "园区 1# 配电房：500 kWh / 250 kW 储能，需量控制 + 峰谷套利",
+  "site":        "某工业园区 1# 配电房",
+  "version":     "1.2",
+
+  // -------------------------------------------------------------------
+  // 实时循环
+  // -------------------------------------------------------------------
+  "loop": {
+    "dt_s":               1.0,     // 控制周期（现场 0.1 s；离线仿真 1 s）
+    "demand_window_s":    900.0,   // 国内需量计量窗口固定 15 min
+    "l2_correction_max_kw": 80.0,  // L2 纠偏权限上限（有界纠偏）
+    "output_deadband_kw": 3.0,     // 死区：抑制并网点附近的极限环
+    "output_switch_delay": 3,      // 连续 3 拍落在死区内才切 0
+    "log_every":          1,       // 现场验收期不降采样
+    "enable_log":         true,
+
+    // 现场部署必须保持 true —— 关掉这两项等于放弃门控与安全约束
+    "enable_state_machine": true,
+    "enable_safety_engine": true
+  },
+
+  // -------------------------------------------------------------------
+  // 被控对象
+  // 现场由真实设备提供；这里写的是**参考值**，用于仿真与归档。
+  // attach_device() 注入真实适配器后，本节的 plant / limits 不再生效。
+  // -------------------------------------------------------------------
+  "plant": {
+    "battery_capacity_kwh": 500.0,
+    "soc_init":             0.50,
+    "soc_phys_min":         0.05,   // BMS 保护动作点（物理下限）
+    "soc_phys_max":         0.98,
+    "eta_chg":              0.96,
+    "eta_dis":              0.96,
+    "soh":                  1.00,
+    "pcs_max_chg_kw":       250.0,
+    "pcs_max_dis_kw":       250.0,
+    "pcs_ramp_kw_per_s":    250.0,
+    "pcs_tau_s":            0.8,
+    "pcs_deadtime_s":       0.4,
+    "pcs_standby_kw":       2.0,    // PCS 空载损耗（计入负荷侧）
+    "temp_ambient_c":       25.0,
+    "noise_kw":             0.0,    // 现场无需噪声；仿真置 0 便于复现
+    "noise_soc":            0.0,
+    "seed":                 20260912
+  },
+
+  // -------------------------------------------------------------------
+  // 设备限制（BMS / PCS 动态降功率每拍刷新这一组）
+  // -------------------------------------------------------------------
+  "limits": {
+    "pcs_rated_chg_kw":       250.0,
+    "pcs_rated_dis_kw":       250.0,
+    "bms_chg_limit_kw":       250.0,   // 现场由 BMS 实时给出（老化/低温会降）
+    "bms_dis_limit_kw":       250.0,
+    "transformer_capacity_kw": 630.0,  // 变压器容量（kVA 视在功率近似）
+    "d_target_kw":            320.0    // 契约需量上限
+  },
+
+  // -------------------------------------------------------------------
+  // 安全约束（L0/L1）
+  // -------------------------------------------------------------------
+  "safety": {
+    "soc_min":      0.10,   // 触及禁放
+    "soc_max":      0.95,   // 触及禁充
+    "soc_warn_low": 0.15,   // 预警区降功率
+    "soc_warn_high": 0.90,
+    "soc_warn_derate": 0.5,
+    "soc_hysteresis":  0.02,
+
+    "temp_warn_c":   45.0,
+    "temp_fault_c":  55.0,
+    "temp_warn_derate": 0.5,
+
+    "tr_overload_th": 1.00,  // 变压器轻度过载阈值（负载率）
+    "tr_extreme_th":  1.20,
+
+    "ramp_kw_per_s": 250.0,
+
+    "grid_p_min_kw": -30.0,  // 关口下限：允许少量余电上网
+    "grid_p_max_kw": 630.0,  // 关口上限
+
+    // 前瞻置信上限：预测是 15 min 阶梯，跳变瞬间按"下一拍更小"收紧上界，
+    // 消除阶梯跳变穿越；超过这个幅度说明预测不可信，不采信（0=关闭）。
+    "grid_lookahead_max_drop_kw": 60.0,
+
+    "grid_freq_min_hz": 49.5,
+    "grid_freq_max_hz": 50.5,
+    "grid_volt_min_pu": 0.88,
+    "grid_volt_max_pu": 1.10,
+
+    "enable_ramp": true,
+    "strict_l0":   true
+  },
+
+  // -------------------------------------------------------------------
+  // 优化调度与实时协同（L3 → L2）
+  // -------------------------------------------------------------------
+  "coordinator": {
+    "reopt_period_s":  900.0,  // 滚动重优化周期（15 min）
+    "enable_reopt":    true,
+    "enable_correction": true,
+    "soc_kp":          8.0,    // SOC 偏差比例增益
+    "soc_ki":          0.02,
+    "soc_correction_max_kw": 40.0,
+    "dev_kp":          0.6,    // 负荷偏差前馈增益
+    "dev_correction_max_kw": 50.0,
+    "energy_kp":       0.3,    // 窗口电量预算补偿
+    "energy_correction_max_kw": 30.0,
+    "total_correction_max_kw":  80.0,
+    "on_plan_tol_kw":  10.0
+  },
+
+  // -------------------------------------------------------------------
+  // 状态机
+  // -------------------------------------------------------------------
+  "state_machine": {
+    "init_hold_s":          5.0,   // INIT 停留
+    "self_check_cycles":    10,    // 自检连续通过拍数
+    "derate_release_cycles": 30,   // 降功率解除需连续正常拍数
+    "fault_clear_cycles":   20,    // 故障恢复需连续正常拍数
+    "allow_ready_output":   false  // 现场建议 false：READY 态不得输出
+  },
+
+  // -------------------------------------------------------------------
+  // 策略：id → { enabled, note, params }
+  //
+  // 参数名由**各策略自己解释**，P1 只校验 id 是否存在（打错会报错）。
+  // 留空 params 表示使用策略内置默认值。
+  // 可用的 id 见 `ems-config --dump-schema` 的 strategy_ids。
+  // -------------------------------------------------------------------
+  "strategies": {
+    "S04_DEMAND_MGMT": {
+      "enabled": true,
+      "note":    "需量控制：按 15 min 滑窗均值压制需量",
+      "params": {
+        "margin_kw": 15.0
+      }
+    },
+    "S05_ANTI_REVERSE": {
+      "enabled": true,
+      "note":    "防逆流：关口下限兜底",
+      "params": {
+        "margin_kw": 5.0
+      }
+    },
+    "S06_PV_SMOOTHING": {
+      "enabled": true,
+      "note":    "光伏平抑：抑制云遮导致的功率骤降",
+      "params": {}
+    },
+    "S07_PEAK_VALLEY": {
+      "enabled": false,   // MPC 模式下由计划跟踪策略独占 L3，故关闭
+      "note":    "峰谷套利（定时模式用）",
+      "params": {}
+    },
+    "S09_DEMAND_RESPONSE": {
+      "enabled": false,
+      "note":    "需求响应（收到调度指令时开启）",
+      "params": {}
+    }
+  }
+}

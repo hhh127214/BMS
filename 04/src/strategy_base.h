@@ -74,6 +74,9 @@ public:
         auto it = params_.find(key);
         return (it == params_.end()) ? default_v : it->second;
     }
+    // 只读访问全部参数（P1 配置化：从运行中的系统导出当前配置用）。
+    // 注意：包含内部键（如 L3 独占模式写入的 "__weight__"），导出方需自行过滤。
+    const ParamMap& params() const { return params_; }
 
     // ---- 核心：每拍计算 ----
     // 输入：实时数据 + 设备限制

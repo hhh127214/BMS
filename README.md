@@ -119,6 +119,17 @@ BMS/
     ├── scripts/gen_curves.py                 ← 曲线生成器
     ├── docs/README.md                        ← 经济性口径 / 缺陷复盘 / 故障注入语义
     └── build/                                ← sim_demo.exe + test_sim_24h.exe
+
+P1/                                           ← 产品化 P1：配置化（现场部署不改源码，只改配置）
+    ├── src/json_lite.h                       ← 最小 JSON 解析/生成（零依赖；支持注释 / 尾逗号 / 裸键）
+    ├── src/ems_config.h                      ← 配置模型 + 字段绑定表（Binder）
+    ├── src/config_loader.h                   ← load / save / validate / apply / capture（装配顺序唯一入口）
+    ├── src/config_doc.h                      ← 配置模板 / Markdown 文档 / Schema 生成
+    ├── src/main.cpp                          ← 演示程序 ems_config.exe
+    ├── tests/test_config.cpp                 ← T201~T218（171 断言）
+    ├── data/ems_config.sample.json           ← 现场配置样例（带注释）
+    ├── docs/README.md                        ← 装配顺序陷阱 / 校验规则 / 测试清单
+    └── build/                                ← ems_config.exe + test_config.exe
 ```
 
 > **为什么周期 5~8 拆成 4 个模块**：`05/06/07/08` 与设计方案 §7 的四个周期**一一对应**，
@@ -161,12 +172,14 @@ scripts\build_all.bat
 09\build\test_multi_strategy.exe            09/ 单元测试（T91~T97 / 77 断言；7 场景 × 12000 拍闭环）
 10\build\sim_demo.exe                        周期 10 场景 E：EMS 24h 离线仿真（产物 report.html 等 4 个文件）
 10\build\test_sim_24h.exe                    10/ 单元测试（T101~T111 / 144 断言）
+P1\build\ems_config.exe                      产品化 P1 配置化：校验 / 装配 / 往返 / 模板 / 文档 / 导出
+P1\build\test_config.exe                     P1/ 单元测试（T201~T218 / 171 断言）
 ```
 
-**全量回归：6961 断言全绿**（04=65 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / 09=77 / 10=144），
-`[BUILD ALL OK] All 20 components built.`
+**全量回归：7132 断言全绿**（04=65 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / 09=77 / 10=144 / P1=171），
+`[BUILD ALL OK] All 21 components built.`
 
-可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ 的单元测试（共 20 步 → 只跑 11 步）。
+可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ 的单元测试（共 21 步 → 只跑 12 步）。
 
 ### 2.2 跑 B 组 C 策略服务
 
@@ -402,6 +415,57 @@ build\sim_demo.exe --log-every 1             :: 单拍粒度（排查瞬态必�
 > 另得一个场景结论：故障日能量轨迹改变 → 储能提前触底 → 傍晚无容量削峰（220/220 拍可归因）。
 > 详见 [`10/docs/README.md`](./10/docs/README.md)。
 
+### 2.13 配置化：现场部署不改源码（产品化 P1 产出）
+
+```bat
+cd P1
+scripts\build_test.bat                    :: 编 + 跑 T201~T218（应输出 通过 171 / 失败 0）
+scripts\run_demo.bat                      :: 6 步完整演示，产物落 build\
+```
+
+**目标**：现场部署只改配置文件，不动算法源码。
+
+```bat
+build\ems_config.exe --demo                      :: A/B 对照：只改配置，行为随之改变
+build\ems_config.exe --check  data\ems_config.sample.json
+build\ems_config.exe --apply  data\ems_config.sample.json
+build\ems_config.exe --roundtrip data\ems_config.sample.json
+build\ems_config.exe --dump-template > site.json :: 带注释的模板，改完即可用
+build\ems_config.exe --dump-doc      > CONFIG.md
+build\ems_config.exe --dump-schema   > schema.json
+build\ems_config.exe --capture build\captured.json :: 导出运行中实际生效的参数
+```
+
+配置覆盖 **89 个字段**（6 个 section：`loop` / `plant` / `limits` / `safety` / `coordinator` /
+`state_machine`）+ 策略条目（`id → enabled / note / params`）。缺省字段沿用结构体默认值，
+一份现场配置只描述"这个站和默认有什么不同"。
+
+**为什么需要 P1**：装配过程有 **3 处隐式顺序依赖**，都不会在编译期报错 ——
+
+| 陷阱 | 机制 | 不知道会怎样 |
+| --- | --- | --- |
+| ① `configure_plant()` 重置 `dev_` | 内部 `read_limits()` 首行 `out = DeviceLimits{}` | 配置里的 `transformer_capacity_kw` / `d_target_kw` 被**静默复位成默认值 250** |
+| ② `apply_configs()` 依赖 `dev_` | 用 `dev_.pcs_rated_*` 算协同层设备参数 | 优化层按**旧设备**排 96 点计划 |
+| ③ `OutputShaper` 缓存副本 | `init()` 存的是**值**不是引用 | 改了死区参数，**行为不变** —— "配置生效了但没生效" |
+
+P1 把这份知识收进 **`apply_config()` 一个函数**。T211/T212/T213 分别**同时验证反例与正例**
+（例如 T211 先演示"错误顺序 → limits 被冲掉"，再验证 `apply_config()` 顺序正确）。
+
+**A/B 对照实测**（24 h / 86400 拍，只改 `transformer_capacity_kw` `d_target_kw` `grid_p_max_kw`：630 → 200）：
+
+| 指标 | 基线(630) | 收紧(200) | 变化 |
+| --- | --- | --- | --- |
+| 关口峰值 | 434.0 kW | 292.1 kW | **−141.9 kW** |
+| 储能充电量 | 538.6 kWh | 3.2 kWh | −535.4 kWh |
+| 储能放电量 | 365.8 kWh | 192.9 kWh | −172.9 kWh |
+| 指令逃逸 | 0 拍 | 0 拍 | 硬不变量保持 |
+
+> **两个设计要点**：① **字段绑定表**（`Binder`）同时驱动 load / save / 模板 / 文档 / Schema，
+> 避免"手写两份映射必然漂移"；T208 断言字段数 == 89，漏绑即失败。
+> ② **策略 id 打错必须报错** —— 静默忽略会让人以为"配了但没生效"。本模块自带的样例配置
+> 第一次就写错了 id（应为 `S04_DEMAND_MGMT` 而非 `demand_mgmt`），被 `--check` 当场拦下。
+> 详见 [`P1/docs/README.md`](./P1/docs/README.md)。
+
 ---
 
 ## 3. 架构层关系
@@ -460,9 +524,11 @@ PCS / BMS
   04/ ──► 05/ ──► 06/ ──┐
     │                   ├──► 07/ ──► 08/ ──► 09/ ──► 10/
     └───────────────────┴──────────────┘
+                              └──► P1/（产品化配置化：装配全栈 + 配置驱动）
         04/ 被所有模块复用（策略基类 / 数据模型 / 仲裁器 / **device_io**）
         09/ 是**验证层**（周期 9）：装配 04~08 全栈跑 12000 拍闭环时序
         10/ 是**装配层**（周期 10）：把全栈装进可配置的 24h 场景，产出交付物
+        P1/ 是**产品化配置层**：把"装配顺序知识"从调用点收进 apply_config()
         09/ 与 10/ 都不产出被其他模块依赖的头文件
 ```
 
@@ -474,6 +540,7 @@ PCS / BMS
 | `08/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` | 演示与 T20 用 07/ 做端到端 |
 | `09/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 只用 07/ 的 `EmsRuntime`，不反向被依赖 |
 | `10/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 只用 07/ 的 `EmsRuntime`；曲线复用 08/ 的 `ForecastSeries` |
+| `P1/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 配置化装配层：绑定 04~08 的参数结构体 + 07/ 的 `EmsRuntime`；自带 JSON 解析器，零第三方依赖 |
 
 > `07/` 与 `08/` 互为**运行时调用关系**（闭环调用优化层 / 端到端用闭环），但**头文件层面无环**：
 > `08/src/*.h` 不包含 `07/` 的任何头文件。这是 header-only 库的天然优势 —— 编译顺序无关，
@@ -501,6 +568,7 @@ PCS / BMS
 - **多策略组合测试（周期 9 · 闭环时序级）** → [`09/docs/README.md`](./09/docs/README.md)
 - **EMS 24h 离线仿真测试（周期 10）** → [`10/docs/README.md`](./10/docs/README.md)
 - **产品化 P0：算法 ↔ 设备解耦（IDeviceIO / SimDeviceIO / MemoryDeviceIO）** → [`docs/产品化/P0-架构分层.md`](./docs/产品化/P0-架构分层.md)
+- **产品化 P1：配置化（字段绑定表 / 装配顺序 / 校验 / 模板与文档生成）** → [`P1/docs/README.md`](./P1/docs/README.md)
 - **多策略协同的接口约定** → [`docs/接口规范/EMS策略接口规范.md`](./docs/接口规范/EMS策略接口规范.md)（§2.5 仲裁算法即 04/strategy_arbiter.h 的实现依据）
 
 ---

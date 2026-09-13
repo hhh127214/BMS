@@ -874,3 +874,228 @@ PCS 带死区 + 惯性，指令停止时 SOC 会再滑过限值一点点（实�
 | `07/src/realtime_loop.h` | `fill_context()` 填充下一拍预测量 |
 | `scripts/build_all.bat` | 19 步 → **20 步** |
 | `README.md` | 目录树 + §2.1（20 步 / 6950 断言）+ §2.12（周期 10）+ 依赖图 + 设计索引 |
+
+---
+
+# 16. 产品化 P1 —— 配置化（现场部署不改源码）
+
+> 依据：`docs/产品化/P0-架构分层.md` §「P1 配置化 / P2 可观测性 / P3 通信」
+> **目标：现场部署不改源码，只改配置文件。**
+
+## 16.1 新增模块 `P1/`
+
+`P1/` 不引入任何新的控制逻辑，也不改变任何现有算法行为 ——
+它是**配置层**：把"一个部署点的参数"从源码里搬出来，变成可校验、可归档、可交接的文件。
+
+| 文件 | 职责 |
+| --- | --- |
+| `P1/src/json_lite.h` | 最小 JSON 解析/生成（零第三方依赖） |
+| `P1/src/ems_config.h` | 配置模型 + **字段绑定表**（`Binder`） |
+| `P1/src/config_loader.h` | `load` / `save` / `validate` / **`apply_config`** / `capture` |
+| `P1/src/config_doc.h` | 配置模板 / Markdown 文档 / Schema 生成 |
+| `P1/src/main.cpp` | 演示程序 `ems_config.exe`（8 个子命令） |
+| `P1/tests/test_config.cpp` | T201~T218（171 断言） |
+| `P1/data/ems_config.sample.json` | 现场配置样例（带注释） |
+
+配置覆盖 **89 个字段**（`loop` / `plant` / `limits` / `safety` / `coordinator` / `state_machine`）
++ 策略条目（`id → enabled / note / params`）。
+
+## 16.2 为什么需要 P1：3 处隐式装配顺序依赖
+
+P0 之后，装配过程仍散落在调用点，且带 3 处**都不会在编译期报错**的顺序依赖：
+
+```cpp
+rt.configure_plant(cfg.plant);   // ← 陷阱① 内部 refresh_device_limits() 重置 dev_
+rt.device_limits() = cfg.limits; // ← 必须在这之后
+rt.apply_configs();              // ← 陷阱② 用 dev_.pcs_rated_* 算协同层参数
+rt.shaper().set_deadband(...);   // ← 陷阱③ 整形器缓存了副本
+```
+
+| 陷阱 | 机制 | 不知道会怎样 |
+| --- | --- | --- |
+| ① | `configure_plant()` → `io_->read_limits(dev_)`，而 `SimDeviceIO::read_limits()` 首行是 `out = DeviceLimits{}` | 配置里的 `transformer_capacity_kw` / `d_target_kw` 被**静默复位成默认值 250** |
+| ② | `apply_configs()` 用 `dev_.pcs_rated_chg_kw` 计算协同层设备参数 | 优化层按**旧设备**排 96 点计划，与实时层不一致 |
+| ③ | `OutputShaper` 在 `init()` 里存的是**值**，不是引用 | 改了 `output_deadband_kw`，**死区行为不变** —— "配置生效了但没生效" |
+
+这三条属于"知道的人不会错、不知道的人必错"的知识。
+P1 把它收进 **`apply_config()` 一个函数**，调用方只需 `apply_config(rt, cfg)`。
+
+**T211 / T212 / T213 分别同时验证反例与正例** —— 例如 T211 先演示
+"错误顺序 → `limits` 被 `configure_plant` 冲掉"，再验证 `apply_config()` 的顺序正确。
+这是本模块最有说服力的一组断言：它不仅测"能工作"，还测"为什么需要 P1"。
+
+## 16.3 字段绑定表：一张表驱动 load / save / 模板 / 文档
+
+手写两份映射（读一份、写一份）**必然漂移**：加了字段忘写其中一份，
+表现是"配置里改了但没生效"或"导出的配置少了字段"，且**编译期不报错**。
+
+本模块用一张 `Binder` 表同时驱动 5 个出口：
+
+```
+bind_fields()
+   ├──► load（JSON → 结构体）
+   ├──► save（结构体 → JSON）
+   ├──► --dump-template（带注释的可用模板）
+   ├──► --dump-doc（Markdown 文档）
+   └──► --dump-schema（机器可读字段清单）
+```
+
+字段表与结构体**编译期绑定**（取地址），结构体改名即编译失败。
+T208 断言字段数 == **89**，漏绑即失败；T218 断言 Schema 字段数也 == 89（防文档漂移）。
+
+**策略参数刻意不做字段级绑定**：`ParamMap` 是 `string → double`，
+参数名由**各策略自己解释**（`Kp` / `deadband` / `margin_kw` …），P1 不可能也没必要知道。
+P1 只负责按 id 精确定位 —— **id 打错必须报错**，静默忽略会让人以为"配了但没生效"。
+
+> 实测有效：本模块自带的样例配置第一次就写错了 id
+> （写成 `demand_mgmt`，实际是 `S04_DEMAND_MGMT`），被 `--check` 当场拦下。
+
+## 16.4 校验分层
+
+| 层 | 函数 | 说明 |
+| --- | --- | --- |
+| 语法 / 类型 | `json::parse` + `Binder::set` | 报错带 **行:列**；类型不符 → error；未知键 → warning |
+| 语义 | `validate()` | **纯函数**，不碰运行时；只把"一定会跑坏"的判成 error |
+| 装配 | `apply_config()` | 策略 id 是否存在、参数是否被拒 |
+
+`validate()` 的 error / warning 划分原则：**现场调试时一个 warning 不该拦住启动**。
+
+- **error**：`dt_s ≤ 0`、`soc_min ≥ soc_max`、`soc_min < plant.soc_phys_min`（安全层失效）、
+  `eta ∉ (0,1]`、`soc_init ∉ [soc_phys_min, soc_phys_max]`、`grid_p_min > grid_p_max`、
+  `transformer_capacity_kw ≤ 0`、`log_every < 1` …
+- **warning**：`enable_safety_engine = false`、`enable_state_machine = false`、
+  `allow_ready_output = true`、`d_target > transformer_capacity`、
+  `total_correction > l2_correction`、`grid_p_min > 0`（强制买电）、`soc_init` 落在禁充/禁放区 …
+
+## 16.5 JSON 解析器：为"人手写配置"有意放宽 3 处
+
+与严格 JSON 的差异（配置文件是人手维护的，不是机器生成的）：
+
+1. **注释**：`//` 行注释、`#` 行注释、`/* 块注释 */`
+2. **尾逗号**：`{"a":1,}` / `[1,2,]`
+3. **裸键 / 裸标识符**：`{soc_min: 0.1}`、`{mode: auto}`
+
+理由：现场调试时想临时注释掉一行参数，不应该导致整个配置加载失败。
+出错信息带 **行:列**，因为配置错误的第一现场就是"人看文件找问题"。
+
+## 16.6 A/B 对照演示（`--demo`）
+
+只改 3 个参数，证明"只改配置、不改源码"就能改变行为：
+
+| 参数 | 基线 | 收紧 |
+| --- | --- | --- |
+| `limits.transformer_capacity_kw` | 630 | 200 |
+| `limits.d_target_kw` | 320 | 200 |
+| `safety.grid_p_max_kw` | 630 | 200 |
+
+24 h 实测（`dt = 1 s`，86400 拍）：
+
+| 指标 | 基线(630) | 收紧(200) | 变化 |
+| --- | --- | --- | --- |
+| 关口峰值 | 434.0 kW | 292.1 kW | **−141.9 kW** |
+| 购电量 | 4555.8 kWh | 4177.2 kWh | −378.6 kWh |
+| 储能充电量 | 538.6 kWh | 3.2 kWh | −535.4 kWh |
+| 储能放电量 | 365.8 kWh | 192.9 kWh | −172.9 kWh |
+| SOC 区间 | 0.12 ~ 0.88 | 0.10 ~ 0.50 | 可用空间被压死 |
+| 指令逃逸（硬不变量） | 0 拍 | 0 拍 | 保持 |
+
+**读法**：收紧后储能几乎充不进电（变压器 200 kVA 不够同时带负荷和充电），
+SOC 打到下限后只能靠 192.9 kWh 存量放电削峰。这正是"配置过紧"的现场后果 ——
+配置化让它在**离线阶段**就暴露，而不是并网之后。
+
+## 16.7 命令行
+
+```
+ems-config --demo                      # A/B 对照（默认）
+ems-config --apply <file>              # 加载 → 校验 → 装配 → 跑 24h
+ems-config --check <file>              # 语法 + 语义 + 装配检查（上电前用）
+ems-config --roundtrip <file>          # 存取往返一致性
+ems-config --dump-template             # 带注释的配置模板
+ems-config --dump-doc                  # 配置说明（Markdown）
+ems-config --dump-schema               # 字段清单（机器可读 JSON）
+ems-config --capture <out.json>        # 导出运行中实际生效的参数
+ems-config --save-default <out.json>   # 导出内置默认配置
+# 选项：--hours N（默认 24）--fast（dt=2s）--quiet
+```
+
+退出码：`0` 正常 / `1` 配置错误 / `2` 行为验证失败。
+
+**现场用法**：`--dump-template` 生成模板 → 填参数 → `--check` 上电前校验 →
+`--apply` 离线验证 24h → 现场调参后 `--capture` 导出**真实生效值**作为回滚点/交接文档。
+
+## 16.8 现场装配的完整形态
+
+```cpp
+RtDbDeviceIO io(shared_mem_name);      // P3/RT_DB 提供
+EmsRuntime rt;
+rt.attach_device(&io);                 // P0 入口：注入真实适配器
+rt.init();                             // 幂等，不覆盖已注入的 io
+
+EmsConfig cfg;
+ConfigDiagnostics d;
+load_config_file("site.json", &cfg, &d);
+if (!d.ok()) { /* 拒绝启动，打印诊断 */ }
+
+ApplyOptions opt;
+opt.inject_plant = false;              // 现场：dev_ 由真实设备每拍刷新
+apply_config(rt, cfg, opt);            // P1：顺序由这里负责
+```
+
+`inject_plant = false` 是**现场与仿真的关键差异**：现场装配**不把配置里的
+`plant` / `limits` 写进 `dev_`**，因为真实设备的额定与限制是设备每拍给出的权威值，
+配置文件里的是参考值。仿真装配（`10/`）才用 `inject_plant = true`。
+
+## 16.9 测试清单（T201~T218，171 断言）
+
+| 编号 | 内容 |
+| --- | --- |
+| T201 | JSON 解析：标量 / 对象 / 数组 / 嵌套 / 科学计数 |
+| T202 | JSON 放宽语法：注释 / 尾逗号 / 裸键 / 裸标识符 |
+| T203 | JSON 错误定位：报错带 行:列 |
+| T204 | JSON 往返：`dump → parse` 幂等；转义；整数不带小数点 |
+| T205 | 字段绑定：类型不符 → error；未知键 → warning |
+| T206 | 类型容忍：`"0.25"` / `"on"` / `"false"` / `1` / `0` |
+| T207 | 缺省语义：缺 section / 缺字段 → 保留结构体默认值 |
+| T208 | 全配置往返幂等；**字段数 == 89**（漏绑护栏） |
+| T209 | 语义校验：21 类 error + 3 类 warning 逐条命中 |
+| T210 | 语义校验：默认配置 / 样例配置零错误 |
+| **T211** | **装配陷阱①**：反例（limits 被 configure_plant 冲掉）+ 正例 |
+| **T212** | **装配陷阱③**：`shaper().deadband()` 跟随配置 + 行为验证 |
+| **T213** | **装配陷阱②**：协同层设备参数 == `dev_` |
+| T214 | 策略装配：未知 id → error；开关与参数生效；`__weight__` 被忽略 |
+| T215 | 导出回灌：`capture → save → load → apply` 行为一致 |
+| T216 | 端到端：改配置 → 关口峰值下降；硬不变量保持 |
+| T217 | 关键项缺省提示；整节缺省不逐字段提示 |
+| T218 | 文档生成：模板可解析回读；Schema 字段数 == 89 |
+
+## 16.10 全量回归
+
+```
+04=65  05=68  06=34  07=6050  08=444  P0+P0.5=79  09=77  10=144  P1=171
+总计 7132 断言全绿
+[BUILD ALL OK] All 21 components built.
+```
+
+## 16.11 关键认识
+
+1. **"配置化"的难点不是读写文件，而是装配顺序。** 参数搬运本身很浅，
+   真正会出事的是"谁覆盖谁"。P1 的价值集中在 `apply_config()` 那 40 行。
+2. **一张表驱动所有出口，比"写两份映射 + 写一份文档"更省事也更可靠。**
+   文档漂移和读写漂移是同一类问题：同一份事实被手工维护了多次。
+3. **错误信息要给到"第一现场"。** JSON 报 行:列；未知键报键名；
+   未知策略 id 报**已注册的 id 列表** —— 让人不用去翻源码。
+4. **容错要有边界。** 容忍 `"0.25"` 和 `"on"` 是为了现场手抄；
+   但策略 id 打错**必须报错** —— 前者是格式差异，后者是语义错误。
+5. **导出的"实际生效值"比"配置文件"更接近真相。**
+   现场调参之后，配置文件已经不能反映系统真实状态了。
+
+## 16.12 涉及文件
+
+| 文件 | 变更 |
+| --- | --- |
+| `P1/**` | **新增**（5 个 src、1 个 test、1 个 data、3 个 script、1 个 docs） |
+| `04/src/strategy_base.h` | `IStrategy` 增加只读 `params()`（配置导出用） |
+| `04/src/strategy_manager.h` | `StrategyManager` 增加 `get_strategy(id)` |
+| `08/src/dispatch_coordinator.h` | `DispatchCoordinator` 增加 5 个只读设备参数访问器 |
+| `scripts/build_all.bat` | 20 步 → **21 步** |
+| `README.md` | 目录树 + §2.1（21 步 / 7132 断言）+ §2.13（P1）+ 依赖图 + include 表 + 设计索引 |
