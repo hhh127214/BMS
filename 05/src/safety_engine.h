@@ -84,6 +84,19 @@ struct SafetyParams {
     //   这是下游任何死区/滞环都压不住的（安全层优先级最高），必须从量测侧根治。
     //   0.05 ≈ 2 s 时间常数 @ dt=0.1s（一阶低通）。
     double grid_filter_alpha = 1.0;
+    // 并网上界的"下一拍前瞻"幅度上限（kW）。**0 = 关闭（历史行为）**。
+    //
+    // 为什么需要前瞻：现场预报是 15 min 阶梯曲线，base = P_load − P_pv 会在
+    //   阶梯边界**一拍内突降**十几 kW。若只用当拍 base 作并网上界，上一拍按旧
+    //   （更松）边界下发的指令此刻仍在 PCS 死区/惯性里执行 → 关口瞬时倒送。
+    //   开启后安全层取 base_safe = min(base_now, base_next)，把穿越消除在源头。
+    //
+    // 为什么必须设上限：前瞻只在"预报确为环境预测"时才有意义。若预报与实测
+    //   严重不符（例如测试台刻意用"名义曲线"驱动优化层，而环境是另一条曲线），
+    //   无条件相信预报会把并网上界收紧到一个错误的量级，反而破坏需量约束。
+    //   因此只在**降幅不超过本值**时才采纳 —— 超出即判定该预报在此分辨率下
+    //   不可信，退回历史行为（当拍量测）。
+    double grid_lookahead_max_drop_kw = 0.0;
     double grid_freq_min_hz = 49.5;
     double grid_freq_max_hz = 50.5;
     double grid_volt_min_pu = 0.90;
@@ -678,7 +691,6 @@ private:
         // -----------------------------------------------------------------
         const double base = rt.p_load_kw - rt.p_pv_kw;
         const double half = p_.tr_overload_th * cap - rt.p_load_kw * p_.tr_load_pv_share;
-
         c.active = true;
 
         if (half <= 0.0) {
@@ -699,8 +711,7 @@ private:
         //   过载，也不比现在好）。正确做法是**尽力而为**：顶到设备能力的边界上，
         //   把负载率压到最低。这也是现场保护装置的行为（饱和输出，而非放弃）。
         const double lo = base - half;
-        const double hi = base + half;
-        if (lo > c.p_upper) {
+        const double hi = base + half;        if (lo > c.p_upper) {
             // 需要更多放电才能缓解，但设备放不了这么多 → 顶到放电上限
             c.p_lower = c.p_upper;
             c.reason  = extreme ? "tr_extreme_sat_discharge" : "tr_sat_discharge";
@@ -745,10 +756,22 @@ private:
             grid_base_f_ = base_raw;
         }
         const double base = grid_base_f_;
+        // 前瞻：预报为 15 min 阶梯时，base 会在阶梯边界一拍内突降，而上一拍按
+        // 旧（更松）上界下发的指令仍在 PCS 里执行 → 关口瞬时倒送。取当拍与
+        // 下一拍的**较小** base（更紧的上界）即可消除该穿越。
+        // 但只在降幅可信（≤ 上限）时采纳，否则退回历史行为（当拍量测）——
+        // 理由见 SafetyParams::grid_lookahead_max_drop_kw 注释。
+        double base_safe = base;
+        if (rt.has_lookahead && p_.grid_lookahead_max_drop_kw > 0.0) {
+            const double base_next = rt.p_load_next_kw - rt.p_pv_next_kw;
+            const double drop = base - base_next;
+            if (drop > 0.0 && drop <= p_.grid_lookahead_max_drop_kw)
+                base_safe = base_next;
+        }
 
         // 不允许倒送（或限制最大倒送）
         if (p_.grid_p_min_kw > -1e8) {
-            double upper_by_grid = base - p_.grid_p_min_kw;
+            double upper_by_grid = base_safe - p_.grid_p_min_kw;
             if (upper_by_grid < c.p_upper) {
                 c.p_upper = upper_by_grid;
                 c.active  = true;

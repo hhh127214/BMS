@@ -136,6 +136,16 @@ struct RealtimeSnapshot {
     // 实际电池功率反馈（P_bat 约定：放电为正）。
     // 周期 7 实时闭环用：PCS 执行后的**实测值**回灌下一拍，形成闭环。
     double    p_bat_actual_kw = 0.0;
+
+    // ---- 下一控制拍的负荷/光伏预测量（来自预报曲线，可为空）----
+    // 为什么需要前瞻：并网"无倒送"上界由 base = P_load − P_pv 决定，而现场
+    //   预报通常是 15 min 阶梯。阶梯跳变会让 base 在一个控制拍内突降十几 kW，
+    //   而此时按旧边界下发的指令仍在 PCS 死区/惯性里执行 → 关口瞬时倒送。
+    //   安全层取 min(base_now, base_next) 作上界即可消除该穿越。
+    // has_lookahead=false 时安全层行为与历史**完全一致**（向后兼容）。
+    bool      has_lookahead  = false;
+    double    p_load_next_kw = 0.0;
+    double    p_pv_next_kw   = 0.0;
     double    soc       = 0.5;       // 当前 SOC [0.0, 1.0]
     double    temperature_c = 25.0;  // 电池温度
     double    soh       = 1.0;       // 电池健康度 [0.0, 1.0]

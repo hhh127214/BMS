@@ -101,12 +101,24 @@ BMS/
 │   ├── scripts/                              ← build.bat / build_test.bat / run_demo.bat / gen_day_plan_sample.py
 │   └── build/                                ← coord_demo.exe + test_dispatch_coordinator.exe
 │
-└── 09/                                       ← 周期 9：多策略组合测试（闭环时序级，C++17 头文件库）
-    ├── src/scenario_runner.h                 ← 7 场景定义 + 闭环运行器 + 稳态判定窗口
-    ├── tests/test_multi_strategy.cpp         ← T91~T97（77 断言，12000 拍/场景）
-    ├── docs/README.md                        ← 场景表 / 不变量口径 / 4 个真实缺陷复盘
-    ├── scripts/build_test.bat                ← 编译 + 运行
-    └── build/                                ← test_multi_strategy.exe
+├── 09/                                       ← 周期 9：多策略组合测试（闭环时序级，C++17 头文件库）
+│   ├── src/scenario_runner.h                 ← 7 场景定义 + 闭环运行器 + 稳态判定窗口
+│   ├── tests/test_multi_strategy.cpp         ← T91~T97（77 断言，12000 拍/场景）
+│   ├── docs/README.md                        ← 场景表 / 不变量口径 / 4 个真实缺陷复盘
+│   ├── scripts/build_test.bat                ← 编译 + 运行
+│   └── build/                                ← test_multi_strategy.exe
+│
+└── 10/                                       ← 周期 10：EMS 24h 离线仿真测试（C++17 头文件库）
+    ├── src/day_curves.h                      ← 日曲线导入（CSV / 内置典型日）+ 曲线统计
+    ├── src/econ_metrics.h                    ← 两部制经济性核算（需量窗口平均 + 衰减摊销）
+    ├── src/sim_24h.h                         ← 24h 场景装配 + 故障时间窗注入 + 不变量校验
+    ├── src/sim_report.h                      ← 产物导出：timeseries.csv / alarms.csv / summary.json / report.html
+    ├── src/main.cpp                          ← 演示程序（典型日 / 故障注入日）
+    ├── tests/test_sim_24h.cpp                ← T101~T110（133 断言）
+    ├── data/typical_day_96.csv               ← 典型日曲线（96 点 × 15 min）
+    ├── scripts/gen_curves.py                 ← 曲线生成器
+    ├── docs/README.md                        ← 经济性口径 / 缺陷复盘 / 故障注入语义
+    └── build/                                ← sim_demo.exe + test_sim_24h.exe
 ```
 
 > **为什么周期 5~8 拆成 4 个模块**：`05/06/07/08` 与设计方案 §7 的四个周期**一一对应**，
@@ -147,12 +159,14 @@ scripts\build_all.bat
 08\build\coord_demo.exe                     周期 8 场景 D：24h 分层协同
 08\build\test_dispatch_coordinator.exe      08/ 单元测试（T17~T20 / 444 断言）
 09\build\test_multi_strategy.exe            09/ 单元测试（T91~T97 / 77 断言；7 场景 × 12000 拍闭环）
+10\build\sim_demo.exe                        周期 10 场景 E：EMS 24h 离线仿真（产物 report.html 等 4 个文件）
+10\build\test_sim_24h.exe                    10/ 单元测试（T101~T111 / 144 断言）
 ```
 
-**全量回归：6817 断言全绿**（04=65 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / 09=77），
-`[BUILD ALL OK] All 19 components built.`
+**全量回归：6961 断言全绿**（04=65 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / 09=77 / 10=144），
+`[BUILD ALL OK] All 20 components built.`
 
-可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ 的单元测试（共 18 步 → 只跑 10 步）。
+可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ 的单元测试（共 20 步 → 只跑 11 步）。
 
 ### 2.2 跑 B 组 C 策略服务
 
@@ -347,6 +361,47 @@ scripts\build_test.bat                 :: 编 + 跑 T91~T97（应输出 PASS=77 
 > （变化率区间从 `as_results()` 逃逸造成假区间矛盾、区间同步后为空、门控时权限区间未收成 `[0,0]`、
 > 变压器约束的方向性错误 + 缺前馈）。详见 [`09/docs/README.md`](./09/docs/README.md)。
 
+### 2.12 跑 EMS 24h 离线仿真（周期 10 产出）
+
+```bat
+cd 10
+scriptsuild_test.bat                 :: 编 + 跑 T101~T110（应输出 PASS=133 FAIL=0）
+scriptsun_demo.bat                   :: 跑典型日 + 故障注入日，产物落 build\
+```
+
+24 h = **86400 拍（dt = 1 s）**，装配 04~09 全栈，导入负荷 / 光伏 / 电价曲线与设备参数，
+输出 4 个可交付产物：
+
+| 产物 | 内容 |
+| --- | --- |
+| `timeseries.csv` | 逐拍时序 20 列（负荷 / 光伏 / 关口 / 指令 / 实际 / SOC / 温度 / 权限区间 / 原因） |
+| `alarms.csv` | 告警日志（FSM SOE + 关口 + 变压器 + SOC + 安全限幅 + 温度 + 故障位） |
+| `summary.json` | 机器可读汇总（曲线 / 经济 / 状态 / 不变量 / 告警 / 故障 / 配置） |
+| **`report.html`** | **单文件可视化报告**：内联 SVG 折线、无 JS 依赖、离线可看可打印 |
+
+**经济性（典型日，1000 kWh / 250 kW）**：日总电费 3622 元（无储能 4356 元），
+节省 **734 元/日**，扣电池衰减 162 元/日，**净收益 572 元/日**，节省 16.9%，静态回收期 5.75 年。
+
+演示程序参数：
+
+```bat
+build\sim_demo.exe                          :: 内置典型日 → build\
+build\sim_demo.exe --csv data\typical_day_96.csv
+build\sim_demo.exe --fault --out build\fault :: 故障注入日（PCS 故障 / BMS 通信中断 / 电表中断）
+build\sim_demo.exe --log-every 1             :: 单拍粒度（排查瞬态必备）
+```
+
+> **不变量分两类**：**硬不变量**（指令逃逸 / 功率超限 / 门控）是 EMS 对设备端的契约，
+> 任何场景（含故障日）都必须逐拍成立，违反即架构级问题；**安全不变量**（关口 / 变压器 / SOC）
+> 是物理量，受**能量预算**约束 —— SOC 用尽即无削峰能力，越限是有效场景结论而非缺陷。
+> 报告用 `grid_breach_soc_limited` 把可归因部分单独统计。
+>
+> **本周期修复了 2 个缺陷**：① 15 min 阶梯预报跳变导致关口瞬时倒送（单拍粒度下 1 拍 −7.9 kW，
+> 10 拍粒度下被完全掩盖）—— 安全层并网上界引入"带可信度上限的下一拍前瞻"；
+> ② 稳态判定窗口按日志行数比较，导致不变量结论依赖 `log_every` —— 改为按**时间**定义。
+> 另得一个场景结论：故障日能量轨迹改变 → 储能提前触底 → 傍晚无容量削峰（220/220 拍可归因）。
+> 详见 [`10/docs/README.md`](./10/docs/README.md)。
+
 ---
 
 ## 3. 架构层关系
@@ -403,11 +458,12 @@ PCS / BMS
 
 ```
   04/ ──► 05/ ──► 06/ ──┐
-    │                   ├──► 07/ ──► 08/ ──► 09/
+    │                   ├──► 07/ ──► 08/ ──► 09/ ──► 10/
     └───────────────────┴──────────────┘
         04/ 被所有模块复用（策略基类 / 数据模型 / 仲裁器 / **device_io**）
-        09/ 是**验证层**（周期 9）：装配 04~08 全栈跑 12000 拍闭环时序，
-            不产出被其他模块依赖的头文件
+        09/ 是**验证层**（周期 9）：装配 04~08 全栈跑 12000 拍闭环时序
+        10/ 是**装配层**（周期 10）：把全栈装进可配置的 24h 场景，产出交付物
+        09/ 与 10/ 都不产出被其他模块依赖的头文件
 ```
 
 | 模块 | 头文件搜索路径 | 说明 |
@@ -417,6 +473,7 @@ PCS / BMS
 | `07/` | `src` `../04/src` `../05/src` `../06/src` `../08/src` | `EmsRuntime` 装配 08/ 的协同层；P0 新增 `device_io.h` |
 | `08/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` | 演示与 T20 用 07/ 做端到端 |
 | `09/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 只用 07/ 的 `EmsRuntime`，不反向被依赖 |
+| `10/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 只用 07/ 的 `EmsRuntime`；曲线复用 08/ 的 `ForecastSeries` |
 
 > `07/` 与 `08/` 互为**运行时调用关系**（闭环调用优化层 / 端到端用闭环），但**头文件层面无环**：
 > `08/src/*.h` 不包含 `07/` 的任何头文件。这是 header-only 库的天然优势 —— 编译顺序无关，
@@ -442,6 +499,7 @@ PCS / BMS
 - **实时控制闭环（周期 7）** → [`07/docs/README.md`](./07/docs/README.md)、[`07/docs/design.md`](./07/docs/design.md)
 - **优化调度与实时控制协同（周期 8）** → [`08/docs/README.md`](./08/docs/README.md)、[`08/docs/design.md`](./08/docs/design.md)
 - **多策略组合测试（周期 9 · 闭环时序级）** → [`09/docs/README.md`](./09/docs/README.md)
+- **EMS 24h 离线仿真测试（周期 10）** → [`10/docs/README.md`](./10/docs/README.md)
 - **产品化 P0：算法 ↔ 设备解耦（IDeviceIO / SimDeviceIO / MemoryDeviceIO）** → [`docs/产品化/P0-架构分层.md`](./docs/产品化/P0-架构分层.md)
 - **多策略协同的接口约定** → [`docs/接口规范/EMS策略接口规范.md`](./docs/接口规范/EMS策略接口规范.md)（§2.5 仲裁算法即 04/strategy_arbiter.h 的实现依据）
 

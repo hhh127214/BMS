@@ -633,7 +633,11 @@ public:
 
     // 汇总指标
     LoopMetrics metrics() const {
-        LoopMetrics m = LoopMetrics::compute(log_, cfg_.dt_s);
+        // 日志按 log_every 降采样存储，故相邻日志记录的时间间隔是 dt_s×stride，
+        // 而不是 dt_s。指标里的"率"（flip/rev/travel per second）依赖该间隔 ——
+        // 传 dt_s 会让所有率被放大 stride 倍（长时仿真下 stride 可达 10~100）。
+        const int stride = cfg_.log_every < 1 ? 1 : cfg_.log_every;
+        LoopMetrics m = LoopMetrics::compute(log_, cfg_.dt_s * stride);
         int n = static_cast<int>(log_.size());
         m.mean_cycle_us = n ? cycle_us_sum_ / n : 0.0;
         m.max_cycle_us  = cycle_us_max_;
@@ -760,6 +764,16 @@ private:
             bool valley = (h < 8.0 || h >= 22.0);
             rt.pricing.cur_tou_type  = valley ? TouType::kValley : TouType::kPeak;
             rt.pricing.cur_tou_price = valley ? 0.30 : 0.90;
+        }
+
+        // 下一拍预测（供安全层的并网/变压器边界做前瞻，消除阶梯跳变穿越）
+        if (fc_.loaded && fc_.size() > 0) {
+            double ln = 0.0, pn = 0.0;
+            if (fc_.sample(t_ + dt_s, &ln, &pn, nullptr)) {
+                rt.p_load_next_kw = ln;
+                rt.p_pv_next_kw   = pn;
+                rt.has_lookahead  = true;
+            }
         }
 
         // 需量窗口（滑动平均，O(1) 增量维护，避免长时仿真 O(N) 求和）
