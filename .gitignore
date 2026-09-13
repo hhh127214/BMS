@@ -15,6 +15,7 @@
 
 # Build output directories
 **/build/
+**/out/
 **/logs/
 **/log/
 

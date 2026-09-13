@@ -1099,3 +1099,379 @@ apply_config(rt, cfg, opt);            // P1：顺序由这里负责
 | `08/src/dispatch_coordinator.h` | `DispatchCoordinator` 增加 5 个只读设备参数访问器 |
 | `scripts/build_all.bat` | 20 步 → **21 步** |
 | `README.md` | 目录树 + §2.1（21 步 / 7132 断言）+ §2.13（P1）+ 依赖图 + include 表 + 设计索引 |
+
+---
+
+# 17. 产品化 P2 —— 可观测性（现场出问题能看见）
+
+> 路线：P0 架构分层 ✅ → P0.5 适配器可换性 ✅ → P1 配置化 ✅ → **P2 可观测性** → P3 通信 → RT_DB 接入
+
+## 17.1 新增模块 `P2/`
+
+```
+P2/
+├── src/soe.h          统一事件记录（SOE）+ 时间窗抑制
+├── src/metrics.h      增量指标注册表（counter / gauge / histogram，O(1)）
+├── src/trace.h        跟踪等级 + 采样间隔（按子系统独立，运行期热更新）
+├── src/observe.h      RuntimeObserver —— 接入 EmsRuntime 的唯一入口
+├── src/main.cpp       演示程序 ems_observe.exe
+├── tests/test_observe.cpp   T301 ~ T315（434 断言）
+├── docs/README.md     设计文档
+└── scripts/           build.bat / build_test.bat / run_demo.bat
+```
+
+**关键约束：不修改 `07/`。** 观察者从外部喂 `StepRecord`，`obs.on_step(rt, rec)` 是唯一接入点：
+
+```cpp
+EmsRuntime rt;  rt.init();
+RuntimeObserver obs;
+obs.start(0.0);
+for (...) {
+    rt.set_environment(load, pv);
+    StepRecord rec = rt.step(dt);
+    obs.on_step(rt, rec);          // ← 唯一的接入点
+}
+obs.stop(t);
+```
+
+理由：可观测性不该侵入被测对象。`07/` 的 `step()` 已经是"一次闭环"的完整语义，
+观察者只读它的输出 + 只读访问 `rt` 的公开状态（`fsm().history()` / `safety_params()` /
+`device_limits()` / `config()`）。
+
+## 17.2 为什么需要 P2：可观测性散在三个模块、三种表示
+
+P1 解决了"不改源码就能适配现场"。现场跑起来之后的第一个问题是**看不见**。
+
+| 位置 | 表示 | 问题 |
+| --- | --- | --- |
+| `06/state_machine.h` | `StateEvent{ts, from, to, reason}` | 只有状态迁移，没有等级 / 事件码 |
+| `10/src/sim_24h.h` | `AlarmEntry` + `collect_alarms()` | **告警组装寄生在仿真装配层**（入参是 `Sim24hConfig`）→ **现场部署后系统没有告警能力** |
+| `07/realtime_loop.h` | `StepRecord` 向量 | 是时序不是事件；`LoopMetrics::compute(log_, …)` 是 **O(N) 全量重算**，24h 日志 8.6 MB **只增不减** |
+| `07/realtime_loop.h` | `cycle_us_sum_ / max_` | 只有均值与最大值，**没有直方图 / 分位数** |
+
+三个具体缺陷：
+
+**① 事件风暴没有框架级抑制。** 周期 10 实测：收紧配置下 `safety_clip` 连续 **838 拍**。
+逐拍记事件就是 838 条。`10/` 里手工实现了"记首次 + 恢复"，但**每个指标都要手写一遍**：
+
+```cpp
+bool in_reverse = false, in_tr_over = false, in_soc_hi = false, in_soc_lo = false;
+bool in_clip = false;
+// … 下面每个 if 都要自己维护对应的 in_xxx 标志，重复 5 遍
+```
+
+**② 指标必须保留全部 StepRecord。** 24 h @ dt=1 s = 86400 条 × 约 100 B ≈ 8.6 MB，
+**只增不减**；现场连续跑一年就是 3 GB。而且 `metrics()` 每次 O(N) 重算 ——
+不可能每秒调一次给监控系统。
+
+**③ `log_every` 一个旋钮承担两个冲突的职责。** 「保真」要 `log_every=1`，
+「省资源」要 `log_every=100`。周期 10 已经吃过一次亏：
+**倒送缺陷在 `log_every=10` 下显示 0 违规，`log_every=1` 才暴露。**
+**为了省资源而调大 `log_every`，等于同时关掉了故障可见性。**
+
+## 17.3 两个核心机制
+
+### ① 边沿检测 → SOE：事件是"状态的变化"，不是"每拍的值"
+
+一次持续 838 拍的安全限幅，物理上是**一件事**，应该产生 **2 条**事件（Start / End），
+不是 838 条。观察者保存上一拍的布尔量，只在跳变时记事件 —— 收敛成一张 `edge_state_` 表
+（`std::array<bool, 1024>`，按 `SoeCode` 下标索引），替代了 `10/` 里手工维护的 5 个 `in_xxx` 标志。
+
+**例外：状态迁移与硬不变量违例不参与抑制（`suppressible = false`）。**
+合并它们会丢掉迁移链 —— `A→B→C` 会变成 `A` 重复 2 次，而迁移链正是要留的：
+
+```cpp
+// soe.h
+bool suppressible = true;   // false 用于"每次都独立成条"的事件
+```
+
+### ② 时间窗抑制：同 `(source, code)` 在窗口内合并
+
+```
+一次 838 拍的限幅  →  1 条 SAFETY_CLIP_START(repeat_count=838, duration_s=837)
+                  +  1 条 SAFETY_CLIP_END
+```
+
+窗口从**上一次发生时刻**起算（滑动窗口），所以持续数小时的风暴会一直合并成一条，
+`duration_s()` 就是风暴时长。合并时 `merge_data()` 保留**绝对值更大**的字段值，
+保证抑制后不丢峰值信息（例如最大越限幅度）。
+
+### ③ 逐拍累积 → 指标：O(1) 更新，与 `log_every` 无关
+
+指标走自己的累积路径，**不经过日志降采样**。这对下面两个量是决定性的：
+`cmd_travel_kw = Σ|Δcmd|`（指令总行程）与 `cmd_reversals`（方向反转次数）——
+降采样会**漏掉中间的抖动**，而"抖动"恰恰是它们要度量的东西。
+
+## 17.4 三个正交的旋钮（替代单一 `log_every`）
+
+| 维度 | 载体 | 现场用法 |
+| --- | --- | --- |
+| ① **关键事件** | `SoeLog` | 永远记，不受任何降采样影响。频率天然很低（838 拍限幅 → 2 条） |
+| ② **跟踪等级** | `TraceControl::set_level()` | 按子系统决定"要不要输出细节"。排查某子系统时把它调到 `kDebug`，其他不受影响。运行期热更新，不用重启 |
+| ③ **采样间隔** | `TraceControl::set_sample_every()` | 高频跟踪按子系统采样。与 `log_every` 的区别是**按子系统独立**，且**不影响 SOE** |
+
+**故障级（`>= kError`）永不受等级限制**：
+
+```cpp
+bool enabled(SoeSource s, SoeLevel lv) const {
+    if (lv >= SoeLevel::kError) return true;   // 故障级别**永不受等级限制**
+    return lv >= level(s);
+}
+```
+
+否则会出现"现场把日志等级调高省资源，结果把故障也调没了"这种事故。
+
+## 17.5 事件分级
+
+等级（可比较、可统计）：`kDebug(0)` < `kInfo(1)` < `kWarn(2)` < `kError(3)` < `kFatal(4)`。
+来源（9 个子系统）：`SYSTEM` / `FSM` / `SAFETY` / `COORD` / `STRATEGY` / `DEVICE` / `COMM` / `CONFIG` / `ECON`。
+
+事件码命名约定 `Start` / `End` 成对出现 —— 这是"边沿检测 + 抑制"的直接产物：
+
+| 区段 | 示例 |
+| --- | --- |
+| 100–102 | `FSM_TRANSITION` / `FSM_EMERGENCY_STOP` / `FSM_RUN_PERMIT` |
+| 200–215 | `SAFETY_CLIP_START/END` / `GRID_REVERSE_START/END` / `TR_OVERLOAD_START/END` / `SOC_LOW_START/END` / `SOC_HIGH_START/END` / `TEMP_HIGH_START/END` / `RAMP_LIMITED_START/END` |
+| 300–311 | `COMM_LOST_BMS/METER/PCS` / `COMM_RESTORED` / `DATA_STALE_START/END` / `PCS_FAULT_SET/CLEAR` / `DEVICE_OFFLINE/ONLINE` / `HOLD_LAST_START/END` |
+| 400–402 | `REOPT_FIRED` / `PLAN_INVALID_START` / `PLAN_VALID_END` |
+| 500–501 | `DEMAND_BREACH_START/END` |
+| 900–903 | `OBSERVER_START/STOP` / `BUFFER_OVERFLOW` / `INVARIANT_BROKEN` |
+
+**清除事件码必须与置位事件码配对**，否则现场看到"PCS 故障置位"却收到"通信恢复"会直接误判根因：
+
+| 故障位（`FaultSet::bits()`） | 置位事件 | 清除事件 |
+| --- | --- | --- |
+| 0 `bms_comm_lost` | `COMM_LOST_BMS` | `COMM_RESTORED` |
+| 1 `pcs_comm_lost` | `COMM_LOST_PCS` | `COMM_RESTORED` |
+| 2 `meter_comm_lost` | `COMM_LOST_METER` | `COMM_RESTORED` |
+| 3 `pcs_fault` | `PCS_FAULT_SET` | **`PCS_FAULT_CLEAR`** |
+| 4 `data_invalid` | `DATA_STALE_START` | **`DATA_STALE_END`** |
+| 5 `device_offline` | `DEVICE_OFFLINE` | **`DEVICE_ONLINE`** |
+| 6 `temp_fault` | `TEMP_HIGH_START` | **`TEMP_HIGH_END`** |
+| 7 `emergency_stop` | `FSM_EMERGENCY_STOP` | `COMM_RESTORED` |
+
+## 17.6 有界内存与自省
+
+可观测性组件**必须能报告自己的数据丢失**，否则比没有更危险 ——
+"什么都没输出"到底是"真的没事"还是"缓冲区爆了"？
+
+| 指标 | 含义 |
+| --- | --- |
+| `SoeLog::size()` | 当前存储条数（≤ `capacity`，默认 4096 条 ≈ 600 KB） |
+| `SoeLog::dropped()` | 被容量**淘汰**的条数（超出上限即淘汰最旧） |
+| `SoeLog::total()` | 累计 `push` 次数（含被抑制的） |
+| `SoeLog::suppressed()` | 被时间窗**合并**的次数 |
+| `TraceControl::filtered_total()` | 被等级/采样过滤掉的条数 |
+| `TraceControl::passed_total()` | 实际输出的条数 |
+
+`total() - size() - dropped()` 就是"被抑制合并"的量。三个数一起看才不会误判。
+
+条目用 `std::list` 存储 —— 需要**稳定迭代器**（抑制时原地更新、淘汰时从头部删除）。
+SOE 是事件级频率（每秒几条），不是拍级，所以链表较差的局部性在这里不是问题。
+
+## 17.7 导出
+
+| 格式 | 用途 |
+| --- | --- |
+| `soe.csv` | 运维用 `grep` / `wc -l` 直接看。**一事件一行** |
+| `soe.json` | 带 `summary` 统计，给上层平台解析 |
+| `metrics.prom` | Prometheus 文本格式，直接被监控系统 scrape |
+| `metrics.json` | 含直方图 `p50/p95/p99`，给人看 |
+| `trace.json` | 当前跟踪配置与过滤统计 |
+
+## 17.8 命令行与实测
+
+```bat
+build\ems_observe.exe --demo 24            :: 24h 闭环 + 观察者汇总（SOE / 指标 / 分位）
+build\ems_observe.exe --decouple           :: 指标与 log_every 无关（核心价值验证）
+build\ems_observe.exe --fault 12           :: 故障场景 SOE（置位/清除事件对）
+build\ems_observe.exe --export out 24      :: 导出 soe.csv / soe.json / metrics.prom / metrics.json
+```
+
+退出码：`0` 正常 / `1` 参数错误 / `2` 运行期失败（含硬不变量被破坏）。
+
+### `--decouple`：核心价值实测
+
+场景：3600 拍，负荷在 300/50 kW 之间每 5 拍切换（持续充放换向），只改 `log_every`。
+
+| log_every | 观察者行程 | 观察者换向 | 日志行数 | `07/` 日志行程 |
+| --- | --- | --- | --- | --- |
+| 1 | 88477.8 kW | 719 | 3600 | 88477.8 kW |
+| 10 | **88477.8 kW** | **719** | 360 | **0.0 kW** |
+
+`log_every=10` 时 `07/` 报的指令总行程是 **0**，真实值 **88477.8 kW** —— **完全失明**；
+观察者不受影响。同时 `log_every=1` 时两者口径**完全一致**（88477.8 / 719），
+验证观察者本身是对的。
+
+### `--fault`：故障场景 SOE（12 h，43200 拍 → 18 条事件，2400:1 压缩）
+
+```
+17281.0    ERROR FSM      FSM_TRANSITION      1  状态迁移 DERATED → FAULT (fault_in_derated:PCS_FAULT)
+17281.0    ERROR DEVICE   PCS_FAULT_SET       1  故障位置位: PCS 故障
+17881.0    INFO  DEVICE   PCS_FAULT_CLEAR     1  故障位清除: PCS 故障
+17900.0    INFO  FSM      FSM_TRANSITION      1  状态迁移 FAULT → READY (fault_recovered)
+19081.0    ERROR COMM     COMM_LOST_METER     1  故障位置位: 关口电表通信丢失
+19086.0    ERROR COMM     HOLD_LAST_START     1  采集超时 → 保持上一拍指令
+19381.0    INFO  COMM     HOLD_LAST_END       1  采集恢复
+20881.0    ERROR FSM      FSM_TRANSITION      1  状态迁移 READY → FAULT (fault_in_ready:PCS_COMM_LOST)
+```
+
+每条故障成对（置位 / 清除），每条迁移都带 `reason`。
+
+## 17.9 缺陷修复（P2 开发中发现）
+
+### ① 观察者重复状态：成员与 `tot_` 并存，更新一套、读另一套
+
+**现象**：冒烟测试输出 `关口 min/max 0 / 0`、`SOC min/max/end 1 / 0 / 0` —— 明显不可能。
+
+**根因**：`on_step()` 更新的是成员 `min_grid_` / `soc_min_` / `soc_max_` / `soc_end_`，
+而 `summary_text()` 读的是 `tot_.min_grid_kw` / `tot_.soc_min` …… 两份状态，只更新了一份。
+
+**修法**：删掉全部重复成员，只保留 `tot_`（`ObserverTotals`）。
+
+### ② `sign_flips` 与 `cmd_reversals` 语义混淆，两者必然相等
+
+**现象**：初版两个计数器的值**永远相等**（例如都是 119）。
+
+**根因**：两处都在看**增量 `Δcmd` 的符号**：
+
+```cpp
+if (d_step > 1e-9)      { if (last_sign_ < 0) { ++tot_.sign_flips; ++tot_.cmd_reversals; } ... }
+else if (d_step < -1e-9){ if (last_sign_ > 0) { ++tot_.sign_flips; ++tot_.cmd_reversals; } ... }
+```
+
+**修法**：两个量语义**不同**，不能合并 ——
+`sign_flips` 看 `p_cmd` 自身过零；`cmd_reversals` 看 `Δcmd` 的符号翻转。
+阈值与 `07/LoopMetrics::compute` 同口径（`sign_eps=0.5` / `dir_eps=2.0`，提为 `ObserverConfig` 字段），
+但判定是**逐拍**的 —— `07/` 是在（可能被降采样的）日志上判定。
+
+### ③ FSM 迁移漏掉第一拍（`INIT → SELF_CHECK`）
+
+**现象**：T313 交叉校验失败 —— 观察者记录的迁移数比 `10/` 少 1。
+
+**根因**：观察者自己用 `prev_state_` 做边沿检测，第一拍没有 `prev`，
+于是把 `SELF_CHECK` 当成"初始状态"记下来，**吃掉了 `INIT → SELF_CHECK` 这条迁移**。
+
+**修法**：**不自己推导，直接读状态机的权威记录 `rt.fsm().history()`**，
+用 `hist_seen_` 记录已消费条数。额外收益：迁移自带 `reason`
+（现场要的是"为什么迁"，不是"迁到哪"），SOE 消息从
+`状态迁移 READY → NORMAL` 变成 `状态迁移 READY → NORMAL (start_command)`。
+
+### ④ CSV 内嵌裸换行 → 一条事件跨多行
+
+**现象**：T305 断言 CSV 行数失败（4 行变 5 行）。
+
+**根因**：消息里的 `\n` 被直接写进引号字段。RFC 4180 允许引号内嵌换行，
+但那样一条事件跨多行，**运维用 `wc -l` / `grep` 统计时全线错位**。
+
+**修法**：`escape_csv()` 把 `\n` / `\r` 转成字面量 `\n` / `\r`。
+**SOE 导出必须"一事件一行"。**
+
+### ⑤ 故障位清除事件码不配对
+
+**现象**：`PCS_FAULT_SET` 之后收到的是 `COMM_RESTORED`（"通信恢复"）。
+
+**根因**：所有故障位的清除都硬编码用 `SoeCode::kCommRestored`。
+
+**修法**：新增 `fault_clear_code(bit)`，逐位配对 ——
+`pcs_fault → PCS_FAULT_CLEAR`、`device_offline → DEVICE_ONLINE`、
+`data_invalid → DATA_STALE_END`、`temp_fault → TEMP_HIGH_END`。
+另外补上 bit 7 `emergency_stop`（原来落进 `default` 被当成 `INVARIANT_BROKEN`）。
+
+### ⑥ 【既有缺陷】README 里两处路径的反斜杠被转义吃掉了
+
+**现象**：`file README.md` 报告 "with CR, LF line terminators"。
+
+**根因**：早前某次 Python 写入时，字符串里的 `\r` / `\b` 被当成转义序列解释，
+路径里的反斜杠变成了控制字符 —— 共 2 处：
+
+| 位置 | 实际字节 | 渲染结果 |
+| --- | --- | --- |
+| `scripts\run_demo.bat`（§2.12） | `scripts` + **0x0D(CR)** + `un_demo.bat` | `scriptsun_demo.bat` |
+| `scripts\build_test.bat`（§2.12） | `scripts` + **0x08(BS)** + `uild_test.bat` | `scriptsuild_test.bat` |
+
+**修法**：按字节替换回 `\`。修复后 README 为纯 LF（666 个 LF，0 个 CR，0 个 BS）。
+
+**排查方法**（值得固化成习惯）—— 全文扫描控制字符，而不是只看 `file` 的 CR 报告：
+
+```python
+for b, name in ((0x08, "BS"), (0x0c, "FF"), (0x0b, "VT")):
+    if raw.count(bytes([b])): print(name, raw.count(bytes([b])))
+ncr = raw.count(b"\r") - raw.count(b"\r\n")
+if ncr: print("bare CR", ncr)
+```
+
+只看 CR 会漏掉 `\b` —— 这两处就是这么被发现第二处的。
+
+**教训**：Windows 上用 Python 改文件时，`\r` / `\t` / `\b` 这类转义要么写双反斜杠，
+要么用 raw string —— 与已知的 `.bat` 吞 CR 是同一类问题。
+
+## 17.10 测试清单（T301~T315，434 断言）
+
+| 编号 | 内容 |
+| --- | --- |
+| T301 | 枚举：等级 / 来源 / 事件码 / 名称互转（含"每个码都必须有名字"遍历，防止新增枚举忘补 switch） |
+| T302 | 时间窗抑制：838 拍风暴 → 1 条 Start + 1 条 End；窗口边界；关闭抑制；不同 `(source,code)` 互不干扰 |
+| T303 | 抑制例外：状态迁移链不被合并（`suppressible=false`）+ 正反对照 |
+| T304 | 有界内存：容量淘汰 + `dropped` 如实上报 + 保留的是**最新**而非最旧 + `reset()` 清零 |
+| T305 | 导出：CSV 引号/换行转义（一事件一行）、JSON 结构、`filter_*` / `count*` 查询 |
+| T306 | 指标增量：counter / gauge（记极值）/ histogram（O(1)）；幂等注册；未注册名字不崩 |
+| **T307** | **指标与 `log_every` 无关**（核心：行程 / 符号翻转 / 方向反转 / 能量 / 硬不变量逐拍精确） |
+| T308 | 直方图分位（含 `+Inf` 桶回落、空直方图、桶边界 `le` 语义） |
+| T309 | Prometheus 文本格式 + 指标名净化（非法字符 / 非法首字符） |
+| T310 | 跟踪等级过滤：**故障级永不受限**（全局调到 FATAL 时 ERROR 仍输出） |
+| T311 | 采样间隔：按子系统独立；只有 `kDebug` 级走采样，事件级不受影响 |
+| T312 | 观察者端到端：24h 默认场景 + 硬不变量 + 事件级压缩比 + 迁移链完整 |
+| T313 | 与 `10/` 结果交叉校验（`log_every=1` 时关口极值 / 三项硬不变量 / 能量 / 迁移数完全一致） |
+| T314 | 故障场景事件：PCS 故障 / 电表通信 / PCS 通信 → 置位/清除事件对 + 门控正确 |
+| T315 | 观察者自身可观测：`suppressed` / `dropped` / `filtered` / `passed` + `reset()` 可复用 |
+
+T307 的关键断言（观察者 vs `07/` 日志口径）：
+
+```cpp
+// log_every=1：两者口径一致（验证观察者正确）
+EXPECT_NEAR(o1.totals().cmd_travel_kw, n1.cmd_travel_kw, 1e-6);
+EXPECT(o1.totals().cmd_reversals == n1.cmd_reversals);
+
+// log_every=10：07/ 失明，观察者不受影响（验证观察者价值）
+EXPECT(n10.cmd_travel_kw < 1e-9);
+EXPECT(o10.totals().cmd_travel_kw > 1000.0);
+```
+
+## 17.11 全量回归
+
+```
+04=65  05=68  06=34  07=6050  08=444  P0+P0.5=79  09=77  10=144  P1=171  P2=434
+总计 7566 断言全绿
+[BUILD ALL OK] All 22 components built.
+```
+
+## 17.12 关键认识
+
+1. **可观测性组件必须能报告自己的数据丢失。** `dropped()` / `suppressed()` /
+   `filtered_total()` 不是锦上添花 —— 没有它们，"什么都没输出"就分不清是
+   "真的没事"还是"缓冲区爆了 / 等级设错了"。
+2. **事件是"状态的变化"，不是"每拍的值"。** 这个视角一旦确立，
+   838 条风暴自动收敛成 2 条，而且抑制是**框架能力**，不是每个指标各自手写的 if。
+3. **但抑制必须有例外。** 状态迁移链被合并就丢了因果；硬不变量违例被合并就丢了严重性。
+   `suppressible` 这一个布尔字段，把"该合并的"和"不能合并的"分开。
+4. **"记多少日志"是一个旋钮管不了的事。** 关键事件（永远记）/ 跟踪等级（按子系统）/
+   采样间隔（按子系统）是三个正交维度；合成一个 `log_every` 必然牺牲其中一面。
+5. **指标不能建立在"可能被降采样"的数据上。** `log_every=10` 让 `07/` 报的
+   指令总行程变成 0，而真实值是 88477.8 kW —— 这不是精度问题，是**失明**。
+6. **观察者不该侵入被测对象。** 不修改 `07/`、只从外部喂 `StepRecord`，
+   使 P2 可以独立测试、独立演进，也让"观察者本身有 bug"这件事可被单独发现。
+7. **能读权威记录就别自己推导。** 状态迁移直接读 `rt.fsm().history()` ——
+   自己边沿检测不仅会漏第一拍，还丢掉了 `reason`。
+8. **告警组装不能寄生在仿真装配层。** `collect_alarms()` 的入参是 `Sim24hConfig`，
+   意味着现场没有告警能力。可观测性必须是运行时的一等公民。
+
+## 17.13 涉及文件
+
+| 文件 | 变更 |
+| --- | --- |
+| `P2/**` | **新增**（4 个 src 头 + 1 个 main + 1 个 test + 3 个 script + 1 个 docs） |
+| `scripts/build_all.bat` | 21 步 → **22 步** |
+| `README.md` | 目录树 + §2.1（22 步 / 7566 断言）+ §2.14（P2）+ 依赖图 + include 表 + 设计索引；**修复既有的裸 CR 缺陷** |
+| `.gitignore` | 增加 `**/out/`（P2 演示产物目录） |
+| `CHANGES.md` | 新增 §17（本文件） |

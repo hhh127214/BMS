@@ -130,6 +130,16 @@ P1/                                           ← 产品化 P1：配置化（现
     ├── data/ems_config.sample.json           ← 现场配置样例（带注释）
     ├── docs/README.md                        ← 装配顺序陷阱 / 校验规则 / 测试清单
     └── build/                                ← ems_config.exe + test_config.exe
+
+P2/                                           ← 产品化 P2：可观测性（现场出问题能看见）
+    ├── src/soe.h                             ← 统一事件记录 SOE + 时间窗抑制（838 拍风暴 → 2 条）
+    ├── src/metrics.h                         ← 增量指标注册表（counter / gauge / histogram，O(1)）
+    ├── src/trace.h                           ← 跟踪等级 + 采样间隔（按子系统独立，热更新）
+    ├── src/observe.h                         ← RuntimeObserver：接入 EmsRuntime 的唯一入口
+    ├── src/main.cpp                          ← 演示程序 ems_observe.exe
+    ├── tests/test_observe.cpp                ← T301~T315（434 断言）
+    ├── docs/README.md                        ← 为什么需要 P2 / 两个核心机制 / 事件分级 / 现场用法
+    └── build/                                ← ems_observe.exe + test_observe.exe
 ```
 
 > **为什么周期 5~8 拆成 4 个模块**：`05/06/07/08` 与设计方案 §7 的四个周期**一一对应**，
@@ -174,12 +184,14 @@ scripts\build_all.bat
 10\build\test_sim_24h.exe                    10/ 单元测试（T101~T111 / 144 断言）
 P1\build\ems_config.exe                      产品化 P1 配置化：校验 / 装配 / 往返 / 模板 / 文档 / 导出
 P1\build\test_config.exe                     P1/ 单元测试（T201~T218 / 171 断言）
+P2\build\ems_observe.exe                      产品化 P2 可观测性：汇总 / 解耦验证 / 故障 SOE / 导出
+P2\build\test_observe.exe                     P2/ 单元测试（T301~T315 / 434 断言）
 ```
 
-**全量回归：7132 断言全绿**（04=65 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / 09=77 / 10=144 / P1=171），
-`[BUILD ALL OK] All 21 components built.`
+**全量回归：7566 断言全绿**（04=65 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / 09=77 / 10=144 / P1=171 / P2=434），
+`[BUILD ALL OK] All 22 components built.`
 
-可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ 的单元测试（共 21 步 → 只跑 12 步）。
+可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ + 09/ + 10/ + P1/ + P2/ 的单元测试。
 
 ### 2.2 跑 B 组 C 策略服务
 
@@ -378,8 +390,8 @@ scripts\build_test.bat                 :: 编 + 跑 T91~T97（应输出 PASS=77 
 
 ```bat
 cd 10
-scriptsuild_test.bat                 :: 编 + 跑 T101~T110（应输出 PASS=133 FAIL=0）
-scriptsun_demo.bat                   :: 跑典型日 + 故障注入日，产物落 build\
+scripts\build_test.bat                 :: 编 + 跑 T101~T110（应输出 PASS=133 FAIL=0）
+scripts\run_demo.bat                   :: 跑典型日 + 故障注入日，产物落 build\
 ```
 
 24 h = **86400 拍（dt = 1 s）**，装配 04~09 全栈，导入负荷 / 光伏 / 电价曲线与设备参数，
@@ -466,6 +478,73 @@ P1 把这份知识收进 **`apply_config()` 一个函数**。T211/T212/T213 分�
 > 第一次就写错了 id（应为 `S04_DEMAND_MGMT` 而非 `demand_mgmt`），被 `--check` 当场拦下。
 > 详见 [`P1/docs/README.md`](./P1/docs/README.md)。
 
+### 2.14 可观测性：现场出问题能看见（产品化 P2 产出）
+
+```bat
+cd P2
+scripts\build_test.bat                   :: 编 + 跑 T301~T315（应输出 通过 434 / 失败 0）
+scripts\run_demo.bat                     :: 4 步完整演示，产物落 build\ 与 out\
+```
+
+**目标**：现场出问题时，能在 30 秒内回答"发生了什么、什么时候、多严重"，
+而不是去翻 8 万行时序 CSV。
+
+```bat
+build\ems_observe.exe --demo 24            :: 24h 闭环 + 观察者汇总（SOE / 指标 / 分位）
+build\ems_observe.exe --decouple           :: 指标与 log_every 无关（核心价值验证）
+build\ems_observe.exe --fault 12           :: 故障场景 SOE（置位/清除事件对）
+build\ems_observe.exe --export out 24      :: 导出 soe.csv / soe.json / metrics.prom / metrics.json
+```
+
+**为什么需要 P2**：P2 之前可观测性散在三个模块、三种表示，且**在生产环境不可用** ——
+
+| 位置 | 表示 | 问题 |
+| --- | --- | --- |
+| `06/state_machine.h` | `StateEvent{ts, from, to, reason}` | 只有状态迁移，没有等级 / 事件码 |
+| `10/src/sim_24h.h` | `AlarmEntry` + `collect_alarms()` | **告警组装寄生在仿真装配层**（入参是 `Sim24hConfig`）→ **现场部署后系统没有告警能力** |
+| `07/realtime_loop.h` | `StepRecord` 向量 | 是时序不是事件；`LoopMetrics::compute(log_, …)` 是 **O(N) 全量重算**，24h 日志 8.6 MB **只增不减** |
+| `07/realtime_loop.h` | `cycle_us_sum_ / max_` | 只有均值与最大值，**没有直方图 / 分位数** |
+
+**两个核心机制**：
+
+| 机制 | 说明 |
+| --- | --- |
+| **边沿检测 → SOE** | 事件是"状态的变化"，不是"每拍的值"。一次 838 拍的限幅 = **2 条**事件（Start/End），不是 838 条。替代了 `10/` 里手工维护的 5 个 `in_xxx` 标志。**例外**：状态迁移与硬不变量违例 `suppressible=false`，合并会丢掉迁移链（`A→B→C` 变成 `A` 重复 2 次） |
+| **时间窗抑制** | 同 `(source, code)` 在 `suppress_window_s` 内合并为一条，带 `repeat_count` / `duration_s`。合并时保留**绝对值更大**的字段值，不丢峰值 |
+| **逐拍累积 → 指标** | O(1) 更新，内存有界，**与 `log_every` 无关** |
+
+**核心价值实测**（`--decouple`，3600 拍，负荷在 300/50 kW 之间每 5 拍切换）：
+
+| log_every | 观察者行程 | 观察者换向 | 日志行数 | `07/` 日志行程 |
+| --- | --- | --- | --- | --- |
+| 1 | 88477.8 kW | 719 | 3600 | 88477.8 kW |
+| 10 | **88477.8 kW** | **719** | 360 | **0.0 kW** |
+
+`log_every=10` 时 `07/` 报的指令总行程是 **0**，真实值 **88477.8 kW** —— **完全失明**；
+观察者不受影响。这正是周期 10 那个缺陷的根因：**为了省资源而调大 `log_every`，
+等于同时关掉了故障可见性。**
+
+**三个正交的旋钮**（替代单一 `log_every`）：
+
+| 维度 | 载体 | 现场用法 |
+| --- | --- | --- |
+| ① **关键事件** | `SoeLog` | 永远记，不受任何降采样影响（838 拍限幅 → 2 条） |
+| ② **跟踪等级** | `TraceControl::set_level()` | 按子系统决定细节量，运行期热更新。**故障级（`>= kError`）永不受等级限制** |
+| ③ **采样间隔** | `TraceControl::set_sample_every()` | 高频跟踪按子系统采样，**不影响 SOE** |
+
+**`--fault` 实测**（12 h，3 个故障时间窗）：43200 拍 → **18 条事件（2400:1 压缩）**，
+每条故障成对（`PCS_FAULT_SET` / `PCS_FAULT_CLEAR`），每条迁移都带 `reason`
+（如 `DERATED → FAULT (fault_in_derated:PCS_FAULT)`）。
+
+**有界内存与自省**：`size()` / `dropped()` / `total()` / `suppressed()` 四个数一起看 ——
+可观测性组件**必须能报告自己的数据丢失**，否则"什么都没输出"到底是"真的没事"
+还是"缓冲区爆了"分不清。
+
+> **两个设计要点**：① **状态迁移不自己推导，直接读 `rt.fsm().history()`** —— 迁移自带
+> `reason`，且自己用 `prev_state_` 做边沿检测会**漏掉第一拍的 `INIT → SELF_CHECK`**。
+> ② **不修改 `07/`** —— 观察者外挂，`obs.on_step(rt, rec)` 是唯一接入点。
+> 详见 [`P2/docs/README.md`](./P2/docs/README.md)。
+
 ---
 
 ## 3. 架构层关系
@@ -524,11 +603,13 @@ PCS / BMS
   04/ ──► 05/ ──► 06/ ──┐
     │                   ├──► 07/ ──► 08/ ──► 09/ ──► 10/
     └───────────────────┴──────────────┘
-                              └──► P1/（产品化配置化：装配全栈 + 配置驱动）
+                              ├──► P1/（产品化配置化：装配全栈 + 配置驱动）
+                              └──► P2/（产品化可观测性：外挂观察者，不修改 07/）
         04/ 被所有模块复用（策略基类 / 数据模型 / 仲裁器 / **device_io**）
         09/ 是**验证层**（周期 9）：装配 04~08 全栈跑 12000 拍闭环时序
         10/ 是**装配层**（周期 10）：把全栈装进可配置的 24h 场景，产出交付物
         P1/ 是**产品化配置层**：把"装配顺序知识"从调用点收进 apply_config()
+        P2/ 是**产品化可观测层**：只读 StepRecord + rt 公开状态，obs.on_step() 是唯一接入点
         09/ 与 10/ 都不产出被其他模块依赖的头文件
 ```
 
@@ -541,6 +622,7 @@ PCS / BMS
 | `09/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 只用 07/ 的 `EmsRuntime`，不反向被依赖 |
 | `10/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 只用 07/ 的 `EmsRuntime`；曲线复用 08/ 的 `ForecastSeries` |
 | `P1/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 配置化装配层：绑定 04~08 的参数结构体 + 07/ 的 `EmsRuntime`；自带 JSON 解析器，零第三方依赖 |
+| `P2/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` `../10/src` | 可观测层：只读 `StepRecord` + `rt.fsm().history()` + `rt` 公开状态；**不修改 07/**；测试侧用 `10/` 做交叉校验 |
 
 > `07/` 与 `08/` 互为**运行时调用关系**（闭环调用优化层 / 端到端用闭环），但**头文件层面无环**：
 > `08/src/*.h` 不包含 `07/` 的任何头文件。这是 header-only 库的天然优势 —— 编译顺序无关，
@@ -569,6 +651,7 @@ PCS / BMS
 - **EMS 24h 离线仿真测试（周期 10）** → [`10/docs/README.md`](./10/docs/README.md)
 - **产品化 P0：算法 ↔ 设备解耦（IDeviceIO / SimDeviceIO / MemoryDeviceIO）** → [`docs/产品化/P0-架构分层.md`](./docs/产品化/P0-架构分层.md)
 - **产品化 P1：配置化（字段绑定表 / 装配顺序 / 校验 / 模板与文档生成）** → [`P1/docs/README.md`](./P1/docs/README.md)
+- **产品化 P2：可观测性（边沿检测→SOE / 时间窗抑制 / O(1) 增量指标 / 指标与 log_every 解耦 / 三个正交旋钮）** → [`P2/docs/README.md`](./P2/docs/README.md)
 - **多策略协同的接口约定** → [`docs/接口规范/EMS策略接口规范.md`](./docs/接口规范/EMS策略接口规范.md)（§2.5 仲裁算法即 04/strategy_arbiter.h 的实现依据）
 
 ---
