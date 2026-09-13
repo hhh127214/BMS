@@ -193,8 +193,8 @@ inline std::string render_config_markdown(EmsRuntime* rt, const EmsConfig& base_
         for (const auto& id : ids) os << "| `" << id << "` |\n";
         os << "\n";
     }
-    os << "示例：\n\n```json\n\"strategies\": {\n"
-       << "  \"anti_reverse\": { \"enabled\": true, \"params\": { \"margin_kw\": 5.0 } }\n"
+    os << "示例（**id 必须是上面列表里的原文**，打错会报错）：\n\n```json\n\"strategies\": {\n"
+       << "  \"S05_ANTI_REVERSE\": { \"enabled\": true, \"params\": { \"margin_kw\": 5.0 } }\n"
        << "}\n```\n";
     return os.str();
 }
