@@ -56,7 +56,7 @@ BMS/
 │
 ├── 04/                                       ← 策略管理层 + 仲裁器（C++17，对应周期 3 + 周期 4 + 周期 9）
 │   ├── src/                                  ← data_models / device_io / strategy_base / manager / arbiter / strategies_9 + main.cpp
-│   ├── tests/                                ← test_arbiter.cpp（17 用例 / 65 断言，全过；含设计方案 §7 全部 7 组合场景·单拍仲裁级）
+│   ├── tests/                                ← test_arbiter.cpp（18 用例 / 94 断言，全过；含设计方案 §7 全部 7 组合场景·单拍仲裁级）
 │   ├── data/                                 ← demo 用的实时快照/电网参数 JSON
 │   ├── samples/                              ← 受命令字序列样本（按 S01-S09 排序）
 │   ├── docs/                                 ← README.md + design.md
@@ -119,7 +119,7 @@ BMS/
     ├── src/sim_24h.h                         ← 24h 场景装配 + 故障时间窗注入 + 不变量校验
     ├── src/sim_report.h                      ← 产物导出：timeseries.csv / alarms.csv / summary.json / report.html
     ├── src/main.cpp                          ← 演示程序（典型日 / 故障注入日）
-    ├── tests/test_sim_24h.cpp                ← T101~T110（133 断言）
+    ├── tests/test_sim_24h.cpp                ← T101~T111（144 断言）
     ├── data/typical_day_96.csv               ← 典型日曲线（96 点 × 15 min）
     ├── scripts/gen_curves.py                 ← 曲线生成器
     ├── docs/README.md                        ← 经济性口径 / 缺陷复盘 / 故障注入语义
@@ -145,6 +145,21 @@ P2/                                           ← 产品化 P2：可观测性（
     ├── tests/test_observe.cpp                ← T301~T315（434 断言）
     ├── docs/README.md                        ← 为什么需要 P2 / 两个核心机制 / 事件分级 / 现场用法
     └── build/                                ← ems_observe.exe + test_observe.exe
+
+P3/                                           ← 产品化 P3：通信层（Modbus / IEC104 / TCP 传输层）
+    ├── src/modbus_codec.h                    ← Modbus 帧编解码纯函数（MBAP / PDU / CRC16 / 字序）
+    ├── src/modbus_device_io.h                ← ModbusDeviceIO：IDeviceIO 适配器 + 30 点寄存器映射
+    ├── src/modbus_slave_sim.h                ← 从站仿真 + 环回传输（无硬件做真实验证）
+    ├── src/iec104_codec.h                    ← IEC104 帧 / ASDU 编解码纯函数（APCI 三帧型 / 8 类 ASDU）
+    ├── src/iec104_device_io.h                ← Iec104DeviceIO：受控站适配器 + IOA 映射 + 会话状态机
+    ├── src/tcp_transport.h                   ← TCP 传输层：ModbusTcpTransport / Iec104TcpTransport（真 socket）
+    ├── src/main.cpp                          ← 演示程序 ems_comms.exe（场景 F / G / H）
+    ├── tests/test_modbus.cpp                 ← T31~T36（622 断言）
+    ├── tests/test_iec104.cpp                 ← T41~T46（646 断言）
+    ├── tests/test_tcp.cpp                    ← T51~T57（87 断言，独立线程 + 真 listen/accept/recv/send）
+    ├── docs/README.md                        ← 为什么需要 P3 / 环回与真 socket 验证 / 故障语义 / 现场约束
+    ├── docs/design.md                        ← 帧层 / 映射契约 / 会话时序 / 等价性方法学 / TCP 传输层
+    └── build/                                ← ems_comms.exe + test_modbus.exe + test_iec104.exe + test_tcp.exe
 ```
 
 > **为什么周期 5~8 拆成 4 个模块**：`05/06/07/08` 与设计方案 §7 的四个周期**一一对应**，
@@ -174,7 +189,7 @@ scripts\build_all.bat
 03\demand_management_controller\build\demand_sim.exe      需量仿真
 03\integration\build\integration_sim.exe   三控制器集成仿真
 04\build\strategy_demo.exe                 9 策略 + 仲裁器综合仿真（3 场景 + 故障注入）
-04\build\test_arbiter.exe                   04/ 单元测试（17 用例 / 65 断言；含 §7 全部 7 组合场景·单拍仲裁级）
+04\build\test_arbiter.exe                   04/ 单元测试（18 用例 / 94 断言；含 §7 全部 7 组合场景·单拍仲裁级）
 05\build\safety_demo.exe                    周期 5 场景 A：9 类约束逐条触发对照表
 05\build\test_safety_engine.exe             05/ 单元测试（T01~T06 / 68 断言）
 06\build\fsm_demo.exe                       周期 6 场景 B：全状态流转 + 门控真值表
@@ -192,12 +207,16 @@ P1\build\ems_config.exe                      产品化 P1 配置化：校验 / �
 P1\build\test_config.exe                     P1/ 单元测试（T201~T218 / 171 断言）
 P2\build\ems_observe.exe                      产品化 P2 可观测性：汇总 / 解耦验证 / 故障 SOE / 导出
 P2\build\test_observe.exe                     P2/ 单元测试（T301~T315 / 434 断言）
+P3\build\ems_comms.exe                        产品化 P3 通信层：Modbus / IEC104 / 四介质逐拍比对
+P3\build\test_modbus.exe                      P3/ Modbus 单元测试（T31~T36 / 622 断言）
+P3\build\test_iec104.exe                      P3/ IEC104 单元测试（T41~T46 / 646 断言）
+P3\build\test_tcp.exe                         P3/ TCP 传输层单元测试（T51~T57 / 87 断言 / 真 socket）
 ```
 
-**全量回归：8085 断言全绿**（04=65 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / **RT_DB=519** / 09=77 / 10=144 / P1=171 / P2=434），
-`[BUILD ALL OK] All 23 components built.`
+**全量回归：9469 断言全绿**（04=94 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 / **RT_DB=519** / 09=77 / 10=144 / P1=171 / P2=434 / **P3 Modbus=622** / **P3 IEC104=646** / **P3 TCP=87**），
+`[BUILD ALL OK] All 26 components built.`
 
-可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ + 07(RT_DB)/ + 09/ + 10/ + P1/ + P2/ 的单元测试。
+可选参数：`scripts\build_all.bat --no-test` 跳过 02/ + 04/ + 05~08/ + 07(RT_DB)/ + 09/ + 10/ + P1/ + P2/ + P3/ 的单元测试。
 
 ### 2.2 跑 B 组 C 策略服务
 
@@ -581,6 +600,84 @@ P0.5 用 `MemoryDeviceIO` 证明了「换数据源不改算法」在**进程内*
 > ③ 一个进程一条连接（RT_DB 的 open/create 共用一个进程级全局句柄）。
 > 详见 [`07/docs/README.md`](./07/docs/README.md) §8。
 
+### 2.16 P3 通信：把 IDeviceIO 接到真实介质（Modbus 设备侧 / IEC104 调度侧 / TCP 传输层）
+
+```bat
+cd P3
+scripts\build_test_modbus.bat    :: 期望 PASS=622 FAIL=0 / ALL TESTS PASSED
+scripts\build_test_iec104.bat    :: 期望 PASS=646 FAIL=0 / ALL TESTS PASSED
+scripts\build_test_tcp.bat       :: 期望 PASS=87  FAIL=0 / ALL TESTS PASSED（真内核 socket）
+scripts\run_demo.bat             :: 场景 F/G/H：Modbus / IEC104 / 四介质逐拍比对
+```
+
+P0 ~ RT_DB 已经证明「换数据源不改算法」，但那三个适配器都在**一个地址空间**里。现场要接的是两根真实线缆：
+**南向** PCS/BMS/电表挂 Modbus（EMS 是主站），**北向** 上级调度走 IEC 60870-5-104（EMS 是受控站）。
+P3 把它们做成两个新的 `IDeviceIO` 适配器，与前三个并列 —— **算法层一行不改**。
+
+| | `ModbusDeviceIO` | `Iec104DeviceIO` |
+| --- | --- | --- |
+| 角色 / 对端 | EMS **主站** ↔ PCS / BMS / 电表 | EMS **从站** ↔ 调度 / 云端 |
+| 传输模型 | 请求-响应（`transact`） | 字节流（`send`/`receive`，TCP 粘包自己攒帧） |
+| 字节序 | **大端**（Modbus 规定） | **小端**（IEC104 规定） |
+| 上送方式 | EMS 主动轮询读 | 从站自定时上送 + TESTFR/S 帧当拍点 |
+| 首次握手 | 无（直连） | STARTDT + **总召唤三段式**（ActCon→Introgen→ActTerm） |
+| 写指令 | `0x10` 写 CMD 寄存器块 | `C_SE_NC_1`(50) 设定值 |
+
+**怎么在无硬件下做真实验证**：环回传输**只跳过内核 socket，不跳过任何字节编解码** ——
+`ModbusDeviceIO` 编出的 MBAP+PDU 原样送进 `ModbusSlaveSim`，响应字节再原样解析回来；
+测过的就是现场会跑的同一份代码（帧格式 / 字序 / 序号状态机 / 地址映射）。
+
+**核心证据（T34 / T44）**：同一套 `EmsRuntime`，一路直连 `MemoryDeviceIO`（基准），
+一路经 Modbus 报文（或 IEC104 报文），**400 拍 `StepRecord` 逐拍比对**：
+
+| 通道 | 用途 | 实测 |
+| --- | --- | --- |
+| 宽精度（Modbus f64 / IEC104 `M_ME_WIDE`） | 验**逐位等价** | **diff = 0** |
+| 现场标准（Modbus f32 / IEC104 `M_ME_NC_1`） | 验**量化边界** | **决策拓扑差异 0 拍**、`\|Δcmd\|max = 3.93681e-05 kW` |
+
+两条**独立实现**（一个大端字序、一个小端 ASDU）推出同一个偏差上界 —— 互为旁证，
+说明这不是某个实现的偶然，而是 f32 在 100 kW 量程下的固有分辨率。
+
+| 用例 | 证明什么 |
+| --- | --- |
+| T33 / T46 | 映射契约：Modbus 780(f32)/792(f64) 寄存器、IOA 分段（`0x4001`/`0x4101`/`0x4201`/`0x4301`）与 30 点真相源逐字一致 |
+| T35 / T45 | 断链 / 对端哑 → FAULT；心跳丢 → HOLD_LAST 冻结指令；自愈；**序号不回退** |
+| T36 | 设备故障经寄存器/遥信驱动状态机：FAULT → 门控归零 → 恢复后 READY **不自动带载** |
+
+> **故障语义是复用的，不是重新设计的**：P3 全部沿用 RT_DB 的 `data_valid` / HOLD_LAST /
+> 恢复不自动带载口径 —— 介质换了、安全性没换。
+> **两条硬纪律**：① 方向分离由介质层强制（Modbus 只放行 CMD 区，越界写回异常码 `0x02`）；
+> ② `execute()` 返回值不可信，闭环一律在下一拍 `read_snapshot()` 确认，采集失败保留最近有效值。
+> 详见 [`P3/docs/README.md`](./P3/docs/README.md) 与 [`P3/docs/design.md`](./P3/docs/design.md)。
+
+#### 2.16.1 最后一跳：TCP 传输层（真内核 socket）
+
+环回**刻意跳过内核**，所以"能接真机"这句话必须由真 socket 来兑现。
+`P3/src/tcp_transport.h` 提供 `ModbusTcpTransport` / `Iec104TcpTransport`（Windows Winsock2 / POSIX 双实现），
+**换掉的只有传输层实现，适配器与算法一行不改** —— 接真机只需 `set_endpoint(host, port)`：
+
+```
+SimDeviceIO → MemoryDeviceIO → RtDbDeviceIO → Loopback → TCP      ← 这条链现在走完了
+```
+
+测试（`P3/tests/test_tcp.cpp`，T51~T57）的服务端是**独立线程 + 真 `listen`/`accept`/`recv`/`send`**，
+数据真的过内核协议栈与 127.0.0.1 网卡回路：
+
+| 用例 | 证明什么 |
+| --- | --- |
+| T51 | 连接 / **连接失败在预算内返回**（501~513 ms < 2000 ms）/ `receive` 三态语义 |
+| T52 / T53 | MBAP 逐帧自洽；**服务端每次只发 2 字节**时客户端自行重组；**事务号错位必须被拒**且不误判断链 |
+| **T54 / T56** | 400 拍闭环：Modbus over TCP **diff=0**；IEC104 over TCP **diff=0** |
+| T55 | IEC104 跨 socket 建链：STARTDT / 初始化结束 / 总召唤三段式 |
+| T57 | **真断链**：服务端关闭 → 采集不可信 → FAULT → 指令归零、门控（断链前峰值 100 kW，防"恒零骗等价"） |
+
+> **TCP 路踩出来的一个假象值得单独记**：逐拍比对**整体滞后一拍、数值一个不差**。
+> 根因不是 socket 也不是编解码，而是 104 是"服务端主动上送" —— 服务端消化上一拍残留帧时读到的
+> 是上一拍的环境；更隐蔽的是 `EMS_P_GRID` 由 `MemoryDeviceIO::execute()` 现算，
+> 而 104 适配器的 `read_actuals()` 读的是**最近一次上送的 cache**（环回下直接读设备，所以完全看不到）。
+> 处置原则：**能汇合就别猜、能核对就别等** —— 服务端用 `round` 计数器与客户端汇合，
+> 客户端在写环境前先作废旧值上送、写完后逐项核对追上设备。详见 `P3/docs/design.md` §6.5。
+
 ---
 
 ## 3. 架构层关系
@@ -628,7 +725,7 @@ PCS / BMS
    ┌─────────┬──────────────┬──────────────┬─────────────┐
    │ Sim     │ Memory       │ RT_DB        │ Modbus /    │  ← 适配器可换，
    │ DeviceIO│ DeviceIO     │ RtDbDeviceIO │ IEC104      │     算法零改动
-   │ (P0)    │ (P0.5)       │ (已接入 ✅)  │ (P3 待接)   │
+   │ (P0)    │ (P0.5)       │ (已接入 ✅)  │ (P3 ✅)     │
    └─────────┴──────────────┴──────────────┴─────────────┘
 ```
 
@@ -641,12 +738,14 @@ PCS / BMS
     │                   ├──► 07/ ──► 08/ ──► 09/ ──► 10/
     └───────────────────┴──────────────┘
                               ├──► P1/（产品化配置化：装配全栈 + 配置驱动）
-                              └──► P2/（产品化可观测性：外挂观察者，不修改 07/）
+                              ├──► P2/（产品化可观测性：外挂观察者，不修改 07/）
+                              └──► P3/（产品化通信层：Modbus 主站 / IEC104 受控站，实现 IDeviceIO）
         04/ 被所有模块复用（策略基类 / 数据模型 / 仲裁器 / **device_io**）
         09/ 是**验证层**（周期 9）：装配 04~08 全栈跑 12000 拍闭环时序
         10/ 是**装配层**（周期 10）：把全栈装进可配置的 24h 场景，产出交付物
         P1/ 是**产品化配置层**：把"装配顺序知识"从调用点收进 apply_config()
         P2/ 是**产品化可观测层**：只读 StepRecord + rt 公开状态，obs.on_step() 是唯一接入点
+        P3/ 是**产品化通信层**：实现 IDeviceIO 的 Modbus / IEC104 适配器，算法层一行不改
         09/ 与 10/ 都不产出被其他模块依赖的头文件
 ```
 
@@ -660,6 +759,7 @@ PCS / BMS
 | `10/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 只用 07/ 的 `EmsRuntime`；曲线复用 08/ 的 `ForecastSeries` |
 | `P1/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` | 配置化装配层：绑定 04~08 的参数结构体 + 07/ 的 `EmsRuntime`；自带 JSON 解析器，零第三方依赖 |
 | `P2/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` `../10/src` | 可观测层：只读 `StepRecord` + `rt.fsm().history()` + `rt` 公开状态；**不修改 07/**；测试侧用 `10/` 做交叉校验 |
+| `P3/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../07/src/rtdb` `../08/src` | 通信层：实现 04/ 的 `IDeviceIO`（Modbus 主站 / IEC104 受控站）；测试用 07/ 的 `MemoryDeviceIO` 做基准对照；复用 30 点真相源 `ems_point_table.h`（须链接 `ems_point_table.c`）；**不修改 07/ 算法** |
 
 > `07/` 与 `08/` 互为**运行时调用关系**（闭环调用优化层 / 端到端用闭环），但**头文件层面无环**：
 > `08/src/*.h` 不包含 `07/` 的任何头文件。这是 header-only 库的天然优势 —— 编译顺序无关，
@@ -689,6 +789,7 @@ PCS / BMS
 - **产品化 P0：算法 ↔ 设备解耦（IDeviceIO / SimDeviceIO / MemoryDeviceIO）** → [`docs/产品化/P0-架构分层.md`](./docs/产品化/P0-架构分层.md)
 - **产品化 P1：配置化（字段绑定表 / 装配顺序 / 校验 / 模板与文档生成）** → [`P1/docs/README.md`](./P1/docs/README.md)
 - **产品化 P2：可观测性（边沿检测→SOE / 时间窗抑制 / O(1) 增量指标 / 指标与 log_every 解耦 / 三个正交旋钮）** → [`P2/docs/README.md`](./P2/docs/README.md)
+- **产品化 P3：通信层（Modbus MBAP·PDU·CRC16·字序 / IEC104 APCI·ASDU·序号状态机 / 环回验证 / 两条独立实现同界）** → [`P3/docs/README.md`](./P3/docs/README.md)、[`P3/docs/design.md`](./P3/docs/design.md)
 - **RT_DB 接入：共享内存实时库适配器（跨内存边界闭环等价 / 点表契约 / 双连接 / Windows 存活句柄）** → [`07/docs/README.md`](./07/docs/README.md) §8
 - **多策略协同的接口约定** → [`docs/接口规范/EMS策略接口规范.md`](./docs/接口规范/EMS策略接口规范.md)（§2.5 仲裁算法即 04/strategy_arbiter.h 的实现依据）
 

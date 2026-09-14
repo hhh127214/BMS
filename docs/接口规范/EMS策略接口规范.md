@@ -621,6 +621,48 @@ FallbackCommand:                    # 异常降级指令
 | 8 | `soc_life_planner` | L3 | SOC / 寿命 | 1 min | 否 |
 | 9 | `bms_protection` | L0 | 硬安全 | 100 ms | 否 |
 
+#### 4.10.1 策略编号映射（权威表）
+
+本规范用**英文短名**标识策略（面向接口 / 配置 / 报文），而 `04/` 的代码用
+`S0x_…` 常量标识（`04/src/data_models.h` 的 `namespace strategy_id`）。
+两者是同一批策略的两种写法，若不显式对齐，会出现"文档按 §4.1 讨论、
+代码按 S01 讨论"的评审歧义。故给出**一一映射**并明确唯一真相源。
+
+> ❗ **唯一真相源（SSOT）**：代码中的策略编号以 `04/src/data_models.h` 的
+> `namespace strategy_id` 为准（`S01_…` ~ `S09_…`）。本规范的英文短名是
+> **接口 / 配置层别名**。新增策略时必须先在 SSOT 登记常量，再回写本表 ——
+> 顺序不能颠倒，否则又会出现"两套编号"。
+
+| 04 代码常量（SSOT） | 优先级 | 本规范别名 | 规范章节 | 说明 |
+|---|---|---|---|---|
+| `S01_BMS_FORBID` | L0 | `bms_protection` | §4.9 | BMS / PCS 硬安全，永不降级、永不放宽 |
+| `S02_BMS_DERATE` | L1 | *（无独立小节，并入 §4.9 的输入形状）* | §4.9 | 按 BMS 上送限值降额，`reason="bms_derating"` |
+| `S03_TRANSFORMER_LIMIT` | L1 | `transformer_management` | §4.7 | 变压器过载，实测 + 计划两道防线 |
+| `S04_DEMAND_MGMT` | L2 | `demand_management` | §4.4 | 需量窗口 + 死区 |
+| `S05_ANTI_REVERSE` | L2 | `anti_reverse` | §4.5 | 防逆流（PI 控制器，有内部状态） |
+| `S06_PV_SMOOTHING` | L2 | `pv_smoothing` | §4.6 | 光伏平抑（一阶滤波，有内部状态） |
+| `S07_PEAK_VALLEY` | L3 | `peak_valley_arbitrage` | §4.1 | Timed 模式 |
+| `S08_FORECAST_OPT` | L3 | `dispatch_optimizer` | §4.2 | MPC 模式 |
+| `S09_DEMAND_RESPONSE` | L3 | `custom_script` | §4.3 | Custom 模式（脚本内自管） |
+
+**两处必须说明的差异**（否则会被误判成"漏实现"）：
+
+1. **`soc_life_planner`（§4.8，L3）在 `04/` 没有对应实现。**
+   SOC 的**硬边界**（`soc_min` / `soc_max` 触及即禁充放）与**预警降额**
+   （`soc_warn_low/high` + `soc_warn_derate`）已由 `05/`（安全约束引擎
+   `check_soc`）承担 —— 它是"约束"而不是"策略"，因此不占用 04 的编号。
+   §4.8 中"按 SOH 修正区间"的寿命友好规划部分目前**尚未落地**。
+2. **`S02_BMS_DERATE` 在本规范中没有独立小节。**
+   它与 `bms_protection`（§4.9）**共用同一组输入**（BMS 限值与禁止位），
+   区别只在输出口径：§4.9 描述的是"硬归零"（`forbidden` → `[0,0]`），
+   `S02` 是"按 BMS 请求的限值降额"（`min(bms, pcs_rated)`）。
+   代码里刻意保留两个编号，是为了让 `reason` 能区分这两种现场语义
+   （`bms_lock` vs `bms_derating`），排障时不必再去翻数值。
+
+**注意：`S0x` 的数字是登记顺序，不是优先级。**
+例：`S01` 是 L0，`S07` 反而是 L3。按优先级排序请用 §4.10 正文表的"优先级"列，
+不要用编号大小。
+
 ---
 
 ## 5. 接口时序

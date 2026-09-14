@@ -603,6 +603,29 @@ A：将现有9个策略封装成统一策略模块，统一输出：strategy\_id
 
 B：建立统一数据结构体：RealtimeData、DeviceState、BatteryState、GridState、StrategyRequest、PowerCommand。
 
+> **实现口径（回写，2026-09-14）**：本文上面两行的字段名与结构名是**需求基线，原文保持不动**。
+> 落地到 `04/` 时做了如下改名，原因是这些字段语义上都带"功率方向"，而本项目的功率
+> 符号约定是 **`P_bat > 0` 放电 / `P_bat < 0` 充电**（见接口规范 §2.2）。用
+> `max_power / min_power` 描述一个**有符号区间**极易被误读成"功率大小上下限"，
+> 故统一改成带 `p_` 前缀的下界/上界/期望点写法：
+>
+> | 本文（需求基线） | `04/` 实现（SSOT） | 说明 |
+> |---|---|---|
+> | `target_power` | `p_desired` | 期望点（带符号，只作同层加权，不直接下发） |
+> | `max_power` | `p_upper` | 区间上界（正方向上限，可被上层收紧） |
+> | `min_power` | `p_lower` | 区间下界（负方向下限） |
+> | `direction` | 取消 | 信息冗余：方向由 `p_lower/p_upper` 的符号唯一确定 |
+> | `state` | `active` + `reason` | `active=false` 即 idle/待机，`reason` 给出具体原因 |
+> | `strategy_name` | `IStrategy::name()` | 不在 `StrategyResult` 里重复携带（避免每拍拷贝字符串） |
+> | `timestamp` | `RealtimeSnapshot::timestamp` / `PowerCommand::timestamp` | 由所在渠道携带，不在策略结果里重复 |
+>
+> 字段名的唯一真相源是 `04/src/data_models.h`；逐字段对照表见
+> `04/docs/audit-p1-p4.md` 周期 2 一节，接口层描述见
+> `docs/接口规范/EMS策略接口规范.md` §3 与 §4.10.1。
+> 结构体方面：`RealtimeData → RealtimeSnapshot`、`DeviceState → Device + DeviceLimits`
+> 为拆两体；`BatteryState / GridState` 已在 04/ 显式成体；`StrategyRequest` 由
+> `evaluate(rt, dev)` 的形参取代（主动简化）。
+
 ### 周期目标
 
 实现：9策略 → 统一接口 → 统一数据模型

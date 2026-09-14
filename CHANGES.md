@@ -1616,3 +1616,343 @@ Shared memory not found. Please run init tool first.
 | `README.md` | §2.15（新增）+ 07/ 目录树 + 构建产物 + 8085 断言 + 23 组件 + 适配器架构图 + include 表 + 设计索引 |
 | `07/docs/README.md` | 新增 §8（RT_DB 接入：两个方向 / `execute()` 语义 / 品质位 / 现场三约束）+ 文件导览 |
 | `CHANGES.md` | 新增 §18（本文件）|
+
+---
+
+# 19. 产品化 P3 通信层：Modbus 设备侧 / IEC104 调度侧（2026-09-13）
+
+> **前置**：`§18`（RT_DB 接入，519 断言）。
+> P0 ~ RT_DB 证明的「换数据源不改算法」全都还在**一个地址空间**里。本节把 `IDeviceIO` 接到
+> **两根真实线缆**：南向 Modbus（EMS 是主站 ↔ PCS/BMS/电表）、北向 IEC 60870-5-104（EMS 是受控站 ↔ 调度/云端）。
+> 交付后 `IDeviceIO` 上并列 **5 个适配器**：`SimDeviceIO` / `MemoryDeviceIO` / `RtDbDeviceIO` /
+> **`ModbusDeviceIO`** / **`Iec104DeviceIO`** —— 算法层（05/06/07/08）**一行未改**。
+
+## 19.1 本次交付
+
+| 项 | 内容 |
+| --- | --- |
+| 新增 `P3/src/modbus_codec.h` | Modbus 帧编解码纯函数：MBAP / PDU / 功能码 `0x03`·`0x04`·`0x06`·`0x10` / CRC16（自检 `0x4B37`）/ 四种字序 / 分批上限 |
+| 新增 `P3/src/modbus_device_io.h` | `ModbusDeviceIO`（实现 `IDeviceIO`）+ `ModbusRegisterMap`（30 点 → 4 寄存器块）+ `IModbusTransport` |
+| 新增 `P3/src/modbus_slave_sim.h` | `ModbusSlaveSim`（从站 + 方向强制）+ `LoopbackModbusTransport`（注入沉默/异常/断链）|
+| 新增 `P3/src/iec104_codec.h` | IEC104 帧/ASDU 编解码纯函数：APCI 三帧型 / 8 类 ASDU / 小端 / 粘包攒帧 |
+| 新增 `P3/src/iec104_device_io.h` | `Iec104DeviceIO` + `Iec104PointMap`（IOA 四段）+ `Iec104ControlledStationSim` + `LoopbackIec104Transport` |
+| 新增 `P3/src/main.cpp` | 演示 `ems_comms.exe`（场景 F Modbus / G IEC104 / H 四介质逐拍比对）|
+| 新增 `P3/tests/test_modbus.cpp` | T31~T36，**622 断言** |
+| 新增 `P3/tests/test_iec104.cpp` | T41~T46，**646 断言** |
+| 新增 `P3/scripts/*.bat` ×4 | build / run_demo / build_test_modbus / build_test_iec104（CRLF + 纯 ASCII，已过「吞 CR」扫描）|
+| `scripts/build_all.bat` | 23 步 → **25 步**（新增 `24/25 P3 Modbus`、`25/25 P3 IEC104`，编号同步 `N/23`→`N/25`）|
+| 文档 | 根 `README.md`（§2.16 + 目录树 + 产物清单 + 9353 断言 + 适配器架构图 + include 表 + 设计索引）、新增 `P3/docs/README.md` 与 `P3/docs/design.md`、`docs/产品化/P0-架构分层.md` §3.3、`04/src/device_io.h` 头注释 |
+
+## 19.2 为什么先做"监听环回"，而不是直接上真机
+
+现场验收最终当然要连云缆，但**开发期最该被验证的不是内核 socket**（那是操作系统的事），
+而是我们自己写的那几千行：帧格式、字序、序号状态机、地址映射、异常码。
+
+所以 P3 的环回装置只做一件事：**跳过内核 socket，不跳过任何字节编解码**。
+
+```
+  ModbusDeviceIO ──► MBAP+PDU 字节 ──► LoopbackModbusTransport ──► ModbusSlaveSim
+        ▲                                                                  │
+        └── parse_response() ◄── 响应字节 ◄──────── 回灌 ◄───────────────────┘
+```
+
+反面就是"直接调从站函数"。那样写，测试里跑的是 Python 式的函数直调，
+现场跑的是编码后的真实报文 —— **测过的不是要跑的**，P0 以来一直坚持的原则在这里同样适用。
+
+IEC104 侧更是如此：TCP 会**粘包**，`parse_apdu()` 收到半个帧必须返回 0 等下一批字节；
+序号 N(S)/N(R) 会回绕；k=12 窗口满了必须停发。这些只有走字节流才暴露得出来。
+
+## 19.3 两个适配器的边界
+
+| | `ModbusDeviceIO` | `Iec104DeviceIO` |
+| --- | --- | --- |
+| 角色 / 对端 | EMS **主站** ↔ PCS / BMS / 电表 | EMS **从站（受控站）** ↔ 调度 / 云端 SCADA |
+| 传输模型 | 请求-响应（`transact(req, resp)`） | 字节流（`send` / `receive`，粘包自己攒帧） |
+| 字节序 | **大端**（Modbus 规定） | **小端**（IEC104 规定） |
+| 上送方式 | EMS 主动轮询读 | 从站自定时上送 + EMS 用 TESTFR/S 帧当拍点 |
+| 首次握手 | 无（直连） | `STARTDT` + **总召唤三段式**（ActCon → Introgen → ActTerm） |
+| 写指令 | `0x10` 写 CMD 寄存器块 | 3 条 `C_SE_NC_1`(50) 设定值 |
+| 地址空间 | 寄存器块 `0x0000`/`0x0100`/`0x0200`/`0x0300` | IOA 段 `0x4001`/`0x4101`/`0x4201`/`0x4301` |
+| 故障看门狗 | 从站沉默 | t3 无数据超时（`set_stale_after_polls`）|
+
+**为什么两个 Transport 形状不同**：把 IEC104 硬塞进 `transact` 会把粘包与序号状态藏进抽象里 ——
+那是抽象泄漏，不是简化。
+
+**两者对外都只是 `IDeviceIO`**：`EmsRuntime` 拿到的指针类型完全一样，
+`07/tests/test_realtime_loop.cpp` 的算法路径一行没动。
+
+## 19.4 关键设计：等价性与量化必须分开验
+
+这是 P3 最重要的一条方法学。混在一起验，一旦 f32 有偏差，你无法判断是**字序写错**还是**精度天花板**。
+
+| 通道 | Modbus | IEC104 | 用途 |
+| --- | --- | --- | --- |
+| **宽精度** | `kFloat64BE`（4 寄存器） | `M_ME_WIDE`(200) 私有 double | 验**逐位等价**（diff 必须为 0） |
+| **现场标准** | `kFloat32BE`(ABCD) / `kFloat32Swap`(CDAB) | `M_ME_NC_1`(13) 短浮点 | 验**量化偏差量级**与决策拓扑不变 |
+
+实测结论（T34 / T44）：
+
+- 宽精度通道：400 拍**逐位 diff = 0**；
+- 现场标准通道：**决策拓扑差异 = 0 拍**，Δcmd 最大偏差 **3.93681e-05 kW**，ΔSOC **1.08913e-08**。
+
+**两条独立实现给出同一个偏差上界**：Modbus 侧走大端字序，IEC104 侧走小端 ASDU，
+两条代码路径互不相干，却推出同一个 ≈3.9e-05 kW。互为旁证 —— 说明这不是某个实现的偶然，
+而是 f32 在 100 kW 量程下的固有分辨率（2⁻²³ × 100 ≈ 1.19e-05，同量级）。
+
+## 19.5 踩坑 1：单次采集失败 ≠ 进 FAULT（T35）
+
+最初 T35 用 `inject_timeout(3)` 丢几帧，然后单步 `rt.step(0.1)`，期望状态机进 FAULT —— **4 个 FAIL**。
+
+原因：**"丢一帧"只让 `quality_ok_=false` 一拍**，`data_valid()` 当拍为假，下一拍读到数据就恢复。
+FAULT 需要 `data_invalid` 持续成立。
+
+修法两条：
+
+1. 模式 A 改用 `set_link_up(false)` **持续断链**，再连续 `rt.run(5, 60)` 推进，让故障位站稳；
+2. 模式 B（心跳丢但遥测正常 → HOLD_LAST）**不能断言固定拍数**起点。
+   改为扫描日志找首次 `hold_last` 出现的位置（实测期望落在第 128~133 拍），
+   再断言冻结值不被后续拍改变、权限区间被钉成单点、且冻结值本身非零
+   （`fabs(frozen) > 1.0`，否则"恒 0"也能骗过断言）。
+
+这条与 §18 的"反向守卫"是同一个思想：**等价性/一致性断言必须配一条反向断言**，否则退化的实现也能通过。
+
+## 19.6 踩坑 2：未知 ASDU 类型 ≠ 畸形报文（T43）
+
+T43 原本期望发一个"未知类型"的 ASDU 后 `malformed() == 0`，实际 `malformed()` 计数了 —— 2 个 FAIL。
+
+根因在 `asdu_length_ok()`：它按类型查长度表，**未知类型落到 `default: return false`**，
+于是 `handle_frame()` 把"不认识"当成"格式错"。
+
+"IEC104 扩容了新型号"和"报文被截断了"是两件完全不同的事，前者不该报警。修法：
+`asdu_length_ok()` 的默认分支改返回 `true`，未知类型只计 `unknown_type_`，畸形只计 `malformed_`，
+两类计数分开。测试同步改为分别断言。
+
+## 19.7 踩坑 3：`const` 成员函数里改缓存 —— 编译期就拦住了
+
+`Iec104DeviceIO::reset_session()` 被写成 `const`，但语义上它要清 `last_cmd_` / `has_last_cmd_`。
+编译器直接报 `assignment of member ... in read-only object`。
+
+这个坑的价值在于它**方向是对的**：`reset_session()` 确实改变对象状态，不该是 `const`。
+把 `const` 去掉即可 —— 与 04/ 的 `IDeviceIO` 里 `read_*` 是 `const`、`execute`/`write_*` 非 `const` 的分工一致。
+
+（另有一处纯手误：`test_modbus.cpp` 里把 `block_first_index()` 的函数定义误插在用例上方，导致重定义。
+属编辑事故，删掉重复定义即可。）
+
+## 19.8 核心证据：T34 / T44 闭环逐位等价
+
+沿用 §18 的 T26 范式 —— 同一套 `EmsRuntime`、同一装配序列、同一环境脚本，**400 拍逐拍比对**：
+
+```
+环境脚本完全相同（configure_runtime 与 07/test_rtdb_device_io.cpp 逐行一致）
+   ├─► 基准路：MemoryDeviceIO                直连进程内点表
+   └─► 被测路：ModbusDeviceIO （或 Iec104DeviceIO）  经 MBAP+PDU / APCI+ASDU 报文
+比对 17 个字段：p_cmd / p_actual / p_grid / soc / temp / p_lower / p_upper /
+              plan_target / correction / t / state / clamped / safety_clip /
+              state_gated / hold_last / fault_bits / reason
+```
+
+结果：
+
+- **宽精度通道：400 拍 diff = 0**（位级完全相同）；
+- **现场标准通道：决策拓扑差异 0 拍**，Δcmd 最大 3.93681e-05 kW。
+
+## 19.9 其余用例
+
+| 用例 | 覆盖点 |
+| --- | --- |
+| T31 | Modbus 帧逐字节：CRC16 自检 `0x4B37`、`kFloat32BE`(ABCD) vs `kFloat32Swap`(CDAB)、f64 位级恒等、MBAP 自洽、异常响应解析 |
+| T32 | 异常与采集失败：异常**不当数据**、读失败**保留旧值**、非法地址/单元号/未知功能码分别回对应异常码 |
+| T33 | 映射契约：f32 共 **780** 寄存器 / f64 共 **792**；点名 / 块 / 地址与 30 点真相源逐字一致 |
+| T35 | 断链与自愈：链路静默 → FAULT；心跳丢 → HOLD_LAST 冻结在 4.28963 kW（第 130 拍起）|
+| T36 | 故障经寄存器驱动状态机：`STA.PCS_FAULT` → FAULT → 门控归零 → 恢复后 READY **不自动带载**（设备侧读回指令 5.8891 kW）|
+| T41 | APCI 逐字节：U/S/I 三帧型、15bit 序号、LEN 上限 253、粘包边界（帧长 0 = 半个帧）|
+| T42 | ASDU 逐字节：类型 1/13/45/46/50/70/100/200 的小端布局、品质位、`M_ME_WIDE` 位级无损、长度语义 |
+| T43 | 会话时序：STARTDT 确认、总召唤 I 帧数=1、心跳 14/14、S 帧=30、最大未确认=0、k=12；CA 不匹配丢弃；未知类型/畸形分开计数；STOPDT 处理 |
+| T45 | 通信中断：链路断 → FAULT；对端哑触发 t3 → FAULT；自愈；**序号不回退** |
+| T46 | 映射契约：IOA 四段、**全局唯一**、分辨率事实 |
+
+## 19.10 全量回归
+
+- `scripts\build_all.bat`：`[BUILD ALL OK] All 25 components built.`
+- 实跑断言：
+  02 / 04=65 / 05=68 / 06=34 / 07=6050 / 07(RT_DB)=519 / 08=444 / P0+P0.5=79 /
+  09=77 / 10=144 / P1=171 / P2=434 / **P3 Modbus=622** / **P3 IEC104=646**
+  → **合计 9353 断言全绿**。
+
+## 19.11 涉及文件
+
+| 文件 | 变更 |
+| --- | --- |
+| `P3/src/modbus_codec.h` | **新增**（帧编解码纯函数 + CRC16 + 字序） |
+| `P3/src/modbus_device_io.h` | **新增**（`ModbusDeviceIO` + 寄存器映射 + `IModbusTransport`） |
+| `P3/src/modbus_slave_sim.h` | **新增**（从站仿真 + 方向强制 + 环回传输） |
+| `P3/src/iec104_codec.h` | **新增**（APCI / ASDU 编解码纯函数） |
+| `P3/src/iec104_device_io.h` | **新增**（`Iec104DeviceIO` + 受控站 + 环回 + 会话状态机） |
+| `P3/src/main.cpp` | **新增**（场景 F / G / H） |
+| `P3/tests/test_modbus.cpp` | **新增**（T31~T36 / 622 断言） |
+| `P3/tests/test_iec104.cpp` | **新增**（T41~T46 / 646 断言） |
+| `P3/scripts/build.bat` 等 4 个 | **新增**（CRLF + 纯 ASCII；已过「吞 CR」扫描） |
+| `P3/docs/README.md` | **新增**（为什么 / 交付物 / 环回验证 / 故障语义 / 现场约束 / 测试清单） |
+| `P3/docs/design.md` | **新增**（帧层 / 映射契约 / 会话时序 / 等价性方法学 / 未覆盖项） |
+| `scripts/build_all.bat` | 23 步 → **25 步**（新增 `24/25`、`25/25`；`N/23`→`N/25`；`All 23`→`All 25`） |
+| `README.md` | §2.16（新增）+ P3/ 目录树 + 构建产物 + 9353 断言 + 25 组件 + 适配器架构图（`P3 待接`→`P3 ✅`）+ include 表 + 依赖图 + 设计索引 |
+| `docs/产品化/P0-架构分层.md` | §3.3「后续适配器」表：`RtDbDeviceIO`/`ModbusDeviceIO`/`Iec104DeviceIO` 状态更新为已落地 |
+| `04/src/device_io.h` | 头注释：适配器清单补 `ModbusDeviceIO` / `Iec104DeviceIO` 的落地状态 |
+
+---
+
+# 20. P3 现场闭环最后一跳：TCP 传输层（+ 4 项历史欠账回写）
+
+> 一句话：P3 之前所有通信验证都在**同调用栈内搬字节**（环回）。本次补上
+> `IModbusTransport` / `IIec104Transport` 的 **TCP 实现**，用**真内核 socket + 独立线程**把
+> "验证过"变成"能接真机"；同时把 MEMORY 里挂着的 4 项治理欠账一次清掉。
+
+## 20.1 本次交付
+
+| 交付物 | 说明 |
+| --- | --- |
+| `P3/src/tcp_transport.h` | **新增**。`SocketRuntime`（Winsock 生命周期）/ `TcpSocket`（connect_to/send_all/recv_some/recv_exact）/ `mbap_body_len` / **`ModbusTcpTransport`** / **`Iec104TcpTransport`**。Windows(Winsock2) + POSIX 双实现 |
+| `P3/tests/test_tcp.cpp` | **新增**。T51~T57 / **87 断言**。服务端是独立线程 + 真 `listen`/`accept`/`recv`/`send`，数据真过内核协议栈与 127.0.0.1 回路 |
+| `P3/scripts/build_test_tcp.bat` | **新增**。CRLF + 纯 ASCII；MinGW 链接 `-lws2_32` |
+| `04/src/data_models.h` | **新增** `BatteryState` / `GridState` 只读视图 + 视图构造（欠账 4） |
+| `04/tests/test_arbiter.cpp` | T07 拆两子场景（欠账 3）；**新增 T18** 视图映射核对 |
+| `docs/接口规范/EMS策略接口规范.md` | **新增 §4.10.1 策略编号权威映射表** + SSOT 声明（欠账 1） |
+| `工商业储能EMS调控策略设计方案.md` | 周期 2 旁新增「实现口径（回写）」块（欠账 2） |
+| `docs/architecture.md` | 「核心策略一~八」段首新增概念名 ↔ 落地策略映射 + SSOT 指向 |
+| `04/docs/design.md` | §3.3 加 `strategy_id` 取值与 SSOT 说明 |
+| `04/docs/audit-p1-p4-summary.md` | 末尾新增「回写记录」一节（审计原文保持不动） |
+| `docs/产品化/P0-架构分层.md` | §3.3 补 TCP 传输层一行 + “换介质不改算法”完整链条 |
+| `scripts/build_all.bat` | **25 步 → 26 步**（新增 `26/26` P3 TCP 测试） |
+| `README.md` | P3 目录树 / 构建产物 / §2.16 新增「2.16.1 最后一跳」/ 断言与组件数同步；顺带修正两处陈旧计数（04 用例数、10/ 断言数） |
+| `P3/docs/README.md`·`design.md` | 新增 TCP 传输层章节（纪律 / 纵横时序坑 / 用例表 / 未覆盖项更新） |
+
+## 20.2 为什么这一跳非做不可
+
+P0 立的承诺是"换介质不改算法"，链条是：
+
+```
+SimDeviceIO → MemoryDeviceIO → RtDbDeviceIO → Loopback → TCP
+```
+
+前四环都验证过了，但**环回刻意跳过内核**。"能接真机"这句话只能由真 socket 兑现 ——
+否则现场接 PCS / 调度时要同时换传输层并对抗一堆未知问题，而那时没有等价性基线可比。
+
+本次换掉的**只有传输层实现**：适配器（`ModbusDeviceIO` / `Iec104DeviceIO`）与算法层
+（05/06/07/08）**一行未改**。接真机只需 `set_endpoint(host, port)`。
+
+## 20.3 三条实现纪律
+
+| # | 纪律 | 为什么 |
+| --- | --- | --- |
+| 1 | Modbus **按 MBAP `Length` 分帧**（先精确读 7 字节 MBAP，再读 `Length-1` 字节 PDU），TID 回显必须一致 | TCP 是字节流：一次 `recv` 可能只回来半个响应（需重组），也可能把两个响应粘在一起（需切分）；TID 不一致 = 错位/串话，宁可直接丢弃也不能喂给解析器 |
+| 2 | IEC104 `receive` **三态语义**：`false`=链路错误 / `true&len==0`=本轮无报文 / `true&len>0`=收到 N 字节 | 适配器 `drain_rx()` 靠这三态区分"对端哑了"（计 link_error）与"这一轮就是没数据"（正常） |
+| 3 | `connect` **非阻塞 + select 超时** | 阻塞 connect 连不通的地址会挂 20 s 以上，现场表现为"EMS 卡死"，比连不上更难查 |
+
+另有一处介质差异必须留出窗口：适配器 `open()` / 总召唤用 `drain_rx(0)`（非阻塞）等确认帧，
+环回下响应同栈产生所以立刻可见，跨 TCP 必须等对端调度 → 给一个 `min_wait_ms` 窗口（**建链时 50，运行期回 0**）。
+
+## 20.4 踩坑 1（本次最值得记的一条）：数值全对，整体滞后一拍
+
+**症状**：T56 逐拍比对显示 B 路比 A 路**整体滞后一拍**，`grid = 382 / 382.4 / 382.8` vs `0 / 382 / 382.4`。
+数值一个都不差，只是错位 —— 第一反应会去查 socket、编解码、超时，**全错**。
+
+排查过程中的三个弯路（都留下教训）：
+
+1. 先怀疑"在途数据"。加 `sync_uplink` 显式等一轮上送 —— 治标不治本，
+   12 轮 × 60 ms 都等不到，因为**迟到的那批字节是在探测窗口之后才产生的**。
+2. 再想"服务端自定时无脑上送" —— 实测**死循环**：客户端 `drain_rx(0)` 的语义是
+   "一直收到没有数据为止"，对端持续上送就永远收不干。此路不通（接口改动已回退）。
+3. 最后给服务端加 `round` 计数器汇合 —— 逐拍核对**已经对上了**（`cached == want`），
+   但**记录出来的值仍然是上一拍的**。
+
+**根因（两条缺一不可）**：
+
+1. **104 是服务端主动上送**（不像 Modbus 一问一答）。服务端消化"上一拍残留的帧"时读到的
+   设备值是上一拍的；这一轮上送的字节却在客户端**已经写入本拍环境之后**才被收走。
+   实测服务端日志铁证：`[srv] recv n=6 burst_load=0` —— 客户端已写入 380，服务端读到的还是 0。
+2. **`EMS_P_GRID` 是派生点，不是外部注入量**。它由 `MemoryDeviceIO::execute()` 里
+   `P_LOAD + 站用电 − P_PV − P_BAT` 现算（`SOC` / `T_C` / `P_BAT` 同理），
+   而 `realtime_loop.h` 第 ⑪ 步记录真值用的是 `read_actuals()` ——
+   `Iec104DeviceIO::read_actuals()` 读的是**最近一次上送的 cache**。
+   环回装置下 `read_actuals()` 直接读设备，所以**这个问题在环回下根本不会出现**。
+   （`set_environment()` 只写 `P_LOAD` / `P_PV`，`EMS_P_GRID` 只在 `execute()` 里更新 ——
+   这一点是解开谜题的关键。）
+
+**处置原则：能汇合就别猜，能核对就别等。** 具体做法（`test_tcp.cpp`）：
+
+```
+sync_uplink(load, pv)                      // 每拍开始，写在环境之前
+  ① 读干 → 发一帧触发词 → 等服务端 round 自增 → 读干并丢弃（旧值上送全部作废）
+  ② 写入本拍环境                            ← 此后服务端任何一轮上送必然带本拍值
+  ③ 触发 → 收干 → 核对 cache == 设备真值；对不上再来（最多 4 轮）
+
+refresh_after_execute()                    // device_pump 里 dev.execute() 之后
+  反复"触发 → 收干"，直到 cache 追上设备的 P_BAT / SOC
+```
+
+两个循环都带**失败计数**并在 T56 断言为 0：允许 `resyncs`（第二轮才对上，时序抖动），
+**不允许 `resync_failures` / `exec_refresh_failures`**。改完实测 400 拍 diff=0，
+连跑 4 次稳定（`次轮对齐` 在 2~7 之间浮动，失败恒为 0）。
+
+## 20.5 其余用例
+
+| 用例 | 覆盖点 | 实测 |
+| --- | --- | --- |
+| T51 | TCP 基座：连接 / 连接失败在预算内返回 / `receive` 三态 | 已关闭端口连接 **501~513 ms**（预算 2000 ms）；超时=0、对端关闭=-1 |
+| T52 | Modbus TCP 事务：往返字节与环回一致 | 服务端捕获**每一帧** MBAP 自洽（PID=0 / UnitId=1 / 功能码合法）+ 出现过 MEAS 块读；SOC 与设备侧一致 |
+| T53(a) | 服务端**每次只发 2 字节** | 客户端自行重组，`stale_reads==0`（分片不得造成采集失败） |
+| T53(b) | 服务端 `force_tid` 强制事务号错位 | 请求#1（TID 一致）通过；请求#2 被拒（`format_errors==1`、`rn==0`）**但仍在线** |
+| T54 | Modbus TCP 闭环 400 拍 | **逐位差异 0 拍**，峰值 100 kW，SOC 0.5→0.499318，事务 2801 |
+| T55 | IEC104 TCP 建链 | `startdt_ok` / `gi_done` / `unacked_tx==0` / 总召回数=1 / `bad_ca==0` / `malformed==0` |
+| T56 | IEC104 TCP 闭环 400 拍 | **逐位差异 0 拍**，`resync_failures==0`、`exec_refresh_failures==0` |
+| T57 | 真断链（服务端处理 800 帧后关闭） | 断链前峰值 **100 kW** → 采集不可信 → **FAULT** → 指令归零、门控 |
+
+**反向守卫**是这批用例的设计要点：等价性最容易被"两边都恒零"骗过，所以
+T54/T56 断言峰值指令 > 50 kW、SOC 首尾不同；T57 断言断链前确实在出力。
+
+T53 的两个子场景也踩过两个坑：`duplicate_first`（依赖"首帧必被读"）不确定 →
+改成 `force_tid` 做**确定性**错位注入；T52 的 MBAP 索引一开始按 `TID(0-1) PID(2-3)` 写错成
+`rq[1..3]` 当 PID，实际应为 `rq[2] && rq[3]`（`rq[6]` 是 UnitId）。
+
+## 20.6 4 项历史欠账回写
+
+| # | 欠账 | 处置 |
+| --- | --- | --- |
+| 1 | **策略编号三处不一致** | 明确 **04 `namespace strategy_id` 为唯一真相源**；接口规范新增 **§4.10.1 权威映射表**（`S01_BMS_FORBID`…`S09_DEMAND_RESPONSE` ↔ `bms_protection`/`peak_valley_arbitrage`/…），并写明 `S0x` 是**登记顺序不是优先级**；`architecture.md` / `design.md` 加交叉引用。两处"看似的漏实现"写明理由：`soc_life_planner` 归 05 `check_soc`；`S02_BMS_DERATE` 与 §4.9 共用输入形状（区别在 `bms_lock` vs `bms_derating`） |
+| 2 | **field rename 未回写** | 需求原文**一字未改**，在其周期 2 旁加「实现口径（回写）」块：`target_power→p_desired` / `max_power→p_upper` / `min_power→p_lower`，理由是**有符号区间**下 `max_power` 易被误读成"功率大小上限"；同时记录 `direction` 取消、`state→active+reason` 等 |
+| 3 | **T07 fixture 与经典例不符** | T07 拆两子场景：**(a)** 上界来自 `pcs_rated_dis_kw=200`（原用例）；**(b)** 上界来自 `transformer_capacity_kw=200` **真实过载**（`P_grid=105, P_load=950` → `tr_load=200, ratio=1.00` → `reason="tr_overload"`，区间 `[10, 200]`），并**直接断言变压器策略自身的输出** |
+| 4 | **BatteryState/GridState 未成体** | `04/src/data_models.h` §2.5 **显式成体**为**只读视图** + `battery_state_of()` / `grid_state_of()`。**不替换** `RealtimeSnapshot` / `DeviceLimits` 的既有字段（它们是全项目公共契约，改动会波及 05~10 与 P1/P2/P3），视图单向映射、**不产生第二份真相**；新增 **T18** 逐字段核对映射忠实性 + 验证"改视图不回写源结构" |
+
+## 20.7 全量回归
+
+- `scripts\build_all.bat`（**26 步**）：`[BUILD ALL OK] All 26 components built.`
+- 实跑断言（全绿）：
+
+```
+02(无数值汇总) / 04=94 / 05=68 / 06=34 / 07=6050 / 08=444 / P0+P0.5=79 /
+RT_DB=519 / 09=77 / 10=144 / P1=171 / P2=434 /
+P3 Modbus=622 / P3 IEC104=646 / P3 TCP=87
+                                        → 合计 9469 断言，FAIL=0
+```
+
+对比上一轮 9353：`-65 +94`（04 新增 T18 与 T07(b)）+ `+87`（P3 TCP）= **9469**。
+
+## 20.8 涉及文件
+
+| 文件 | 变更 |
+| --- | --- |
+| `P3/src/tcp_transport.h` | **新增**（`SocketRuntime` / `TcpSocket` / `MBAP 分帧` / `ModbusTcpTransport` / `Iec104TcpTransport`） |
+| `P3/tests/test_tcp.cpp` | **新增**（T51~T57 / 87 断言 / 真 socket / 独立线程服务端） |
+| `P3/scripts/build_test_tcp.bat` | **新增**（CRLF + 纯 ASCII + `-lws2_32`） |
+| `P3/docs/README.md` | 新增 §4.4「真内核 socket」+ TCP 用例表 + §9 第 6 条经验 + 局限更新 |
+| `P3/docs/design.md` | 新增 §6.5「传输层：环回 → TCP」（纪律 / 滞后一拍 / 用例表）+ 分层图补具体类名 + §8 未覆盖项更新 |
+| `04/src/data_models.h` | **新增** §2.5 `BatteryState` / `GridState` + 视图构造 |
+| `04/tests/test_arbiter.cpp` | T07 拆 (a)(b)；**新增 T18** |
+| `04/docs/design.md` | §3.3 补 `strategy_id` 取值与 SSOT 说明 |
+| `04/docs/audit-p1-p4-summary.md` | 末尾新增「回写记录（2026-09-14）」 |
+| `docs/接口规范/EMS策略接口规范.md` | **新增 §4.10.1** 策略编号权威映射表 + SSOT 声明 |
+| `docs/architecture.md` | 「核心策略一~八」段首新增概念名 ↔ 落地策略映射 |
+| `docs/产品化/P0-架构分层.md` | §3.3 补 TCP 传输层 + “换介质不改算法”完整链条 |
+| `工商业储能EMS调控策略设计方案.md` | 周期 2 旁新增「实现口径（回写）」块 |
+| `scripts/build_all.bat` | **25 步 → 26 步**（`N/25`→`N/26`、新增 `26/26`、`All 25`→`All 26`） |
+| `README.md` | P3 目录树 / 构建产物 / §2.16 + 新增 §2.16.1 / 9469 断言 + 26 组件；顺带修正 04 用例数（17→18 用例 65→94 断言）与 10/ 断言数（133→144，T110→T111） |
