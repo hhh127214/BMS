@@ -45,3 +45,9 @@ desktop.ini
 
 # Read-only snapshots from external projects (do NOT commit)
 /code/
+
+# PPT 工作目录（含 .cache/ .slidep/ slides_old/ 等中间产物与多版备份，不纳入版本控制）
+docs/ppt/
+
+# 本地工作记忆（过程性记录，仅本地保留）
+.workbuddy/
