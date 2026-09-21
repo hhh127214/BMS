@@ -1,0 +1,41 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            原理 · 为什么必须跨进程
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            同一套代码，换一种装法：单进程全绿，跨进程才照出三个真实缺陷
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 28, alignItems: 'center' }}>
+        <Box style={{ width: 600 }}>
+            <Image src="assets/crossproc.png" style={{ width: 600, height: 299 }} />
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <Box style={{ padding: '14px 16px', background: '#F1F5F9', borderRadius: 10 }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+                    跨内存边界 + 测试夹具替我喂数据
+                </Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 4 }}>
+                    = 测试盲区。所有断言都绿，但真实链路是断的 —— 而断在哪一步，绿的测试永远不告诉你。
+                </Text>
+            </Box>
+            <Box style={{ padding: '14px 16px', background: '#FEF2F2', borderRadius: 10, borderLeft: '4px solid #EF4444' }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>
+                    补通路前先自问一句
+                </Text>
+                <Text style={{ fontSize: 15, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 4 }}>
+                    这条路上，有几步是测试夹具替我做的？<br />
+                    哪怕只有一步，这一步在接真机前就一次都没走过。
+                </Text>
+            </Box>
+            <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                三个缺陷在单进程测试里永远不会暴露 —— 这就是这两天要把三个真进程装到一起的原因。
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>05 / 24</Text>
+    </Box>
+</Slide>

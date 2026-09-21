@@ -1,0 +1,29 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            原理 · 对下接现场设备
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            一台适配器两端互换：对模拟器是调试，对真机就是生产
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center', justifyContent: 'center' }}>
+        <Image src="assets/modbus_arch.png" style={{ width: 1000, height: 468 }} />
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 16, width: 1000 }}>
+            <Box style={{ flex: 1, padding: '10px 14px', background: '#ECFEFF', borderRadius: 8 }}>
+                <Text style={{ fontSize: 15, color: '#06B6D4', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+                    上行 · 量测与状态：读 IR / HR / DI，写进 MEAS / STA / CFG
+                </Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '10px 14px', background: '#EFF6FF', borderRadius: 8 }}>
+                <Text style={{ fontSize: 15, color: '#3B82F6', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+                    下行 · 指令：写 HR，一次原子下发 3 个连续指令点
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>09 / 24</Text>
+    </Box>
+</Slide>

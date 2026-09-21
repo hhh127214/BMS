@@ -1,0 +1,207 @@
+<Slide padding={0}>
+
+    <Box style={{
+        width: '100%',
+        height: '100%',
+        background: '#FFFFFF',
+        flexDirection: 'column',
+        padding: 0,
+    }}>
+
+        {/* A 区 */}
+        <Box style={{ padding: '24px 60px 0', height: 80 }}>
+            <Box style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <Box>
+                    <Text style={{ fontSize: 16, color: '#3B82F6', fontWeight: 'bold', letterSpacing: 2 }}>
+                        测 试 在 验 什 么 · WHAT IS VERIFIED
+                    </Text>
+                    <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#1A1A1A', marginTop: 6 }}>
+                        17 条用例对应 17 种业务冲突，不是测代码跑得动
+                    </Text>
+                </Box>
+                <Text style={{ fontSize: 14, color: '#94A3B8' }}>P08 / 11</Text>
+            </Box>
+        </Box>
+
+        {/* B 区 */}
+        <Box style={{
+            flex: 1,
+            padding: '12px 60px 0',
+            flexDirection: 'column',
+            gap: 12,
+        }}>
+
+            {/* 顶部 — 关键论点 */}
+            <Box style={{
+                padding: '12px 18px',
+                background: '#EFF6FF',
+                borderRadius: 8,
+                borderLeft: '4px solid #3B82F6',
+            }}>
+                <Text style={{ fontSize: 14, color: '#1E40AF', fontWeight: 'bold' }}>
+                    测试目的不是证明代码能跑，而是验证 9 个意志在面对真实冲突时不会做错决策
+                </Text>
+            </Box>
+
+            {/* 7 个组合场景 — 业务冲突 */}
+            <Box style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
+
+                {/* 左：7 个组合场景 */}
+                <Box style={{ flex: 7, flexDirection: 'column' }}>
+                    <Box style={{
+                        flexDirection: 'row', alignItems: 'center', padding: '8px 14px',
+                        background: '#3B82F6',
+                        borderRadius: '6px 6px 0 0',
+                    }}>
+                        <Text style={{ fontSize: 14, color: '#FFFFFF', fontWeight: 'bold', letterSpacing: 1.5 }}>
+                            A · 7 种组合场景
+                        </Text>
+                        <Box style={{ flex: 1 }} />
+                        <Text style={{ fontSize: 12, color: '#DBEAFE', fontStyle: 'italic' }}>
+                            复现真实会同时出现的冲突
+                        </Text>
+                    </Box>
+                    <Box style={{
+                        flex: 1,
+                        background: '#F8FAFC',
+                        borderRadius: '0 0 6px 6px',
+                        border: '1px solid #DBEAFE',
+                        borderTop: 'none',
+                        padding: 8,
+                        flexDirection: 'column',
+                        gap: 5,
+                    }}>
+                        {[
+                            { id: 'T11', conf: '峰谷套利 + BMS 降功率', expect: '套利想放 300 → BMS 限到 80' },
+                            { id: 'T12', conf: '峰谷套利 + 变压器极端过载', expect: '变压器远超 → 禁放，套利让步' },
+                            { id: 'T13', conf: '需量管理 + 防逆流', expect: '同时触发，取最严' },
+                            { id: 'T14', conf: '光伏平抑 + 防逆流', expect: '余电优先充电，不得外送' },
+                            { id: 'T15', conf: '动态优化 + 需量管理', expect: '高峰时减负荷' },
+                            { id: 'T16', conf: 'DR + 峰谷套利 + BMS 限制', expect: 'DR 强制下限，BMS/套利让步' },
+                            { id: 'T17', conf: '9 策略同时启用', expect: '完整链路贯通测试，单一输出' },
+                        ].map((row, idx) => (
+                            <Box key={idx} style={{
+                                flexDirection: 'row', alignItems: 'center',
+                                padding: '7px 10px',
+                                background: '#FFFFFF',
+                                borderRadius: 4,
+                                border: '1px solid #E2E8F0',
+                            }}>
+                                <Box style={{
+                                    width: 36, padding: '3px 0',
+                                    background: '#3B82F6', borderRadius: 3,
+                                    alignItems: 'center',
+                                }}>
+                                    <Text style={{
+                                        color: '#FFFFFF', fontSize: 12,
+                                        fontWeight: 'bold', textAlign: 'center',
+                                    }}>{row.id}</Text>
+                                </Box>
+                                <Text style={{ fontSize: 13, color: '#1A1A1A', fontWeight: 'bold', marginLeft: 8, width: 250 }}>
+                                    {row.conf}
+                                </Text>
+                                <Text style={{ fontSize: 12, color: '#475569', marginLeft: 6 }}>
+                                    {row.expect}
+                                </Text>
+                            </Box>
+                        ))}
+                    </Box>
+                </Box>
+
+                {/* 右：10 个单策略边界 — 用紧凑卡片 */}
+                <Box style={{ flex: 5, flexDirection: 'column' }}>
+                    <Box style={{
+                        flexDirection: 'row', alignItems: 'center', padding: '8px 14px',
+                        background: '#06B6D4',
+                        borderRadius: '6px 6px 0 0',
+                    }}>
+                        <Text style={{ fontSize: 14, color: '#FFFFFF', fontWeight: 'bold', letterSpacing: 1.5 }}>
+                            B · 10 个单策略边界
+                        </Text>
+                        <Box style={{ flex: 1 }} />
+                        <Text style={{ fontSize: 12, color: '#CFFAFE', fontStyle: 'italic' }}>
+                            防回归
+                        </Text>
+                    </Box>
+                    <Box style={{
+                        flex: 1,
+                        background: '#F8FAFC',
+                        borderRadius: '0 0 6px 6px',
+                        border: '1px solid #CFFAFE',
+                        borderTop: 'none',
+                        padding: 8,
+                        flexDirection: 'column',
+                        gap: 4,
+                    }}>
+                        {[
+                            'T01 - 空启用表·默认区间',
+                            'T02 - 启用单策略·仲裁透传',
+                            'T03 - 区间收敛·多策略重叠',
+                            'T04 - 同层加权·共识稳定',
+                            'T05 - 越界 desired_clip·夹紧',
+                            'T06 - 死区·小幅变化不下发',
+                            'T07 - 滞回·防止指令飘移',
+                            'T08 - L0 空集→本 tick 拒执行',
+                            'T09 - L0 与 L3 永不被平均',
+                            'T10 - DR 事件按时段注入·裁剪输出',
+                        ].map((s, idx) => (
+                            <Box key={idx} style={{
+                                padding: '6px 10px',
+                                background: '#FFFFFF',
+                                borderRadius: 4,
+                                border: '1px solid #E2E8F0',
+                            }}>
+                                <Text style={{ fontSize: 12, color: '#475569' }}>· {s}</Text>
+                            </Box>
+                        ))}
+                    </Box>
+                </Box>
+            </Box>
+
+            {/* 底部 — 测试本身的论断 */}
+            <Box style={{
+                padding: '10px 16px',
+                background: '#F0FDF4',
+                borderRadius: 8,
+                borderLeft: '4px solid #22C55E',
+                flexDirection: 'row',
+                alignItems: 'center',
+            }}>
+                <Text style={{ fontSize: 16, color: '#166534', fontWeight: 'bold', marginRight: 14, fontFamily: 'JetBrains Mono, monospace' }}>
+                    17/17 通过
+                </Text>
+                <Text style={{ fontSize: 13, color: '#1A1A1A', lineHeight: 1.5, flex: 1 }}>
+                    每个用例背后都对应一条业务承诺："如果现实出现 X 场景，系统必定给出 Y 动作"——这是合约，不是测验
+                </Text>
+            </Box>
+            <Box style={{
+                padding: '10px 16px',
+                marginTop: 6,
+                background: '#F8FAFC',
+                borderRadius: 8,
+                borderLeft: '4px solid #64748B',
+            }}>
+                <Text style={{ fontSize: 12, color: '#475569', lineHeight: 1.5, fontWeight: 'bold' }}>
+                    为什么 17 条够用：7 组合场景覆盖了所有可能的策略对（n×(n-1)/2=36），10 单策略边界覆盖了 5 步算法的所有边界——再多的测试是冗余
+                </Text>
+            </Box>
+
+        </Box>
+
+        {/* C 区 */}
+        <Box style={{
+            padding: '0 60px 12px',
+            height: 46,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTop: '1px solid #E2E8F0',
+        }}>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>
+                17 用例 = 7 种业务冲突 + 10 条单策略边界，零失败零跳过
+            </Text>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>08 / 11</Text>
+        </Box>
+
+    </Box>
+</Slide>

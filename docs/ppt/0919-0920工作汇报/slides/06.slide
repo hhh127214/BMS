@@ -1,0 +1,40 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            怎么做的 ②：逐项复核 + 端到端实测
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            数字不是抄文档的——19 个测试目标逐个本地实跑；链路不是「应该通了」——五个真进程跑 600 拍
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 14 }}>
+        <Box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <Image src="assets/five_proc.png" style={{ width: 1000, height: 314 }} />
+            <Text style={{ fontSize: 13, color: '#94A3B8', fontFamily: 'Microsoft YaHei' }}>
+                端到端链路：主站模拟器 → IEC104 网关 → 共享内存 → EMS 侧安全链 → 设备侧
+            </Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 24 }}>
+            <Box style={{ flex: 1, padding: '12px 16px', background: '#F8FAFC', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+                <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                    逐项复核 19/19，加总闭合
+                </Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    每个测试目标本地实跑，与基线逐位一致。复核中抓到新现象：从仓库根目录跑测试会「假红」——产物走相对路径，工作目录变了地址就变了。纪律：必须在模块目录下跑。
+                </Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '12px 16px', background: '#F8FAFC', borderRadius: 8, borderLeft: '3px solid #06B6D4' }}>
+                <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                    600 拍闭环：指令真落点、真生效
+                </Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    调度遥调 120.5 kW 真实落到 EXT 区（探针 p_setpoint=120.500）；主站发停机后安全链把出力收成 [0,0]，600/600 拍全生效；主站断开，网关立刻清空设定——失效兜底真起作用。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 工作汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>06 / 10</Text>
+    </Box>
+</Slide>

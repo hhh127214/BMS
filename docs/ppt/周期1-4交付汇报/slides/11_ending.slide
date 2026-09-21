@@ -1,0 +1,155 @@
+<Slide padding={0}>
+
+    <Box style={{
+        width: '100%',
+        height: '100%',
+        background: '#FFFFFF',
+        position: 'relative',
+        flexDirection: 'column',
+        padding: 0,
+    }}>
+
+        {/* 装饰 — 同封面的蓝色梯形 */}
+        <Box style={{
+            position: 'absolute',
+            top: 0, right: 0,
+            width: 720, height: 480,
+            background: 'linear-gradient(225deg, #3B82F6 0%, #06B6D4 100%)',
+            opacity: 0.95,
+            clipPath: 'polygon(20% 0, 100% 0, 100% 100%, 0 80%)',
+        }} />
+
+        {/* 右上：阶段 */}
+        <Box style={{
+            position: 'absolute',
+            top: 36, left: 48,
+            padding: '10px 24px',
+            borderRadius: 24,
+            border: '1.5px solid #3B82F6',
+            background: 'rgba(59,130,246,0.06)',
+        }}>
+            <Text style={{
+                fontSize: 16, color: '#3B82F6',
+                fontWeight: 'bold', letterSpacing: 1.5,
+            }}>
+                P11 / 11 · 收 束
+            </Text>
+        </Box>
+
+        {/* 主标题 */}
+        <Box style={{
+            position: 'absolute',
+            top: 110, left: 60,
+            width: 720,
+        }}>
+            <Text style={{
+                fontSize: 48, fontWeight: 'bold', color: '#1A1A1A',
+                lineHeight: 1.2, letterSpacing: -1,
+            }}>
+                前 4 周交付的不是代码
+            </Text>
+            <Text style={{
+                fontSize: 48, fontWeight: 'bold', color: '#3B82F6',
+                lineHeight: 1.2, letterSpacing: -1, marginTop: 4,
+            }}>
+                是 9 个意志的协商协议
+            </Text>
+        </Box>
+
+        {/* 4 大数字 — 收束 */}
+        <Box style={{
+            position: 'absolute',
+            top: 320, left: 60,
+            flexDirection: 'row', gap: 56,
+        }}>
+            <Box>
+                <Text style={{
+                    fontSize: 72, fontWeight: 'bold', color: '#1A1A1A',
+                    fontFamily: 'JetBrains Mono, monospace', lineHeight: 1,
+                }}>9</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', marginTop: 8, letterSpacing: 1, fontWeight: 'bold' }}>
+                    业务意志被同一种语言描述
+                </Text>
+            </Box>
+            <Box>
+                <Text style={{
+                    fontSize: 72, fontWeight: 'bold', color: '#1A1A1A',
+                    fontFamily: 'JetBrains Mono, monospace', lineHeight: 1,
+                }}>5</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', marginTop: 8, letterSpacing: 1, fontWeight: 'bold' }}>
+                    步仲裁·不靠直觉·按规则
+                </Text>
+            </Box>
+            <Box>
+                <Text style={{
+                    fontSize: 72, fontWeight: 'bold', color: '#1A1A1A',
+                    fontFamily: 'JetBrains Mono, monospace', lineHeight: 1,
+                }}>17</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', marginTop: 8, letterSpacing: 1, fontWeight: 'bold' }}>
+                    种业务冲突·确定性通过
+                </Text>
+            </Box>
+            <Box>
+                <Text style={{
+                    fontSize: 72, fontWeight: 'bold', color: '#1A1A1A',
+                    fontFamily: 'JetBrains Mono, monospace', lineHeight: 1,
+                }}>1</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', marginTop: 8, letterSpacing: 1, fontWeight: 'bold' }}>
+                    套逻辑闭环·讲得清·改得动
+                </Text>
+            </Box>
+        </Box>
+
+        {/* 底部 — 3 个下一步动作 */}
+        <Box style={{
+            position: 'absolute',
+            bottom: 60, left: 60,
+            flexDirection: 'row', gap: 10,
+        }}>
+            <Box style={{
+                padding: '10px 18px',
+                background: '#FFFFFF',
+                borderRadius: 8,
+                border: '1.5px solid #3B82F6',
+            }}>
+                <Text style={{ fontSize: 13, color: '#3B82F6', fontWeight: 'bold', letterSpacing: 1.5 }}>下一步 1</Text>
+                <Text style={{ fontSize: 13, color: '#1A1A1A', marginTop: 4 }}>
+                    启动 P6 状态机——3 处治理差距补齐后才开工
+                </Text>
+            </Box>
+
+            <Box style={{
+                padding: '10px 18px',
+                background: '#FFFFFF',
+                borderRadius: 8,
+                border: '1.5px solid #06B6D4',
+            }}>
+                <Text style={{ fontSize: 13, color: '#06B6D4', fontWeight: 'bold', letterSpacing: 1.5 }}>下一步 2</Text>
+                <Text style={{ fontSize: 13, color: '#1A1A1A', marginTop: 4 }}>
+                    仲裁器接仿真回放（已有 17 场景），先把"算法事实"固化下来
+                </Text>
+            </Box>
+
+            <Box style={{
+                padding: '10px 18px',
+                background: '#FFFFFF',
+                borderRadius: 8,
+                border: '1.5px solid #EF4444',
+            }}>
+                <Text style={{ fontSize: 13, color: '#EF4444', fontWeight: 'bold', letterSpacing: 1.5 }}>下一步 3</Text>
+                <Text style={{ fontSize: 13, color: '#1A1A1A', marginTop: 4 }}>
+                    控制器联调——让"算"出来的东西真的能跑起来
+                </Text>
+            </Box>
+        </Box>
+
+        <Box style={{
+            position: 'absolute', bottom: 24, right: 48,
+        }}>
+            <Text style={{ fontSize: 14, color: '#FFFFFF', opacity: 0.85 }}>
+                2026-09-06 · WorkBuddy
+            </Text>
+        </Box>
+
+    </Box>
+</Slide>

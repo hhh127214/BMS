@@ -1,0 +1,45 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            诚实交代：测试抓到的三类问题
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            产品缺陷会变红——「测试自己错」「产物过期」这两类，不变红也不会自愈
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 18, alignItems: 'stretch' }}>
+        <Box style={{ flex: 1, padding: '14px 18px', background: '#FEF2F2', borderRadius: 12, border: '1px solid #EF4444', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>① 产品缺陷 6 条（测试拦住了）</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 一组量读到中间态（新上界配旧下界）→ 写前也要递增序号</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 编译缓存只判「存在」不判「更新」→ 同名点表两套内容</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 验收报告标题 32 点、证据行 40 点——检查项自相矛盾</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 跳过了却仍印「三层测试全部通过」</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 心跳永远 T+0s → 换算抽成可断言的纯函数</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 禁充放位 / 关口口径通路级失效（前页两个缺口）</Text>
+        </Box>
+        <Box style={{ flex: 1, padding: '14px 18px', background: '#FEF2F2', borderRadius: 12, border: '1px solid #EF4444', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>② 测试自己出错 4 条（最值得记）</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 并发判据测「机器闲不闲」→ 改四层判据，刻意不调大重试</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 300 次快照一次都没对账 → 覆盖率守卫（实测 300/300）</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 断言适用范围写错：哨兵值对极端区间并非恒等——不为消红调大魔数</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 遍历把序号/时标点算进载荷 → 实际只覆盖 6 个点</Text>
+            <Text style={{ fontSize: 12.5, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5, marginTop: 'auto' }}>共同点：判据错了也很安静——所以新增判据必须当场反证一次。</Text>
+        </Box>
+        <Box style={{ flex: 1, padding: '14px 18px', background: '#F1F5F9', borderRadius: 12, border: '1px solid #64748B', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>③ 过期产物 3 处（不会变红）</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 两份正式报告里的过期点数标题 → 改成派生 / 去掉硬数字</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 两份「未做」清单把已交付项仍挂在未做栏</Text>
+            <Text style={{ fontSize: 12.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>· 全量构建日志停在旧口径 → 待可跑官方脚本的环境刷新</Text>
+            <Text style={{ fontSize: 12.5, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5, marginTop: 'auto' }}>教训：清扫前必须先分类——同一个「32 点」在项目里就有两种含义，不能全局替换。</Text>
+        </Box>
+    </Box>
+    <Box style={{ marginTop: 12, padding: '9px 16px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+        <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+            三句话各被实证一次：允许的降级不能用恒零断言 ｜ 没报违规 ≠ 查过之后没违规 ｜ 不修也是一个决定，但必须留证据。
+        </Text>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 两天工作全量讲解</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>13 / 16</Text>
+    </Box>
+</Slide>

@@ -1,0 +1,70 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            验路 ③：交付门禁——七维度 55 项全过
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            验收结论要能给第三方复核：报告是产物（md/json/html），日志只是过程
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 30, alignItems: 'center' }}>
+        <Box style={{ width: 330, padding: '26px 26px', background: '#EFF6FF', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Text style={{ fontSize: 96, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                55/55
+            </Text>
+            <Text style={{ fontSize: 18, color: '#1A1A1A', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+                交付门禁通过 · 退出码 0
+            </Text>
+            <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                结论行只有一行、但有 55 条检查项撑着；验收器自身另有 114 条自测断言。
+            </Text>
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 12 }}>
+                <Box style={{ flex: 1, padding: '14px 12px', background: '#F8FAFC', borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>功能 · 9 项</Text>
+                    <Text style={{ fontSize: 12, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5, marginTop: 4 }}>全链路闭环 / 状态机七态 / 三适配器等价</Text>
+                </Box>
+                <Box style={{ flex: 1, padding: '14px 12px', background: '#F8FAFC', borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>策略 · 9 项</Text>
+                    <Text style={{ fontSize: 12, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5, marginTop: 4 }}>策略注册 / 启停 / 组合优先级</Text>
+                </Box>
+                <Box style={{ flex: 1, padding: '14px 12px', background: '#F8FAFC', borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>安全 · 11 项</Text>
+                    <Text style={{ fontSize: 12, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5, marginTop: 4 }}>越界 / 矛盾 / 失效兜底 / 点区边界</Text>
+                </Box>
+                <Box style={{ flex: 1, padding: '14px 12px', background: '#F8FAFC', borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>性能 · 5 项</Text>
+                    <Text style={{ fontSize: 12, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5, marginTop: 4 }}>节拍与时延量级</Text>
+                </Box>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 12 }}>
+                <Box style={{ flex: 1, padding: '14px 12px', background: '#F8FAFC', borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>稳定性 · 7 项</Text>
+                    <Text style={{ fontSize: 12, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5, marginTop: 4 }}>长跑 / 并发 / 数据源异常</Text>
+                </Box>
+                <Box style={{ flex: 1, padding: '14px 12px', background: '#F8FAFC', borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>多策略协同 · 8 项</Text>
+                    <Text style={{ fontSize: 12, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5, marginTop: 4 }}>策略切换 / 区间收敛一致性</Text>
+                </Box>
+                <Box style={{ flex: 1, padding: '14px 12px', background: '#F8FAFC', borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Microsoft YaHei' }}>文档 · 6 项</Text>
+                    <Text style={{ fontSize: 12, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5, marginTop: 4 }}>与实现一致、口径写明</Text>
+                </Box>
+                <Box style={{ flex: 1, padding: '14px 12px', background: '#EFF6FF', borderRadius: 10, border: '1px solid #3B82F6' }}>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>合计 · 55 项</Text>
+                    <Text style={{ fontSize: 12, color: '#3B82F6', fontFamily: 'Microsoft YaHei', lineHeight: 1.5, marginTop: 4, fontWeight: 600 }}>9+9+11+5+7+8+6</Text>
+                </Box>
+            </Box>
+            <Box style={{ padding: '10px 14px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+                <Text style={{ fontSize: 13.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    检查项凡涉及点数的从真相源派生、不手抄——点表扩容时，<Text style={{ fontSize: 13.5, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>标题在结构上不可能再过期</Text>。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 两天工作全量讲解</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>14 / 16</Text>
+    </Box>
+</Slide>

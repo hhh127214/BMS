@@ -10,14 +10,14 @@ cd /d "%~dp0\.."
 if not exist build mkdir build
 
 echo === 编译 08/ 单元测试 ===
-g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\07\src tests\test_dispatch_coordinator.cpp -o build\test_dispatch_coordinator.exe
+g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\07\src -I ..\07\src\rtdb tests\test_dispatch_coordinator.cpp -o build\test_dispatch_coordinator.exe
 if errorlevel 1 (
     echo [FAIL] test_dispatch_coordinator.exe 编译失败
     exit /b 1
 )
 
 echo === 编译 08/ 演示程序 ===
-g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\07\src src\main.cpp -o build\coord_demo.exe
+g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\07\src -I ..\07\src\rtdb src\main.cpp -o build\coord_demo.exe
 if errorlevel 1 (
     echo [FAIL] coord_demo.exe 编译失败
     exit /b 1

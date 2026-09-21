@@ -1,0 +1,49 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            设备线 ③：两个安全缺口——接口在、字段在，但没人读
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            都是「看起来在跑、实际没生效」那一类：断言不会替你发现「没接的线」
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 24, alignItems: 'stretch' }}>
+        <Box style={{ flex: 1, padding: '18px 22px', background: '#FEF2F2', borderRadius: 12, border: '1px solid #EF4444', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>
+                缺口一：BMS 禁充/禁放位没接进安全链
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                <Text style={{ fontSize: 14.5, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>现象：</Text>BMS 的禁充/禁放保护位一直在总线上，安全引擎的 9 条约束里却没有它——设备侧的保护意图，EMS 侧看不见。
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                <Text style={{ fontSize: 14.5, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>修法：</Text>点表末尾追加 2 个状态点（30 → 32），三个适配器的限值接口真读这两个位；新点默认 0 = 允许，冷启动不锁死。
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#3B82F6', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 'auto' }}>
+                <Text style={{ fontSize: 14.5, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>证据：</Text>断言 8331 → 8523（+22），跨内存 / 跨进程 / 验收三层都有对应断言。
+            </Text>
+        </Box>
+        <Box style={{ flex: 1, padding: '18px 22px', background: '#FEF2F2', borderRadius: 12, border: '1px solid #EF4444', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>
+                缺口二：关口功率口径不一致
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                <Text style={{ fontSize: 14.5, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>现象：</Text>防逆流和变压器过载都吃关口功率，但三个适配器一个读电表、两个本地三路相减——两源可差 40 kW。
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                <Text style={{ fontSize: 14.5, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>修法：</Text>统一为「只读电表点」；模拟器注入 40 kW 电表偏差，让「两源不一致」可被表达、可被断言。
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#3B82F6', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 'auto' }}>
+                <Text style={{ fontSize: 14.5, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>证据：</Text>断言 8523 → 8547（+24）；跨语言实测电表读数 232 vs 三路相减 230，差值直接可观测。
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ marginTop: 12, padding: '10px 16px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+        <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+            为什么关口功率必须只读电表：它是防逆流和变压器过载的共同输入，<Text style={{ fontSize: 14, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>口径错就是系统性错</Text>——本地重算省一次读点，赔上的是整个安全判据的可信度。
+        </Text>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 两天工作全量讲解</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>06 / 16</Text>
+    </Box>
+</Slide>

@@ -1,0 +1,55 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            调度线 ①：调度网关（IEC 104 从站）与转发表外置
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            对上接调度 / 虚拟电厂：真实 TCP、真实报文、真实遥控遥调时序
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 24, alignItems: 'stretch' }}>
+        <Box style={{ flex: 1, padding: '18px 22px', background: '#EFF6FF', borderRadius: 12, border: '1px solid #3B82F6', display: 'flex', flexDirection: 'column', gap: 9 }}>
+            <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>
+                调度网关：把调度指令变成总线上的 8 个点
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                · 单向写 8 点「外来指令区」；对 EMS 的数据纯只读——网关不可能改量测、改配置
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                · 品质标志真实反映设备状态：在线全 GOOD、停止全 NT——主站看到的不撒谎
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                · 没验证过的遥控一律否定确认——不假装「已执行」
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#3B82F6', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 'auto', fontWeight: 600 }}>
+                结果：协议层 408 + 落点层 121 断言；落点层 121 条「不注入任何东西」专防测试盲区
+            </Text>
+        </Box>
+        <Box style={{ flex: 1, padding: '18px 22px', background: '#F1F5F9', borderRadius: 12, border: '1px solid #06B6D4', display: 'flex', flexDirection: 'column', gap: 9 }}>
+            <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Microsoft YaHei' }}>
+                转发表外置：CA/IOA 映射从代码搬进数据文件
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                · 为什么：转发表每个现场不同——让现场为改一个 IOA 去重编 C++，不可接受
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                · 怎么做：加载后走与内置表同一套自检，任一条不过整体回退——绝不「加载一半就跑」
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                · 互为镜像：随程序提供的样例文件与内置默认表逐字段对账，谁改了一边立刻露馅
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#06B6D4', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 'auto', fontWeight: 600 }}>
+                结果：+28 断言；基线 9276 → 9304（本轮最后一步）
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ marginTop: 12, padding: '10px 16px', background: '#FEF2F2', borderRadius: 8, borderLeft: '3px solid #EF4444' }}>
+        <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+            端到端实测：主站模拟器下发「停机」→ 网关写外来指令区 → EMS 把安全区间收成 [0, 0]，<Text style={{ fontSize: 14, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>600 / 600 拍全部命中</Text>。
+        </Text>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 两天工作全量讲解</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>09 / 16</Text>
+    </Box>
+</Slide>

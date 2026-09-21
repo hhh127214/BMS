@@ -1,0 +1,155 @@
+<Slide padding={0}>
+
+    <Box style={{
+        width: '100%',
+        height: '100%',
+        background: '#FFFFFF',
+        flexDirection: 'column',
+        padding: 0,
+    }}>
+
+        {/* A 区 */}
+        <Box style={{ padding: '30px 60px 0', height: 80 }}>
+            <Box style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <Box>
+                    <Text style={{ fontSize: 16, color: '#3B82F6', fontWeight: 'bold', letterSpacing: 2 }}>
+                        为什么是这 4 周 · THE LOGIC
+                    </Text>
+                    <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#1A1A1A', marginTop: 6 }}>
+                        4 件大事的内在次序——缺了前面，后面跑不通
+                    </Text>
+                </Box>
+                <Text style={{ fontSize: 14, color: '#94A3B8' }}>P03 / 11</Text>
+            </Box>
+        </Box>
+
+        {/* B 区：因果链 — 4 个圆圈 + 解释 */}
+        <Box style={{
+            flex: 1,
+            padding: '24px 60px',
+            flexDirection: 'column',
+        }}>
+
+            {/* 因果链主图 */}
+            <Box style={{ height: 130 }}>
+                <svg width='100%' height='100%' viewBox='0 0 1040 130'>
+
+                    {/* 主连线 */}
+                    <line x1='110' y1='65' x2='930' y2='65' stroke='#CBD5E1' strokeWidth='2' />
+
+                    {/* 4 个节点 */}
+                    {/* 节点 1 */}
+                    <circle cx='130' cy='65' r='34' fill='#DBEAFE' stroke='#3B82F6' strokeWidth='3' />
+                    <text x='130' y='64' textAnchor='middle' fill='#1E40AF' fontSize='26' fontFamily='Source Han Sans SC' fontWeight='bold'>9</text>
+                    <text x='130' y='84' textAnchor='middle' fill='#1E40AF' fontSize='13' fontFamily='Source Han Sans SC' fontWeight='bold'>策略</text>
+
+                    {/* 节点 2 */}
+                    <circle cx='390' cy='65' r='34' fill='#CFFAFE' stroke='#06B6D4' strokeWidth='3' />
+                    <text x='390' y='64' textAnchor='middle' fill='#0E7490' fontSize='26' fontFamily='Source Han Sans SC' fontWeight='bold'>1</text>
+                    <text x='390' y='84' textAnchor='middle' fill='#0E7490' fontSize='13' fontFamily='Source Han Sans SC' fontWeight='bold'>共同语言</text>
+
+                    {/* 节点 3 */}
+                    <circle cx='650' cy='65' r='34' fill='#D1FAE5' stroke='#22C55E' strokeWidth='3' />
+                    <text x='650' y='64' textAnchor='middle' fill='#166534' fontSize='26' fontFamily='Source Han Sans SC' fontWeight='bold'>1</text>
+                    <text x='650' y='84' textAnchor='middle' fill='#166534' fontSize='13' fontFamily='Source Han Sans SC' fontWeight='bold'>议事厅</text>
+
+                    {/* 节点 4 */}
+                    <circle cx='910' cy='65' r='34' fill='#FEE2E2' stroke='#EF4444' strokeWidth='3' />
+                    <text x='910' y='64' textAnchor='middle' fill='#B91C1C' fontSize='26' fontFamily='Source Han Sans SC' fontWeight='bold'>1</text>
+                    <text x='910' y='84' textAnchor='middle' fill='#B91C1C' fontSize='13' fontFamily='Source Han Sans SC' fontWeight='bold'>规则</text>
+
+                    {/* 周标签 */}
+                    <text x='130' y='125' textAnchor='middle' fill='#64748B' fontSize='13' fontFamily='Source Han Sans SC'>第 1 周</text>
+                    <text x='390' y='125' textAnchor='middle' fill='#64748B' fontSize='13' fontFamily='Source Han Sans SC'>第 2 周</text>
+                    <text x='650' y='125' textAnchor='middle' fill='#64748B' fontSize='13' fontFamily='Source Han Sans SC'>第 3 周</text>
+                    <text x='910' y='125' textAnchor='middle' fill='#64748B' fontSize='13' fontFamily='Source Han Sans SC'>第 4 周</text>
+
+                    {/* 因果箭头提示 — 破坏后果 */}
+                    <text x='260' y='48' textAnchor='middle' fill='#94A3B8' fontSize='12' fontFamily='Source Han Sans SC'>没有说话的人</text>
+                    <text x='260' y='95' textAnchor='middle' fill='#B91C1C' fontSize='12' fontFamily='Source Han Sans SC' fontWeight='bold'>不用谈语言 → 一切空谈</text>
+                    <polygon points='263,62 263,72 273,67' fill='#94A3B8' />
+
+                    <text x='520' y='48' textAnchor='middle' fill='#94A3B8' fontSize='12' fontFamily='Source Han Sans SC'>没有共同语言</text>
+                    <text x='520' y='95' textAnchor='middle' fill='#B91C1C' fontSize='12' fontFamily='Source Han Sans SC' fontWeight='bold'>议事厅空转 → 输出分裂指令</text>
+                    <polygon points='523,62 523,72 533,67' fill='#94A3B8' />
+
+                    <text x='780' y='48' textAnchor='middle' fill='#94A3B8' fontSize='12' fontFamily='Source Han Sans SC'>没人抢话筒</text>
+                    <text x='780' y='95' textAnchor='middle' fill='#B91C1C' fontSize='12' fontFamily='Source Han Sans SC' fontWeight='bold'>就不需规则 → 仲裁器空跑</text>
+                    <polygon points='783,62 783,72 793,67' fill='#94A3B8' />
+
+                </svg>
+            </Box>
+
+            {/* 4 个解释卡 */}
+            <Box style={{
+                flex: 1,
+                flexDirection: 'row',
+                gap: 14,
+                paddingTop: 8,
+            }}>
+
+                <Box style={{ flex: 1, padding: '14px 16px', background: '#EFF6FF', borderRadius: 10, borderTop: '4px solid #3B82F6' }}>
+                    <Text style={{ fontSize: 13, color: '#3B82F6', fontWeight: 'bold', letterSpacing: 1.5 }}>第 1 周 · 摸清 9 个诉求</Text>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 8 }}>先把"谁要发言"摊开</Text>
+                    <Text style={{ fontSize: 13, color: '#475569', marginTop: 6, lineHeight: 1.55 }}>
+                        至少 9 个不同来路的意志：有些是电池自己不愿做（电量过低）、有些是老板不希望的罚款（需量超额）、有些是电网给的奖赏（分时电价）…… 第一周只为它们确认身份
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#1E40AF', marginTop: 6, lineHeight: 1.5, fontWeight: 'bold' }}>
+                        原理：决策的反面是不知道决策者是谁——列不出 9 个，后续就无法谈"为谁而战"
+                    </Text>
+                </Box>
+
+                <Box style={{ flex: 1, padding: '14px 16px', background: '#ECFEFF', borderRadius: 10, borderTop: '4px solid #06B6D4' }}>
+                    <Text style={{ fontSize: 13, color: '#06B6D4', fontWeight: 'bold', letterSpacing: 1.5 }}>第 2 周 · 让它们有共同语言</Text>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 8 }}>9 个发言方式不一致，无法比较</Text>
+                    <Text style={{ fontSize: 13, color: '#475569', marginTop: 6, lineHeight: 1.55 }}>
+                        有的诉求说"应该放 100 千瓦"，有的说"不能超过 80 千瓦"。第二周规定每人都只能说同一套句式：能落在区间 [下界, 上界]，最佳点是 X，权重是 W
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#0E7490', marginTop: 6, lineHeight: 1.5, fontWeight: 'bold' }}>
+                        原理：仲裁的本质是数学运算（交集/平均）——输入语义必须统一，否则算出来的"中点"无意义
+                    </Text>
+                </Box>
+
+                <Box style={{ flex: 1, padding: '14px 16px', background: '#ECFDF5', borderRadius: 10, borderTop: '4px solid #22C55E' }}>
+                    <Text style={{ fontSize: 13, color: '#22C55E', fontWeight: 'bold', letterSpacing: 1.5 }}>第 3 周 · 建一个调度台</Text>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 8 }}>让 9 个能每分钟被叫到</Text>
+                    <Text style={{ fontSize: 13, color: '#475569', marginTop: 6, lineHeight: 1.55 }}>
+                        每分钟 9 个都要被问一次。第三周提供"调度台"：登记、启停、按表调度、缓存结果——上层只要发一次"开会"命令，不必挨个找诉求
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#166534', marginTop: 6, lineHeight: 1.5, fontWeight: 'bold' }}>
+                        原理：把"挨个调用"抽象成"每分钟一次"——上层调用从 9 次降到 1 次，且新增诉求时上层无需改动
+                    </Text>
+                </Box>
+
+                <Box style={{ flex: 1, padding: '14px 16px', background: '#FEF2F2', borderRadius: 10, borderTop: '4px solid #EF4444' }}>
+                    <Text style={{ fontSize: 13, color: '#EF4444', fontWeight: 'bold', letterSpacing: 1.5 }}>第 4 周 · 立议事规则</Text>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 8 }}>9 个必然冲突，听谁</Text>
+                    <Text style={{ fontSize: 13, color: '#475569', marginTop: 6, lineHeight: 1.55 }}>
+                        9 个意见永远会冲突：安全想让你别放，经济想让你多放。第四周写一套规则——按优先级分层（救命 &gt; 罚款 &gt; 套利），同层求加权，最终夹紧并去抖
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#B91C1C', marginTop: 6, lineHeight: 1.5, fontWeight: 'bold' }}>
+                        原理：冲突不是 bug 是 feature——重点是把冲突拆成"层级 / 同层 / 边界"三段，每段规则独立可测
+                    </Text>
+                </Box>
+
+            </Box>
+
+        </Box>
+
+        {/* C 区 */}
+        <Box style={{
+            padding: '0 60px 14px',
+            height: 46,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTop: '1px solid #E2E8F0',
+        }}>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>
+                工商业储能 EMS · 周期 1-4 交付汇报
+            </Text>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>03 / 11</Text>
+        </Box>
+
+    </Box>
+</Slide>

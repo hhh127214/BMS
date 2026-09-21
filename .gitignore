@@ -45,3 +45,11 @@ desktop.ini
 
 # Read-only snapshots from external projects (do NOT commit)
 /code/
+
+# PPT 生成过程产物（.cache / output / 验收器自检临时报告）
+**/.cache/
+**/output/
+12/data/_report_selftest/
+
+# 全量构建日志（运行期产物，可随时重跑）
+build_all.log

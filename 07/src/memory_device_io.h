@@ -73,6 +73,21 @@ namespace mem_point {
     constexpr const char* kStaFault  = "STA.PCS_FAULT";
     constexpr const char* kStaOff    = "STA.OFFLINE";
     constexpr const char* kStaValid  = "STA.DATA_VALID";
+    // BMS 保护（安全输入，经 read_limits() → DeviceLimits → S01/kBmsForbid）
+    constexpr const char* kBmsChgForbid = "STA.BMS_CHG_FORBID";
+    constexpr const char* kBmsDisForbid = "STA.BMS_DIS_FORBID";
+    // ---- EXT：外部设定（调度 → EMS，A3.1）----
+    // ★ 这些点**不由本类写**（生产配置下由网关进程的 RtDbExtWriter 写）。
+    //   放在这里只是为了 (a) 与 ems_point_table.h 逐点对齐（T25 会核对），
+    //   (b) 让仿真/测试可以把"调度发来一条遥调"直接注进来。
+    constexpr const char* kExtPSetpoint = "EXT.P_SETPOINT";
+    constexpr const char* kExtPUpperSet = "EXT.P_UPPER_SET";
+    constexpr const char* kExtPLowerSet = "EXT.P_LOWER_SET";
+    constexpr const char* kExtDTarget   = "EXT.D_TARGET";
+    constexpr const char* kExtPcsOnoff  = "EXT.PCS_ONOFF";
+    constexpr const char* kExtEmsEnable = "EXT.EMS_ENABLE";
+    constexpr const char* kExtSeq       = "EXT.SEQ";
+    constexpr const char* kExtTs        = "EXT.TS";
 } // namespace mem_point
 
 class MemoryDeviceIO : public IDeviceIO {
@@ -104,6 +119,18 @@ public:
     void set_environment(double p_load_kw, double p_pv_kw) {
         set(mem_point::kPLoad, p_load_kw);
         set(mem_point::kPPv,   p_pv_kw);
+        // 同步刷新关口电表读数 —— "一次环境发布"应当给出**同一时刻的一致量测集**。
+        //
+        // 为什么需要这一行（2026-09-19，缺口 A2 修复时暴露）：
+        //   MEAS.P_GRID 原先只在 execute() 里更新（每拍末）。而负荷/光伏是由本函数
+        //   在**拍首**写入的 → 读快照时 P_GRID 停留在上一拍的功率平衡上，比
+        //   P_LOAD / P_PV **慢一拍**。
+        //   改前这不显形，因为 read_snapshot() 用本拍的 load/pv 自己重新推算了一遍 ——
+        //   也就是说 T21 的"逐位等价"有一半是**绕过点表**换来的（等价性是 bug 的产物）。
+        //   现在三个适配器都读电表，这"一拍之差"就会让闭环分岔（实测 d_grid=75 kW）。
+        // 这一行把电表读数拉到与负荷/光伏同一时刻：负荷/光伏一变，PCC 功率随之变，
+        // 电表在同一时刻就该读到新值。
+        update_grid(get(mem_point::kPBat));
     }
     void set_pcs_fault(bool f)       { set(mem_point::kStaFault, f ? 1.0 : 0.0); }
     void set_comm_bms(bool ok)       { set(mem_point::kStaBms,   ok ? 1.0 : 0.0); }
@@ -111,8 +138,42 @@ public:
     void set_comm_meter(bool ok)     { set(mem_point::kStaMeter, ok ? 1.0 : 0.0); }
     void set_device_offline(bool f)  { set(mem_point::kStaOff,   f ? 1.0 : 0.0); }
     void set_data_valid(bool v)      { set(mem_point::kStaValid, v ? 1.0 : 0.0); }
+    // BMS 禁充放上报（设备侧 → EMS 侧的安全输入）。
+    // 注入口与 set_comm_bms 同族：仿真里由剧本调用，现场由 BMS 网关写点。
+    // 两条路径（本类 / RtDbPointWriter）写的是**同名点**，所以行为可对照。
+    void set_bms_forbid(bool chg, bool dis) {
+        set(mem_point::kBmsChgForbid, chg ? 1.0 : 0.0);
+        set(mem_point::kBmsDisForbid, dis ? 1.0 : 0.0);
+    }
     void force_soc(double s)         { set(mem_point::kSoc, clamp(s, 0.0, 1.0)); }
     void force_temperature(double c) { set(mem_point::kTC, c); }
+
+    // 热模型开关。**默认关闭**（heat/cool 均为 0）→ MEAS.T_C 恒定，
+    // 与历史行为逐位一致（07/T21 的适配器等价性测试依赖这一点）。
+    //
+    // 开启后的式子与 PlantModel::update_thermal() 完全相同：
+    //   温升 ∝ 归一化功率平方（焦耳热），散热 ∝ 温差，时间尺度为分钟。
+    // 之所以要有这个开关：MemoryDeviceIO 是"纯点表"适配器，MEAS.T_C 由设备侧
+    // 写入；离线仿真（PlantModel）与联调（设备进程）两条路径必须能给出**同一条
+    // 温度曲线**，否则"温度"这条量测在联调里就是死值（恒 25℃ 的假数据）。
+    void set_thermal_model(double ambient_c, double heat_coef, double cool_coef) {
+        temp_ambient_c_ = ambient_c;
+        temp_heat_coef_ = std::max(0.0, heat_coef);
+        temp_cool_coef_ = std::max(0.0, cool_coef);
+    }
+
+    // 关口电表的**系统偏差**（kW，进口为正方向）。**默认 0 → 逐位不变**。
+    //
+    // 为什么需要（2026-09-19，缺口 A2 的断言前提）：本类既当"设备侧电表模型"
+    // （`update_grid()` 每拍把 `MEAS.P_GRID` 写进点表），又当 P0.5 的 EMS 侧
+    // 适配器。在没有偏差时，`MEAS.P_GRID` **恰好等于** `P_LOAD+P_standby-P_PV-P_bat`
+    // 那个平衡式，于是「EMS 到底读没读电表」在夹具上**无法区分** ——
+    // 断言杀不死"继续用推算"的写法。
+    // 加上偏差就能造出「电表读数 ≠ 功率平衡」：真读电表的适配器跟着电表走，
+    // 继续推算的适配器会差整整一个 bias。
+    // 见 07/T29（单元）与 11/T49（跨进程）。
+    void set_meter_bias_kw(double b) { meter_bias_kw_ = b; }
+    double meter_bias_kw() const     { return meter_bias_kw_; }
 
     // =================================================================
     // IDeviceIO 实现
@@ -127,7 +188,15 @@ public:
         out.p_bat_actual_kw = p_bat;
         out.p_pv_kw         = p_pv;
         out.p_load_kw       = p_load;
-        out.p_grid_kw       = p_load - p_pv - p_bat;
+        // 关口功率：读**电表点**，不再用三路量测相减推算。
+        //
+        // 2026-09-19（缺口 A2）。改前这里是 `p_load - p_pv - p_bat`，与
+        // read_actuals()（读 MEAS.P_GRID）构成**同一路数据两个口径**。
+        // 真实系统里关口电表是**唯一权威计量点**：负荷/光伏/电池三路各有误差
+        // 与不同时延，相减会把误差**叠加**而不是抵消；而防逆流策略（S05）与
+        // 变压器过载约束正是拿 p_grid 当命门 → 推算偏差直接变成误动作或漏判倒送。
+        // 与 RtDbDeviceIO 逐点一致（两路仍可互换）。
+        out.p_grid_kw       = get(mem_point::kPGrid);
         out.soc             = clamp(get(mem_point::kSoc), 0.0, 1.0);
         out.temperature_c   = get(mem_point::kTC);
         out.soh             = get(mem_point::kSoh);
@@ -154,8 +223,14 @@ public:
         out.bms_dis_limit_kw       = get(mem_point::kBmsDisLim);
         out.transformer_capacity_kw = get(mem_point::kTrKva);
         out.d_target_kw            = get(mem_point::kDTarget);
-        out.bms_chg_forbidden      = false;
-        out.bms_dis_forbidden      = false;
+        // BMS 禁充放位：从点表读，**不再硬写 false**。
+        // 硬写 false 等于"BMS 永远允许充放" —— 而这两个 bool 是 04/ S01
+        // (kBmsForbid, L0 最底层) 与 05/ check_bms_forbid() 的唯一输入，
+        // 于是 BMS 上报的禁充放被静默吞掉（单进程仿真看不出：仿真下
+        // DeviceLimits 由调用方直接注入；只有走点表这条路才暴露）。
+        // 与 RtDbDeviceIO 逐点一致，两路仍可互换。
+        out.bms_chg_forbidden      = get(mem_point::kBmsChgForbid) > 0.5;
+        out.bms_dis_forbidden      = get(mem_point::kBmsDisForbid) > 0.5;
         return true;
     }
 
@@ -202,6 +277,7 @@ public:
         if (fail) {
             set(mem_point::kPBat, 0.0);
             update_grid(0.0);
+            update_thermal(0.0, dt_s);   // fail-safe 下无功率 → 只有散热
             return 0.0;
         }
 
@@ -222,7 +298,9 @@ public:
 
         // ⑤ SOC 演化
         update_soc(p, dt_s);
-        // ⑥ 功率平衡
+        // ⑥ 热模型（默认关闭 → 空操作）
+        update_thermal(p, dt_s);
+        // ⑦ 功率平衡
         update_grid(p);
 
         return p;
@@ -237,10 +315,28 @@ private:
         return v < lo ? lo : (v > hi ? hi : v);
     }
 
+    // 关口电表模型：把「关口功率」写进 MEAS.P_GRID。
+    //
+    // 这是**设备侧**的职责 —— 真实系统里这个数来自关口电表，不是 EMS 算出来的。
+    // `meter_bias_kw_`（默认 0）用来表达电表的系统偏差，见 set_meter_bias_kw()。
+    // 与 PlantModel::meter_p_grid() 同口径（只是那边读成员、这边读点表）。
     void update_grid(double p_bat) {
         set(mem_point::kPGrid,
             get(mem_point::kPLoad) + get(mem_point::kStandby)
-            - get(mem_point::kPPv) - p_bat);
+            - get(mem_point::kPPv) - p_bat
+            + meter_bias_kw_);
+    }
+
+    // 与 PlantModel::update_thermal() 同式（见 memory_device_io.h 顶部说明）。
+    // 归一化基准用 PCS 额定放电功率（点表 CFG.MAX_DIS），与 PlantModel 的
+    // cfg_.pcs_max_dis_kw 口径一致。
+    void update_thermal(double p_bat_kw, double dt_s) {
+        if (temp_heat_coef_ <= 0.0 && temp_cool_coef_ <= 0.0) return;   // 未启用
+        const double pn   = std::fabs(p_bat_kw) / std::max(1.0, get(mem_point::kMaxDis));
+        const double heat = temp_heat_coef_ * pn * pn;
+        const double cool = temp_cool_coef_ * (get(mem_point::kTC) - temp_ambient_c_);
+        double t = get(mem_point::kTC) + (heat - cool) * dt_s * 60.0;
+        set(mem_point::kTC, std::max(temp_ambient_c_, t));
     }
 
     void update_soc(double p_bat_kw, double dt_s) {
@@ -291,10 +387,38 @@ private:
         set(mem_point::kStaFault, 0.0);
         set(mem_point::kStaOff,   0.0);
         set(mem_point::kStaValid, 1.0);
+
+        // BMS 禁充放：0 = 允许（与 ems_point_table.c 的 EMS_POINT_DEFAULTS 对齐）。
+        // 本函数漏掉任何一个 mem_point，对应点就会在 get() 里走 miss 分支返回 0.0
+        // —— 值恰好也是 0，所以**看不出错**，只有 miss_count()/T25 的点表对齐
+        // 检查能发现。这就是"两个点表必须逐字对齐"的实际含义。
+        set(mem_point::kBmsChgForbid, 0.0);
+        set(mem_point::kBmsDisForbid, 0.0);
+
+        // EXT 外部设定（A3.1）：默认值必须与 ems_point_table.c 的
+        // EMS_POINT_DEFAULTS 逐位一致 —— 否则 MemoryDeviceIO 与 RtDbDeviceIO
+        // 不再"逐点可互换"，而本函数漏掉的点会走 get() 的 miss 分支返回 0.0，
+        // 值恰好也是 0，**看不出错**。靠 T25 的点表对齐检查兜住。
+        set(mem_point::kExtPSetpoint, 0.0);      // 0 = 无设定
+        set(mem_point::kExtPUpperSet, 1e9);      // 极大数 = 不限制
+        set(mem_point::kExtPLowerSet, -1e9);
+        set(mem_point::kExtDTarget,   0.0);
+        set(mem_point::kExtPcsOnoff,  1.0);
+        set(mem_point::kExtEmsEnable, 1.0);      // ★ 1 = 允许，不是 0（冷启动可用）
+        set(mem_point::kExtSeq,       0.0);      // 0 = 从未收到过外部设定
+        set(mem_point::kExtTs,        0.0);
     }
 
     std::unordered_map<std::string, double> points_{};
     mutable int miss_count_ = 0;   // get() 是 const，缺失点计数需 mutable
+
+    // 热模型参数（set_thermal_model() 写入；默认全 0 = 关闭）
+    double temp_ambient_c_ = 25.0;
+    double temp_heat_coef_ = 0.0;
+    double temp_cool_coef_ = 0.0;
+
+    // 电表系统偏差（set_meter_bias_kw() 写入；默认 0 = 理想电表）
+    double meter_bias_kw_ = 0.0;
 };
 
 } // namespace ems

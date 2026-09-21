@@ -1,0 +1,31 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            判据反证：8 次「故意改坏」
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            测试全绿不等于测试有效 —— 如果正确写法和错误写法跑出来一模一样，这条断言就是"修了个寂寞"
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <Image src="assets/test_refute.png" style={{ width: 1040, height: 364 }} />
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 16, width: 1040 }}>
+            <Box style={{ flex: 1, padding: '11px 14px', background: '#EFF6FF', borderRadius: 8 }}>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    每加一批判据，当场把实现改坏一次，确认它真的会红，再改回来。
+                    反证不通过 → 这条判据无效，回去重写。
+                </Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '11px 14px', background: '#F1F5F9', borderRadius: 8 }}>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    有 2 次没变红 —— 价值不在"测试有效"，而在证明我原来的注释写错了：
+                    实测发现模拟器构造时就会拒绝顺序写反，那条"判据"本来就是多余的。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>17 / 24</Text>
+    </Box>
+</Slide>

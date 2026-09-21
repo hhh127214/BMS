@@ -1,0 +1,23 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: 'linear-gradient(135deg, #ECFEFF 0%, #FFFFFF 52%, #EFF6FF 100%)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+    <Text style={{ fontSize: 128, fontWeight: 'bold', color: '#CFFAFE', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+        02
+    </Text>
+    <Text style={{ fontSize: 72, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.2, marginTop: -18 }}>
+        09-20 · 设备接入与外部设定
+    </Text>
+    <Text style={{ fontSize: 22, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.7, marginTop: 18 }}>
+        让下行的调度指令第一次有真实落点，让对下的设备连接第一次走真协议 ——
+        两条路都不再停留在"我们自己能算"。
+    </Text>
+    <Box style={{ display: 'flex', flexDirection: 'row', gap: 40, marginTop: 26 }}>
+        <Text style={{ fontSize: 17, color: '#06B6D4', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            新建 13/ Modbus 接入
+        </Text>
+        <Text style={{ fontSize: 17, color: '#06B6D4', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            缺口 A3.1 / A3.2 全链路
+        </Text>
+        <Text style={{ fontSize: 17, color: '#06B6D4', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            转发表外置 + 三遍清扫
+        </Text>
+    </Box>
+</Slide>

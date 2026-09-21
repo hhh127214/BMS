@@ -1,0 +1,37 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            验路 ②：判据反证 8 次 · 五进程闭环 600 拍 · 假红 18 条
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            测试全绿 ≠ 测试有效——每批判据都当场故意改坏一次，确认它真的会红
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 24, alignItems: 'center' }}>
+        <Box style={{ width: 620, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Image src="assets/test_refute.png" style={{ width: 620, height: 217 }} />
+            <Box style={{ padding: '11px 14px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+                <Text style={{ fontSize: 13.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    8 次反证：6 次按预期变红；<Text style={{ fontSize: 13.5, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>2 次推翻我自己的注释判断</Text>——交换模拟器两张表，构造时就直接拒绝：注释写错了，判据是多余的。
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Image src="assets/five_proc.png" style={{ width: 500, height: 157 }} />
+            <Box style={{ padding: '10px 14px', background: '#FEF2F2', borderRadius: 8, borderLeft: '3px solid #EF4444' }}>
+                <Text style={{ fontSize: 13, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.55 }}>
+                    <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>600 拍证据：</Text>探针读段内真值 present=1、设定 120.500、停机位 0 → 收窄 [0,0]；EMS 检查项 600/600 拍全过；主站断开 → 网关立即清空（快路径兜底生效）；另有 3 个 FAIL 属预期内——反向守卫正确报告「没发生」。
+                </Text>
+            </Box>
+            <Box style={{ padding: '10px 14px', background: '#F1F5F9', borderRadius: 8, borderLeft: '3px solid #64748B' }}>
+                <Text style={{ fontSize: 13, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.55 }}>
+                    <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>假红 18 条：</Text>从仓库根目录直跑测试：165 过/6 红、126 过/12 红；换到模块目录 → 171/0、144/0。根因是相对路径×工作目录——形态像真实缺陷（写入 7.5 读回 2）。纪律：单独跑测试必须在模块目录下。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 两天工作全量讲解</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>12 / 16</Text>
+    </Box>
+</Slide>

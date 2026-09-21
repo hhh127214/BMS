@@ -1,0 +1,45 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            两天 11 项交付，断言从 8085 涨到 9304
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            09-19 补设计方案里缺的模块与缺口；09-20 把设备接进来、把外部设定落到点上（每张卡片 = 一项交付）
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 30, alignItems: 'center' }}>
+        <Box style={{ width: 720, display: 'flex', flexDirection: 'column' }}>
+            <Image src="assets/timeline_2days.png" style={{ width: 720, height: 348 }} />
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <Box style={{ padding: '14px 16px', background: '#EFF6FF', borderRadius: 10, borderLeft: '4px solid #3B82F6' }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>
+                    09-19 · 断言 8085 → 8547
+                </Text>
+                <Text style={{ fontSize: 16, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 4 }}>
+                    补齐设计方案缺口：新建跨进程联调、最终验收、IEC104 网关三个模块；
+                    联调又照出 07/ 的三处真缺陷，并修掉 A1 / A2 两个缺口
+                </Text>
+            </Box>
+            <Box style={{ padding: '14px 16px', background: '#ECFEFF', borderRadius: 10, borderLeft: '4px solid #06B6D4' }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Microsoft YaHei' }}>
+                    09-20 · 断言 8547 → 9304
+                </Text>
+                <Text style={{ fontSize: 16, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 4 }}>
+                    设备接入与外部设定：新建 Modbus 接入模块，外部调度指令第一次有了真实落点，
+                    再顺手扫掉三遍过期文案与已关闭的缺口
+                </Text>
+            </Box>
+            <Box style={{ padding: '14px 16px', background: '#FEF2F2', borderRadius: 10, borderLeft: '4px solid #EF4444' }}>
+                <Text style={{ fontSize: 16, color: '#EF4444', fontWeight: 'bold', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    为什么"清扫文案"也算交付？<br />
+                    因为断言错了会变红，而写进正式产物里的数字错了，永远是绿的。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>02 / 24</Text>
+    </Box>
+</Slide>

@@ -1,0 +1,120 @@
+{
+  "product": "工商业储能 EMS",
+  "version": "V2.0",
+  "basis": "《工商业储能EMS调控策略设计方案》§7 周期 12",
+  "generated_at": "2026-09-20 21:26:07",
+  "summary": {"passed": 55, "total": 55, "failed_dimensions": 0, "result": "PASS"},
+  "dimensions": [
+    {
+      "code": "A1",
+      "name": "功能验收",
+      "scope": "策略注册/启停、全链路闭环、状态机七态可达、设备 I/O 三适配器等价、配置化往返、日计划装载、关口功率单一数据源（电表口径）",
+      "passed": 9, "total": 9, "result": "PASS",
+      "items": [
+        {"id": "A1-01", "name": "9 策略注册完整", "criterion": "mgr.size()==9 且 9 个 strategy_id 全部可查到", "evidence": "registered=9, id_hit=9/9", "pass": true},
+        {"id": "A1-02", "name": "策略启停生效", "criterion": "start_all() 后 tick 返回 9 条；stop_all() 后返回 0 条", "evidence": "start_all→9 条, stop_all→0 条", "pass": true},
+        {"id": "A1-03", "name": "全链路闭环可跑（2000 拍 @ 10 Hz）", "criterion": "log().size()==2000 且每拍 p_cmd 有限（非 NaN/Inf）", "evidence": "log_rows=2000, steps=2000, final_state=DERATED", "pass": true},
+        {"id": "A1-04", "name": "状态机七态全部可达", "criterion": "INIT/SELF_CHECK/READY/NORMAL/DERATED/FAULT/EMERGENCY 七态各至少到过一次", "evidence": "reached=7/7, 末态=EMERGENCY（锁存 ✔）", "pass": true},
+        {"id": "A1-05", "name": "设备 I/O 三适配器逐拍等价", "criterion": "SimDeviceIO / MemoryDeviceIO / RtDbDeviceIO 在 200 拍同一指令序列下 P_bat 与 SOC 逐拍偏差 ≤ 1e-9", "evidence": "max|Δ(Sim,Mem)|=0.000000000000, max|Δ(Sim,RT_DB)|=0.000000000000", "pass": true},
+        {"id": "A1-06", "name": "40 点表自检（点名/单位/索引一致）", "criterion": "RtDbDeviceIO::self_check()==0 且 is_open()==true", "evidence": "self_check() rc=0, 点数=40, stale_reads=0, is_open=true", "pass": true},
+        {"id": "A1-07", "name": "配置化闭环（导出→解析→生效）", "criterion": "to_json → parse → apply_config 后 dt_s / BMS 限值 / SOC 上下限与配置一致", "evidence": "parse=ok, apply_errors=0, json_bytes=2613, dt_s=0.100, bms_dis=180.00, soc=[0.120, 0.880]", "pass": true},
+        {"id": "A1-08", "name": "日计划装载与跟踪", "criterion": "96 点 DayPlan 装载后 plan_valid()==true，且 t=20 s 仍落在第 0 槽（谷时，plan_target ≈ -100 kW）", "evidence": "plan_valid=true, slots=96, t=20s 时 plan_target=-100.00 kW", "pass": true},
+        {"id": "A1-09", "name": "关口功率单一数据源（电表口径）", "criterion": "电表读数刻意与三路推算差 40 kW：算法用的关口功率必须等于电表读数，且与记录路径同口径（反向守卫：两源确实不同，判据有区分度）", "evidence": "电表=429.59 kW, 三路平衡=389.59 kW, 算法用=429.59 kW, 两路径差=0.000000", "pass": true}
+      ]
+    },
+    {
+      "code": "A2",
+      "name": "策略验收",
+      "scope": "9 个策略的设计意图（设计方案 §3.1~§3.9）在触发工况下的单点核对",
+      "passed": 9, "total": 9, "result": "PASS",
+      "items": [
+        {"id": "A2-01", "name": "S01 BMS 禁止充放（L0 硬禁闭）", "criterion": "禁放→p_upper=0；禁充→p_lower=0；同时禁→区间收成 [0,0]", "evidence": "禁放 upper=0.0, 禁充 lower=0.0, 双禁 [0.0, 0.0], reason=bms_forbid_discharge", "pass": true},
+        {"id": "A2-02", "name": "S02 BMS 请求降功率（L1）", "criterion": "BMS 限值 100/150 且 PCS 250/250 → 区间 [-100, 150] 且 active", "evidence": "[-100.0, 150.0], bms_derating", "pass": true},
+        {"id": "A2-03", "name": "S03 变压器过载限功率（L1）", "criterion": "负载率 0.953>0.95 → 区间收紧（active）；容量=0 → 不施加约束", "evidence": "过载 [1.0, 250.0] tr_overload；无容量 [-1000000000000000000, 1000000000000000000]", "pass": true},
+        {"id": "A2-04", "name": "S04 需量管理（L2）", "criterion": "窗口预测均值 < 契约 → 不动作（desired=0）；> 契约 → 放电削峰（desired>0）", "evidence": "未超限 desired=0.00 (demand_within)；超限 desired=166.67 (demand_active)", "pass": true},
+        {"id": "A2-05", "name": "S05 防逆流（L2）", "criterion": "关口 -80 kW（倒送）→ 指令充电 80 kW（p_desired=-80）；无倒送→不动作", "evidence": "倒送时 desired=-80.00 (anti_reverse_active)；正常时 active=false", "pass": true},
+        {"id": "A2-06", "name": "S06 光伏出力平抑（L2）", "criterion": "光伏突升 200 kW → 储能吸收（p_desired<0）", "evidence": "desired=-100.00 (smoothing_active)", "pass": true},
+        {"id": "A2-07", "name": "S07 峰谷套利（L3 / Timed）", "criterion": "谷→充（<0）、平→0、尖→放（>0）；尖峰+SOC 0.05→禁放、谷时+SOC 0.95→禁充（SOC 保护是方向性的）", "evidence": "谷=-80.0, 平=0.0, 尖=80.0, 尖+低SOC=0.0 (peak_valley_soc_low), 谷+高SOC=0.0 (peak_valley_soc_high)", "pass": true},
+        {"id": "A2-08", "name": "S08 动态预测优化（L3 / MPC）", "criterion": "负荷 > 契约 → 放电（>0）；负荷 < 契约 → 充电（<0）", "evidence": "400 kW→45.00, 100 kW→-45.00", "pass": true},
+        {"id": "A2-09", "name": "S09 需求响应（L3 / Custom）", "criterion": "事件激活→按 target 出力 150 kW；事件过期 / 未下发事件→不动作", "evidence": "激活=150.0, 过期=0.0, 无事件=0.0 (dr_idle)", "pass": true}
+      ]
+    },
+    {
+      "code": "A3",
+      "name": "安全验收",
+      "scope": "9 条安全约束逐位注入、区间矛盾语义、急停锁存、全域硬不变量（p_cmd ∈ [p_lower, p_upper]）",
+      "passed": 11, "total": 11, "result": "PASS",
+      "items": [
+        {"id": "A3-01", "name": "9 条安全约束全部被评估", "criterion": "verdict.items 含 bms_forbid / bms_derate / soc_limit / pcs_limit / transformer_limit / battery_temp / ramp_rate / grid_connect / grid_quality", "evidence": "items=9, name_hit=9/9", "pass": true},
+        {"id": "A3-02", "name": "BMS 禁充放（L0 硬禁闭）", "criterion": "禁放→约束 p_upper=0 且 verdict 上界=0；禁充→下界=0；l0_hard=true", "evidence": "禁放 verdict=[-250.0, 0.0] l0_hard=true；禁充 verdict=[0.0, 200.0]", "pass": true},
+        {"id": "A3-03", "name": "SOC 上下限（L0：绝对限 + 预警降额）", "criterion": "SOC 0.08→禁放（上界 0，hard）；0.92→禁充（下界 0，hard）；0.14→降额（counts_as_derate → verdict.derated）；三种情形都不得升级为 emergency", "evidence": "低 SOC 上界=0.0 hard=true, 高 SOC 下界=0.0, 预警 derate=true, 预警 verdict.derated=true, emergency=false", "pass": true},
+        {"id": "A3-04", "name": "电池温度（L0：预警降额 / 故障禁闭）", "criterion": "48 ℃→active 且 counts_as_derate；60 ℃→禁闭且 emergency=true", "evidence": "48℃ active=true derate=true；60℃ emergency=true reason=temp_fault", "pass": true},
+        {"id": "A3-05", "name": "PCS 限功率（L1 折减系数）", "criterion": "折减系数 0.5 × 额定 250 → 约束区间 [-125, 125] 且参与求交", "evidence": "[-125.0, 125.0], binds=true", "pass": true},
+        {"id": "A3-06", "name": "变压器容量（L1，含极端过载投影）", "criterion": "负载率超阈值 → 区间收紧且参与求交；极端过载 → 仍给出有限边界（不得放开为无穷区间）", "evidence": "常规 [127.0, 250.0] tr_extreme_overload；极端 [250.0, 250.0] tr_extreme_sat_discharge", "pass": true},
+        {"id": "A3-07", "name": "变化率 = 后置限速器（不是区间约束）", "criterion": "上一拍 20 kW 时 ramp_rate 约束 active=true、margin=20 kW（200 kW/s × 0.1 s），但 binds_interval=false 且 counts_as_derate=false（否则会与硬安全区间产生假矛盾）", "evidence": "active=true, binds=false, derate=false, margin=20.00 kW", "pass": true},
+        {"id": "A3-08", "name": "并网约束（不倒送，L1）", "criterion": "P_load=250, P_pv=50 → 上界 = 200 kW（保证 P_grid ≥ 0）", "evidence": "约束上界=200.00, verdict 上界=200.00 kW", "pass": true},
+        {"id": "A3-09", "name": "区间矛盾 → DERATED（可自恢复），绝不锁存 EMERGENCY", "criterion": "满充禁充 ∩ 不许倒送 → contradiction=true、derated=true、emergency=false、区间收成 [0,0]", "evidence": "contradiction=true, derated=true, emergency=false, 区间=[0.0, 0.0], reason=interval_contradiction", "pass": true},
+        {"id": "A3-10", "name": "急停锁存 + 显式复位", "criterion": "急停后 205 拍仍停在 EMERGENCY（锁存）；reset_emergency() 后才离开", "evidence": "NORMAL → EMERGENCY → 205 拍后仍 EMERGENCY → reset → SELF_CHECK", "pass": true},
+        {"id": "A3-11", "name": "全域硬不变量：p_cmd ∈ [p_lower, p_upper]", "criterion": "7 场景抽样（各 2000 拍）：指令逃逸 + 功率超限 + 门控失效 合计 = 0", "evidence": "抽样拍数=14000, 越界合计=0, 场景通过=7/7", "pass": true}
+      ]
+    },
+    {
+      "code": "A4",
+      "name": "性能验收",
+      "scope": "单拍闭环耗时（均值/峰值/占用率）、24h 离线仿真墙钟加速比、长跑进程资源无泄漏",
+      "passed": 5, "total": 5, "result": "PASS",
+      "items": [
+        {"id": "A4-01", "name": "单拍闭环耗时（均值）", "criterion": "mean_cycle_us ≤ 1000 us（10 Hz 控制周期下即 CPU 占用 ≤ 1.00%）", "evidence": "9.50 us / 20000 拍", "pass": true},
+        {"id": "A4-02", "name": "单拍闭环耗时（峰值，含首拍冷启动）", "criterion": "max_cycle_us ≤ 50000 us（10 Hz 控制周期的一半：单拍不得吃掉半个节拍）", "evidence": "375.80 us", "pass": true},
+        {"id": "A4-03", "name": "单拍时间占用率", "criterion": "mean_cycle_us / (dt_s × 1e6) ≤ 20.0%", "evidence": "0.010% (dt=0.100 s)", "pass": true},
+        {"id": "A4-04", "name": "长跑进程资源无泄漏", "criterion": "20000 拍前后 GetProcessHandleCount 增量 ≤ 0 且 工作集增量 ≤ 64 MB", "evidence": "handle Δ=0, RSS Δ=4.01 MB", "pass": true},
+        {"id": "A4-05", "name": "24h 离线仿真墙钟加速比", "criterion": "24 h（86400 s）仿真墙钟 ≤ 43.2 s（即加速比 ≥ 2000×）", "evidence": "wall=0.97 s, speedup=89149×, steps=86400", "pass": true}
+      ]
+    },
+    {
+      "code": "A5",
+      "name": "稳定性验收",
+      "scope": "24 h 长稳（10/ 全栈 + 三段故障窗）、跨进程闭环长稳（11/ RT_DB）、采集零 stale、SOE 零丢弃、状态迁移与指令抖动有界、可观测性与 log_every 解耦、BMS 禁充放位（设备侧上报 → 下发指令不放电）",
+      "passed": 7, "total": 7, "result": "PASS",
+      "items": [
+        {"id": "A5-01", "name": "24h 长稳：硬不变量逐拍成立", "criterion": "86400 拍（1 s 步长，含 3 段故障窗）内 指令逃逸 + 功率超限 + 门控失效 合计 = 0", "evidence": "steps=86400, 越界=0, 故障窗拍数=1621, 告警=1646, 经济净收益=734 元", "pass": true},
+        {"id": "A5-02", "name": "24h 长稳：状态机无抖动", "criterion": "状态迁移次数 ≤ 30 次（一天内不应反复来回切）", "evidence": "state_changes=17（86400 拍）", "pass": true},
+        {"id": "A5-03", "name": "24h 长稳：指令抖动有界", "criterion": "指令总行程速率 ≤ 5.0 kW/s，且 符号翻转率 ≤ 0.20 /s、方向反转率 ≤ 1.00 /s（07/ 工程口径）", "evidence": "travel=6822.2 kW (0.079 kW/s), flips=0.0006/s, rev=0.0012/s", "pass": true},
+        {"id": "A5-04", "name": "跨进程闭环长稳（RT_DB 共享内存）", "criterion": "6000 拍：EMS 采集 stale_reads=0 且 设备侧观测到的指令越区间拍数=0", "evidence": "ticks=6000, stale=0, 指令越 EMS 区间=0, SOE=8", "pass": true},
+        {"id": "A5-05", "name": "SOE 日志零丢弃", "criterion": "跨进程长稳结束后 soe().dropped()==0（容量足够 + 边沿检测正确）", "evidence": "ran=true, dropped=0, events=8", "pass": true},
+        {"id": "A5-06", "name": "可观测性与 log_every 解耦", "criterion": "log_every=1 与 =10 两种配置下观察者累计步数相同（均 = 实际拍数 2000）", "evidence": "log_every=1 → steps=2000 (SOE 4)；log_every=10 → steps=2000 (SOE 4)", "pass": true},
+        {"id": "A5-07", "name": "BMS 禁放位：设备侧上报 → 下发指令不放电", "criterion": "禁放窗内 0 拍放电、且非门控拍的权限上界全部被收死（反向守卫：窗内 ≥ 5 拍非门控）；走设备侧写点 → 共享内存 → 每拍刷新 的真实路径", "evidence": "窗内非门控拍=10, 上界收死=9, 放电拍数=0", "pass": true}
+      ]
+    },
+    {
+      "code": "A6",
+      "name": "多策略协同验收",
+      "scope": "设计方案 §7 周期 9 的 7 个重点验证场景（闭环时序级）全通过：杜绝指令冲突、互相覆盖、频繁切换、双向充放电、功率超限",
+      "passed": 8, "total": 8, "result": "PASS",
+      "items": [
+        {"id": "A6-01", "name": "S1 峰谷套利 + BMS降功率", "criterion": "违规计数全 0（指令冲突/互相覆盖/频繁切换/双向充放/功率超限）", "evidence": "samples=12000, over_limit=0, out_of_interval=0, grid_breach=0, tr_breach=0, gated_nonzero=0, flip=0.0633/s, rev=0.0667/s, SOC=[0.498, 0.508]", "pass": true},
+        {"id": "A6-02", "name": "S2 峰谷套利 + 变压器过载", "criterion": "违规计数全 0（指令冲突/互相覆盖/频繁切换/双向充放/功率超限）", "evidence": "samples=12000, over_limit=0, out_of_interval=0, grid_breach=0, tr_breach=0, gated_nonzero=0, flip=0.0650/s, rev=0.0983/s, SOC=[0.487, 0.501]", "pass": true},
+        {"id": "A6-03", "name": "S3 需量管理 + 防逆流", "criterion": "违规计数全 0（指令冲突/互相覆盖/频繁切换/双向充放/功率超限）", "evidence": "samples=12000, over_limit=0, out_of_interval=0, grid_breach=0, tr_breach=0, gated_nonzero=0, flip=0.0000/s, rev=0.0083/s, SOC=[0.473, 0.500]", "pass": true},
+        {"id": "A6-04", "name": "S4 光伏平抑 + 防逆流", "criterion": "违规计数全 0（指令冲突/互相覆盖/频繁切换/双向充放/功率超限）", "evidence": "samples=12000, over_limit=0, out_of_interval=0, grid_breach=0, tr_breach=0, gated_nonzero=0, flip=0.0250/s, rev=0.0417/s, SOC=[0.500, 0.540]", "pass": true},
+        {"id": "A6-05", "name": "S5 动态优化 + 需量管理", "criterion": "违规计数全 0（指令冲突/互相覆盖/频繁切换/双向充放/功率超限）", "evidence": "samples=12000, over_limit=0, out_of_interval=0, grid_breach=0, tr_breach=0, gated_nonzero=0, flip=0.0183/s, rev=0.0517/s, SOC=[0.496, 0.512]", "pass": true},
+        {"id": "A6-06", "name": "S6 需求响应 + 峰谷套利 + BMS限制", "criterion": "违规计数全 0（指令冲突/互相覆盖/频繁切换/双向充放/功率超限）", "evidence": "samples=12000, over_limit=0, out_of_interval=0, grid_breach=0, tr_breach=0, gated_nonzero=0, flip=0.0683/s, rev=0.0733/s, SOC=[0.498, 0.506]", "pass": true},
+        {"id": "A6-07", "name": "S7 9策略全量同时启用", "criterion": "违规计数全 0（指令冲突/互相覆盖/频繁切换/双向充放/功率超限）", "evidence": "samples=12000, over_limit=0, out_of_interval=0, grid_breach=0, tr_breach=0, gated_nonzero=0, flip=0.0617/s, rev=0.0700/s, SOC=[0.495, 0.509]", "pass": true},
+        {"id": "A6-08", "name": "7 场景汇总", "criterion": "7/7 场景全部通过", "evidence": "通过 7/7", "pass": true}
+      ]
+    },
+    {
+      "code": "A7",
+      "name": "文档验收",
+      "scope": "根文档、各模块 docs/README.md、各模块构建脚本、统一构建入口步数、根 README 模块索引、验收报告落盘能力",
+      "passed": 6, "total": 6, "result": "PASS",
+      "items": [
+        {"id": "A7-01", "name": "根文档齐备且非空", "criterion": "README.md / CHANGES.md / 设计方案 三份均存在且 ≥ 200 字节", "evidence": "README.md(74828 字节) CHANGES.md(204842 字节) 工商业储能EMS调控策略设计方案.md(32255 字节) ", "pass": true},
+        {"id": "A7-02", "name": "各模块 docs/README.md 齐备", "criterion": "17 个模块文档均存在且 ≥ 200 字节", "evidence": "hit=17/17", "pass": true},
+        {"id": "A7-03", "name": "各模块构建脚本齐备", "criterion": "每个模块的 scripts/ 下存在 build.bat 或 build_test.bat（≥ 50 字节）", "evidence": "hit=17/17", "pass": true},
+        {"id": "A7-04", "name": "统一构建入口步数自洽且覆盖全部模块", "criterion": "scripts/build_all.bat 的步骤号恰好是 1..N 无缺号（N ≥ 27，01..12 + P1/P2 各含 build 与 test 步）、14 个模块目录全部被引用、成功/失败横幅与 N 一致", "evidence": "N=31, step_markers=31/31, module_refs=14/14, banner=ok", "pass": true},
+        {"id": "A7-05", "name": "根 README 是全项目索引", "criterion": "README.md 的模块清单里出现 01/ .. 12/ 与 P1/ P2/ 全部 14 项", "evidence": "hit=14/14", "pass": true},
+        {"id": "A7-06", "name": "验收报告三件套落盘能力（md / json / html）", "criterion": "渲染 + 写盘成功，三个文件均 ≥ 1 KB（正式报告由 12/scripts/run_acceptance.bat 写入 12/docs/）", "evidence": "ACCEPTANCE-REPORT.md=1736B ACCEPTANCE-REPORT.json=1803B ACCEPTANCE-REPORT.html=3737B ", "pass": true}
+      ]
+    }
+  ]
+}

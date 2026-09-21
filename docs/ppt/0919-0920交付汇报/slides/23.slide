@@ -1,0 +1,55 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            经济性与交付门禁
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            省钱只是结果；能不能持续交付，要看门禁跑出来的那几行指标
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 26, alignItems: 'center' }}>
+        <Box style={{ width: 600, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Image src="assets/sim_econ.png" style={{ width: 600, height: 229 }} />
+            <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'baseline', gap: 10 }}>
+                <Text style={{ fontSize: 96, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                    734
+                </Text>
+                <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                    元／日<br />全天综合成本下降
+                </Text>
+            </Box>
+            <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                4356 → 3622 元（−16.9%）；拆开看：度电费省 674、需量费省 60、电池损耗 −162，
+                扣掉损耗后净收益 572 元／日。
+            </Text>
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Box style={{ padding: '12px 15px', background: '#EFF6FF', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>跑批性能</Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Consolas', lineHeight: 1.7 }}>
+                    单拍耗时 均值 9.44 μs / 峰值 326.6 μs<br />
+                    控制周期占用率 0.00944%<br />
+                    24h 墙钟 0.99 s　加速比 87192×
+                </Text>
+            </Box>
+            <Box style={{ padding: '12px 15px', background: '#ECFEFF', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Microsoft YaHei' }}>一致性与事件</Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Consolas', lineHeight: 1.7 }}>
+                    跨进程降级 / 越区间：0 / 0<br />
+                    事件记录 / 丢弃：8 / 0
+                </Text>
+            </Box>
+            <Box style={{ padding: '12px 15px', background: '#EFF6FF', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>交付门禁</Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Consolas', lineHeight: 1.7 }}>
+                    七维度 55 / 55 项通过　0 个维度未全通过<br />
+                    报告三件套（md / json / html）已重新生成
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 34, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>23 / 24</Text>
+    </Box>
+</Slide>

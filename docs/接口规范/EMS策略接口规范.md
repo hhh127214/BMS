@@ -1,12 +1,16 @@
-# EMS 策略接口规范 v1.1
+# EMS 策略接口规范 v1.2
 
 > EMS Strategy Interface Specification
 >
-> 文档编号：EMS-SIS-001 ｜ 版本：v1.1 ｜ 日期：2026-09-05 ｜ 状态：**试行**（v1.0 草案已签，本版回应 6 项评审决议）
+> 文档编号：EMS-SIS-001 ｜ 版本：v1.2 ｜ 日期：2026-09-19 ｜ 状态：**试行**（v1.0 草案已签；v1.1 回应 6 项评审决议；v1.2 对齐 SSOT 策略清单）
 >
 > 适用项目：工商业储能 EMS 系统
 >
 > **作用**：本规范为所有 EMS 策略（9 个）提供统一的"接口契约"，确保任何新增/替换策略均符合相同的数据形状、调用时序、优先级语义与异常降级规则，从而可在不改动仲裁器（Arbiter）的前提下热插拔。
+>
+> **v1.2 摘要**：§4.10 的「9 策略优先级总览」原按 `code/`（Python 快照）口径撰写，与《工商业储能EMS调控策略设计方案》
+> §三及 C++ 实现 `04/src/strategies_9.h` 不一致。本版以设计方案 §三为 SSOT 重新对齐，
+> 并明确 `custom_script` / `soc_life_planner` 两个条目的归并去向（§4.10.2）。
 
 ---
 
@@ -21,8 +25,8 @@
 | §5 | 接口时序（采样 → 评估 → 仲裁 → 下发） |
 | §6 | 异常处理与降级路径 |
 | §7 | 扩展指南（如何新增第 10 个策略） |
-| §8 | 待确认问题 |
-| §9 | 附录：与现有 Python 源码映射 |
+| §8 | 评审决议（v1.1） |
+| §9 | 附录：与现有源码映射（9.1 Python / **9.2 C++，v1.2 新增**） |
 
 ---
 
@@ -607,19 +611,67 @@ FallbackCommand:                    # 异常降级指令
 
 ---
 
-### 4.10 9 策略优先级总览
+### 4.10 9 策略优先级总览（v1.2 对齐 SSOT）
 
-| # | 策略名称 | 优先级 | 角色 | 周期 | 状态化 |
-|---|---|---|---|---|---|
-| 1 | `peak_valley_arbitrage` | L3 | 经济套利 | 15 min | 否 |
-| 2 | `dispatch_optimizer` | L3 | MILP/MPC 计划 | 15 min | 否 |
-| 3 | `custom_script` | L3 | 自定义扩展 | 1 min | 否（脚本内自管） |
-| 4 | `demand_management` | L2 | 需量削峰 | 100 ms | 否 |
-| 5 | `anti_reverse` | L2 | 防逆流 | 100 ms | **是** |
-| 6 | `pv_smoothing` | L2 | 光伏平抑 | 100 ms | **是** |
-| 7 | `transformer_management` | **L1**（v1.1 升） | 变压器过载 | 100 ms | 否 |
-| 8 | `soc_life_planner` | L3 | SOC / 寿命 | 1 min | 否 |
-| 9 | `bms_protection` | L0 | 硬安全 | 100 ms | 否 |
+> **v1.2 变更**：v1.1 的本表按 `code/`（Python 快照）口径撰写，与《工商业储能EMS调控策略设计方案》
+> §三「现有 9 个核心策略设计」以及 C++ 实现 `04/src/strategies_9.h` 的策略清单**不一致**
+> （v1.1 多了 `custom_script` / `soc_life_planner`，少了「BMS 请求降功率」/「需求响应」）。
+> 本版按上游 SSOT 重新对齐。详见 §4.10.2 的归并说明。
+
+**SSOT 顺序（出现歧义时按此裁定）**：
+
+```
+《工商业储能EMS调控策略设计方案》§三（9 策略的书面定义）
+        │  ① 以此为准
+        ▼
+本规范 §4.10（接口契约层：编号 / 层级 / 命名映射）
+        │  ② 映射到各语言实现
+        ▼
+各语言实现命名：C++ `04/src/data_models.h :: strategy_id` ／ Python `code/*.py`
+```
+
+#### 4.10.1 九策略清单（与设计方案 §三 逐条对应）
+
+| # | 设计方案 §三 | `strategy_id`（C++） | 实现类 | 优先级 | 运行模式 | 评估周期 | 状态化 |
+|---|---|---|---|---|---|---|---|
+| 1 | 策略一：BMS 禁止充放 | `S01_BMS_FORBID` | `BmsForbidStrategy` | **L0** 硬安全 | `kIdle` | 100 ms | 否 |
+| 2 | 策略二：BMS 请求降功率 | `S02_BMS_DERATE` | `BmsDerateStrategy` | **L1** 运行安全 | `kIdle` | 100 ms | 否 |
+| 3 | 策略三：变压器过载限功率 | `S03_TRANSFORMER_LIMIT` | `TransformerLimitStrategy` | **L1** 运行安全 | `kIdle` | 100 ms | 否 |
+| 4 | 策略四：需量管理 | `S04_DEMAND_MGMT` | `DemandMgmtStrategy` | **L2** 本地经济 | `kCustom` | 100 ms | 否 |
+| 5 | 策略五：防逆流 | `S05_ANTI_REVERSE` | `AntiReverseStrategy` | **L2** 本地经济 | `kIdle` | 100 ms | **是** |
+| 6 | 策略六：光伏出力平抑 | `S06_PV_SMOOTHING` | `PvSmoothingStrategy` | **L2** 本地经济 | `kIdle` | 100 ms | **是** |
+| 7 | 策略七：峰谷套利 | `S07_PEAK_VALLEY` | `PeakValleyStrategy` | **L3** 全局经济 | `kTimed` | 15 min | 否 |
+| 8 | 策略八：动态预测优化 | `S08_FORECAST_OPT` | `ForecastOptStrategy` | **L3** 全局经济 | `kMPC` | 15 min | 否 |
+| 9 | 策略九：需求响应 | `S09_DEMAND_RESPONSE` | `DemandResponseStrategy` | **L3** 全局经济 | `kCustom` | 1 min | 否 |
+
+**层级分布**：L0 ×1 ／ L1 ×2 ／ L2 ×3 ／ L3 ×3。
+运行模式的下发周期统一 100 ms（见 §5.1 双轨制）。
+
+#### 4.10.2 v1.1 → v1.2 的两处归并
+
+v1.1 表中有两个策略在 C++ 实现里**没有独立的策略类**，处理如下：
+
+| v1.1 条目 | 去向 | 说明 |
+|---|---|---|
+| `custom_script`（L3，自定义扩展，脚本内自管） | → **`S09_DEMAND_RESPONSE`** | v1.1 里它是"通用自定义扩展槽"，与设计方案 §3.9「需求响应」是同一件事的两种叫法。C++ 侧把它具体化为需求响应策略（`RunMode::kCustom`，响应 `DrEvent{active, target_kw, end_ts}`）。**Q3 的 300 ms 超时硬上限仍适用**于任何 `kCustom` 策略 |
+| `soc_life_planner`（L3，SOC / 寿命，1 min） | → **拆成两处** | ① **硬边界**（`soc_min` / `soc_max` 禁充放 + `soc_warn_low` / `soc_warn_high` 预警降额 + 滞环）下沉到 **`05/src/safety_engine.h` 的 SOC 约束**，属 **L0** 安全层，不再是 L3 经济策略；② **经济性寿命项**由 `01/` 的 MILP 滚动计划承载，经 `08/src/plan_loader.h` 装载进实时层。**Q4 的"只贡献区间修正、desired 复用 `ctx.p_plan_kw`"语义随之作废** —— 该策略已不再以独立 `StrategyResult` 形式参与仲裁 |
+
+> **为什么把 SOC 硬边界从 L3 下沉到 L0**：v1.1 把它放在 L3，等于"经济性策略可以投票决定是否突破 SOC 限值"。
+> 这是错的 —— SOC 禁充放是**物理安全边界**，必须由 L0 无条件收紧区间，任何经济性策略都不能越过。
+> 这条改动正是设计方案 §十一「安全优先级最高，经济优先级最低」的直接落地，也是 `12/` 验收
+> **A3-03**（SOC 上下限：绝对限 + 预警降额）所护栏的行为。
+
+#### 4.10.3 与设计方案 §十一 的对应
+
+| 设计方案 §十一 | 本规范层级 | 命中策略 |
+|---|---|---|
+| P0 | L0 `kL0_Safety` | S01 |
+| P1 | L1 `kL1_SafeOp` | S02、S03 |
+| P2 | L2 `kL2_LocalEcon` | S04、S05、S06 |
+| P3 | L3 `kL3_GlobalEcon` | S07、S08、S09 |
+
+层级语义（跨层只收紧不拉宽 ／ 同层取 `max(p_lower)` + `min(p_upper)` ／ 仅最低层做同层加权
+／ `desired_clip` 到收敛区间）**以设计方案 §十一「层级语义」表为准**，本规范 §2.5 是实现说明。
 
 ---
 
@@ -798,13 +850,15 @@ class StatefulStrategy(BaseStrategy):
 | **Q1** | `transformer_management` 优先级 | **改 L1**（从 L2 升）；与 BMS 降功率同层 | §4.7 基本属性、§4.10 总览表 |
 | **Q2** | L3 同层多策略 desired 冲突 | **运行模式独占 + weight 等权 + desired_clip** | §2.5 仲裁规则（新增）、§5 时序 |
 | **Q3** | `custom_script` 超时硬上限 | 统一 **300 ms / 拍**；连续 3 次超时自动禁用 | §4.3 限制 / 异常、§6 表格 |
-| **Q4** | SOC 规划器层级 | 维持 **L3**，但强化语义：只贡献区间修正，desired 复用 `ctx.p_plan_kw` | §4.8 限制段加粗强化 |
+| **Q4** | SOC 规划器层级 | 维持 **L3**，但强化语义：只贡献区间修正，desired 复用 `ctx.p_plan_kw`（**v1.2 作废**：硬边界下沉 L0，见 §4.10.2） | §4.8 限制段加粗强化 |
 | **Q5** | 评估 vs 下发周期 | **双轨制**：评估按策略性质 100ms~15min；下发统一 100ms | §5.1 双轨（新增）、§4 各策略控制周期 |
 | **Q6** | 状态持久化 | **SQLite** `var/strategy_state.db`；按 `persist_keys` 声明；10s 节流；SIGTERM 前 flush | §3.3 StrategyState 字段、§6.1 持久化机制（新增）、§7.2 不变量 |
 
 ---
 
-## 9. 附录：与现有 Python 源码映射
+## 9. 附录：与现有源码映射
+
+### 9.1 Python（`code/` 只读快照）
 
 | 规范条款 | 对应 Python 文件 | 行号 |
 |---|---|---|
@@ -825,6 +879,27 @@ class StatefulStrategy(BaseStrategy):
 | §4 配置常量 | `code/strategy_config.py` | 全文件 |
 | 基类接口 | `code/base.py` | L16-45 |
 
+> `code/` 是并行 Python 实现的**只读汇总视图**，不属于 C/C++ 仓库主体，重构时不要引用。
+
+### 9.2 C++（`01/`~`08/` 交付主线，v1.2 新增）
+
+| 规范条款 | 对应 C++ 文件 | 说明 |
+|---|---|---|
+| §2.3 优先级枚举 | `04/src/data_models.h :: enum class Priority` | `kL0_Safety=0` / `kL1_SafeOp=1` / `kL2_LocalEcon=2` / `kL3_GlobalEcon=3` |
+| §3 数据模型 | `04/src/data_models.h` | `RealtimeSnapshot` / `DeviceLimits` / `StrategyResult` / `PowerCommand` |
+| §4 策略基类 | `04/src/strategy_base.h` | `IStrategy`（`id/name/priority/mode/evaluate`）+ `RunMode{kTimed,kMPC,kCustom,kIdle}` |
+| §4.1 ~ §4.9 九策略 | `04/src/strategies_9.h` | 9 个具体类，见 §4.10.1 清单 |
+| §4.10 策略编号 | `04/src/data_models.h :: namespace strategy_id` | `S01_..S09_` 常量，与 §4.10.1 逐字一致 |
+| §2.5 仲裁规则 | `04/src/strategy_arbiter.h` | L0→L3 区间收敛 + 同层加权 + `desired_clip` |
+| §5 接口时序 | `07/src/realtime_loop.h :: EmsRuntime::step()` | 固定顺序的单拍闭环（**⓪ 限值刷新 →** ① 采集 → ② 状态 → … → ⑪ 反馈）。**⓪ 步是 2026-09-19 补的**：设备侧限值（`CFG.*` / `STA.BMS_*_FORBID` / 变压器容量）在运行期会变，适配器 `limits_are_live()==true` 时每拍刷新 |
+| §3 Realtime 快照 | `07/src/rtdb/ems_point_table.h` | **32** 点表（MEAS 7 / CMD 3 / CFG 14 / STA **8**），点名为跨进程契约。STA 段末两点 `STA.BMS_CHG_FORBID` / `STA.BMS_DIS_FORBID` 是 **BMS 保护的安全输入**（2026-09-19 追加，必须追加在末尾以保证索引稳定） |
+| §6 降级路径 | `06/src/state_machine.h :: EmsState` | INIT → SELF_CHECK → READY → NORMAL/DERATED → FAULT → EMERGENCY（锁存） |
+| 硬安全边界 | `05/src/safety_engine.h` | 9 条约束折叠成单一 `(p_lower, p_upper)`；SOC 上下限在此（§4.10.2 ①） |
+| §4.2 优化计划装载 | `08/src/plan_loader.h` + `01/build` 的 MILP JSON | `01/` 求解、`08/` 装载（§4.10.2 ②） |
+
+**验收护栏**：`12/` 的 **A2** 维度逐个策略在"触发工况"下核对设计意图（9 项），
+**A3** 维度核对 9 条安全约束（11 项）。规范条款与代码的一致性由此被机器守住。
+
 ---
 
 ## 文档审批
@@ -841,6 +916,22 @@ class StatefulStrategy(BaseStrategy):
 
 ## 变更日志
 
+### v1.2 (2026-09-19)
+
+对齐 SSOT，修订策略清单口径：
+
+- **§4.10 重写**：原表按 `code/`（Python 快照）口径，与设计方案 §三 + C++ `04/src/strategies_9.h`
+  差两个条目。新版按设计方案 §三为 SSOT 列出 9 策略，并补 `strategy_id` / 实现类 / 运行模式列
+- **新增 §4.10.1**：九策略清单（设计方案 §三名 ↔ C++ `strategy_id` ↔ 实现类 ↔ 层级 ↔ 运行模式）
+- **新增 §4.10.2**：两处归并 —— `custom_script` → `S09_DEMAND_RESPONSE`；
+  `soc_life_planner` 拆为「硬边界下沉到 `05/` L0 SOC 约束」+「经济性寿命项由 `01/` MILP 承载」
+- **新增 §4.10.3**：与设计方案 §十一 P0~P3 的对应关系；层级语义以设计方案为准
+- **§9 附录补 C++ 映射**：新增 `04/` ~ `08/` 的实现文件对照
+- **作废条目**：Q4 中"soc_life_planner 维持 L3、desired 复用 `ctx.p_plan_kw`"的决议随 §4.10.2 一并作废
+  （该策略已不再以独立 `StrategyResult` 参与仲裁）。Q1 / Q2 / Q3 / Q5 / Q6 全部继续有效
+
+版本号：v1.1 → v1.2 ｜ 状态：试行（口径修订，非接口破坏性变更）
+
 ### v1.1 (2026-09-05)
 
 回应 6 项评审决议，全部已落地：
@@ -849,6 +940,7 @@ class StatefulStrategy(BaseStrategy):
 - **Q2**：§2.5 新增"仲裁规则"小节；同层 desired 冲突采用"运行模式独占 + weight 等权 + desired_clip"
 - **Q3**：§4.3 `custom_script` 超时硬上限从 500ms 收紧到 300ms；§6 表格同步；连续 3 次超时自动禁用
 - **Q4**：§4.8 SOC 规划器维持 L3，强化"只收紧不放宽 + 只贡献区间修正"语义，desired 复用 `ctx.p_plan_kw`
+  （**v1.2 作废**，见上）
 - **Q5**：新增 §5.1 "评估 vs 下发双轨"，下发统一 100ms，评估按策略性质 100ms~15min
 - **Q6**：§3.3 `StrategyState` 增加 `persist_keys` 字段；新增 §6.1 持久化机制（SQLite、10s 节流、SIGTERM flush）；§7.2 不变量补"必须可序列化"一条
 

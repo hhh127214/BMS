@@ -1,0 +1,64 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            09-19：三个新模块 + 两处修复 + 一处判据修正
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            每一张卡片回答两件事：为什么非做不可 / 做完之后多了多少条可自动检查的行为
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 14, flex: 1 }}>
+            <Box style={{ flex: 1, padding: '14px 16px', background: '#EFF6FF', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>新建 11/ 跨进程联调</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, flex: 1 }}>
+                    模块内自洽，不等于装到一起还对。三个真进程 + 一块真共享内存，是唯一能照出跨边界缺陷的镜子。
+                </Text>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>152 断言</Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '14px 16px', background: '#EFF6FF', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>新建 12/ 最终验收</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, flex: 1 }}>
+                    交付要有门禁：七维度 55 项检查，判据与实测同时输出，只出 PASS/FAIL 的报告不可复核。
+                </Text>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>114 自测 + 55/55 检查项</Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '14px 16px', background: '#EFF6FF', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>新建 P3/ IEC104 从站</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, flex: 1 }}>
+                    对上得能被调度看见：真实 TCP、真实报文、真实遥控遥调时序，不是自己和自己对答案。
+                </Text>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>408 协议 + 121 落点</Text>
+            </Box>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 14, flex: 1 }}>
+            <Box style={{ flex: 1, padding: '14px 16px', background: '#FFFFFF', borderRadius: 10, border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>修 07/ 三处真实缺陷</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, flex: 1 }}>
+                    联调才暴露的三处：权限区间恒为 [0,0]、seqlock 碰撞被误计为采集失败、缺热模型 ——
+                    单进程测试里它们永远是绿的。
+                </Text>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>3 处 / 单进程照不出</Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '14px 16px', background: '#FFFFFF', borderRadius: 10, border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>缺口 A1 + A2</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, flex: 1 }}>
+                    A1：BMS 禁充 / 禁放位在点表里没建模，却正是最硬那条安全约束的输入。
+                    A2：关口功率两个口径，三路相减会把误差叠加 —— 统一为「只读电表」。
+                </Text>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>点表 30 → 32 点；关口只读电表</Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '14px 16px', background: '#FEF2F2', borderRadius: 10, border: '1px solid #EF4444', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>判据修正 T47</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, flex: 1 }}>
+                    原判据「降级次数 == 0」测的是机器闲不闲，不是代码对不对。降级本身是设计内的保护动作。
+                </Text>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Consolas' }}>改为四层判据 + 守卫</Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>04 / 24</Text>
+    </Box>
+</Slide>

@@ -1,0 +1,204 @@
+<Slide padding={0}>
+
+    <Box style={{
+        width: '100%',
+        height: '100%',
+        background: '#FFFFFF',
+        flexDirection: 'column',
+        padding: 0,
+    }}>
+
+        {/* A 区 */}
+        <Box style={{ padding: '24px 60px 0', height: 80 }}>
+            <Box style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <Box>
+                    <Text style={{ fontSize: 16, color: '#3B82F6', fontWeight: 'bold', letterSpacing: 2 }}>
+                        周期 1 · STRATEGY INVENTORY
+                    </Text>
+                    <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#1A1A1A', marginTop: 6 }}>
+                        9 个业务意志的边界·不是 9 段代码
+                    </Text>
+                </Box>
+                <Text style={{ fontSize: 14, color: '#94A3B8' }}>P04 / 11</Text>
+            </Box>
+        </Box>
+
+        {/* B 区 */}
+        <Box style={{
+            flex: 1,
+            padding: '12px 60px',
+            flexDirection: 'column',
+            gap: 10,
+        }}>
+
+            {/* 顶部 — 优先级图例 */}
+            <Box style={{
+                flexDirection: 'row',
+                gap: 14,
+                alignItems: 'center',
+                paddingBottom: 8,
+                borderBottom: '1px solid #E2E8F0',
+            }}>
+                <Box style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Box style={{ width: 12, height: 12, borderRadius: 2, background: '#EF4444' }} />
+                    <Text style={{ fontSize: 13, color: '#1A1A1A', fontWeight: 'bold' }}>救命级：安全禁令（一票否决）</Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Box style={{ width: 12, height: 12, borderRadius: 2, background: '#F97316' }} />
+                    <Text style={{ fontSize: 13, color: '#1A1A1A', fontWeight: 'bold' }}>硬约束级：硬件边界</Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Box style={{ width: 12, height: 12, borderRadius: 2, background: '#06B6D4' }} />
+                    <Text style={{ fontSize: 13, color: '#1A1A1A', fontWeight: 'bold' }}>局部经济级：场站经营</Text>
+                </Box>
+                <Box style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Box style={{ width: 12, height: 12, borderRadius: 2, background: '#3B82F6' }} />
+                    <Text style={{ fontSize: 13, color: '#1A1A1A', fontWeight: 'bold' }}>全局套利级：系统优化</Text>
+                </Box>
+                <Box style={{ flex: 1 }} />
+                <Text style={{ fontSize: 12, color: '#64748B', fontStyle: 'italic', fontWeight: 'bold' }}>
+                    原理：分层反映"破坏后果的不可逆性"——救命级一旦违反电池报废，套利级违反最多少赚
+                </Text>
+            </Box>
+
+            {/* 9 张策略卡 — 3×3 */}
+            <Box style={{ flex: 1, flexDirection: 'column', gap: 8 }}>
+
+                {/* 第 1 行 */}
+                <Box style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
+                    {/* S01 BMS 禁放/禁充 */}
+                    <Box style={{ flex: 1, padding: '10px 14px', background: '#FEF2F2', borderRadius: 8, borderLeft: '4px solid #EF4444' }}>
+                        <Text style={{ fontSize: 12, color: '#EF4444', fontWeight: 'bold', letterSpacing: 1 }}>救命级 · 策略 1</Text>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>BMS 禁放/禁充</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.45 }}>
+                            <Text style={{ fontWeight: 'bold', color: '#B91C1C' }}>意志：</Text>电池本身的物理边界——SOC 过低禁放 / 过高禁充 / 电压过高禁放
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45, fontStyle: 'italic' }}>
+                            这是电池求救信号，别的策略都别扯
+                        </Text>
+                    </Box>
+
+                    {/* S02 BMS 降功率 */}
+                    <Box style={{ flex: 1, padding: '10px 14px', background: '#FFF7ED', borderRadius: 8, borderLeft: '4px solid #F97316' }}>
+                        <Text style={{ fontSize: 12, color: '#F97316', fontWeight: 'bold', letterSpacing: 1 }}>硬约束级 · 策略 2</Text>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>BMS 降功率</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.45 }}>
+                            <Text style={{ fontWeight: 'bold', color: '#9A3412' }}>意志：</Text>电芯温度高/SOC 临界——请你"少放点"，但不要完全停
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45, fontStyle: 'italic' }}>
+                            比策略 1 弱一点，是软警告
+                        </Text>
+                    </Box>
+
+                    {/* S03 变压器限容 */}
+                    <Box style={{ flex: 1, padding: '10px 14px', background: '#FFF7ED', borderRadius: 8, borderLeft: '4px solid #F97316' }}>
+                        <Text style={{ fontSize: 12, color: '#F97316', fontWeight: 'bold', letterSpacing: 1 }}>硬约束级 · 策略 3</Text>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>变压器/进线 限容</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.45 }}>
+                            <Text style={{ fontWeight: 'bold', color: '#9A3412' }}>意志：</Text>变压器是个硬天花板，PCS 加上负荷不能越过它
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45, fontStyle: 'italic' }}>
+                            这是电网物理约束，触发了要罚款
+                        </Text>
+                    </Box>
+                </Box>
+
+                {/* 第 2 行 */}
+                <Box style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
+                    {/* S04 需量管理 */}
+                    <Box style={{ flex: 1, padding: '10px 14px', background: '#ECFEFF', borderRadius: 8, borderLeft: '4px solid #06B6D4' }}>
+                        <Text style={{ fontSize: 12, color: '#06B6D4', fontWeight: 'bold', letterSpacing: 1 }}>局部经济级 · 策略 4</Text>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>需量管理</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.45 }}>
+                            <Text style={{ fontWeight: 'bold', color: '#0E7490' }}>意志：</Text>本月最高需量不能超——超了要按"最大需量"计基本电费
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45, fontStyle: 'italic' }}>
+                            是"经济型"诉求，但已经影响实际功率
+                        </Text>
+                    </Box>
+
+                    {/* S05 防逆流 */}
+                    <Box style={{ flex: 1, padding: '10px 14px', background: '#ECFEFF', borderRadius: 8, borderLeft: '4px solid #06B6D4' }}>
+                        <Text style={{ fontSize: 12, color: '#06B6D4', fontWeight: 'bold', letterSpacing: 1 }}>局部经济级 · 策略 5</Text>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>防逆流</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.45 }}>
+                            <Text style={{ fontWeight: 'bold', color: '#0E7490' }}>意志：</Text>当前不能向电网送电（合同不允许）
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45, fontStyle: 'italic' }}>
+                            是合同条款，不是物理硬卡，仍属"业务约束"
+                        </Text>
+                    </Box>
+
+                    {/* S06 光伏平抑 */}
+                    <Box style={{ flex: 1, padding: '10px 14px', background: '#ECFEFF', borderRadius: 8, borderLeft: '4px solid #06B6D4' }}>
+                        <Text style={{ fontSize: 12, color: '#06B6D4', fontWeight: 'bold', letterSpacing: 1 }}>局部经济级 · 策略 6</Text>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>光伏出力平抑</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.45 }}>
+                            <Text style={{ fontWeight: 'bold', color: '#0E7490' }}>意志：</Text>云来了光伏别掉太狠，余电优先充电
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45, fontStyle: 'italic' }}>
+                            平抑上送功率波动，给电网减扰
+                        </Text>
+                    </Box>
+                </Box>
+
+                {/* 第 3 行 */}
+                <Box style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
+                    {/* S07 峰谷套利 */}
+                    <Box style={{ flex: 1, padding: '10px 14px', background: '#EFF6FF', borderRadius: 8, borderLeft: '4px solid #3B82F6' }}>
+                        <Text style={{ fontSize: 12, color: '#3B82F6', fontWeight: 'bold', letterSpacing: 1 }}>全局套利级 · 策略 7</Text>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>峰谷套利</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.45 }}>
+                            <Text style={{ fontWeight: 'bold', color: '#1E40AF' }}>意志：</Text>谷时充、峰时放，赚分时电价差
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45, fontStyle: 'italic' }}>
+                            全局最优类，先确定就能量价时空 4 维规划
+                        </Text>
+                    </Box>
+
+                    {/* S08 动态优化 */}
+                    <Box style={{ flex: 1, padding: '10px 14px', background: '#EFF6FF', borderRadius: 8, borderLeft: '4px solid #3B82F6' }}>
+                        <Text style={{ fontSize: 12, color: '#3B82F6', fontWeight: 'bold', letterSpacing: 1 }}>全局套利级 · 策略 8</Text>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>动态预测优化</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.45 }}>
+                            <Text style={{ fontWeight: 'bold', color: '#1E40AF' }}>意志：</Text>结合负荷预测、光伏预测、价表，每 15 分钟重排一次计划
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45, fontStyle: 'italic' }}>
+                            是 S07 的"升级版"，但同样属经济层
+                        </Text>
+                    </Box>
+
+                    {/* S09 需求响应 */}
+                    <Box style={{ flex: 1, padding: '10px 14px', background: '#EFF6FF', borderRadius: 8, borderLeft: '4px solid #3B82F6' }}>
+                        <Text style={{ fontSize: 12, color: '#3B82F6', fontWeight: 'bold', letterSpacing: 1 }}>全局套利级 · 策略 9</Text>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>需求响应 DR</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.45 }}>
+                            <Text style={{ fontWeight: 'bold', color: '#1E40AF' }}>意志：</Text>电网下达削峰指令——按指令容量下调负荷，事后拿响应补贴
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.45, fontStyle: 'italic' }}>
+                            "外部订单"——但仍是经济层的意志表达
+                        </Text>
+                    </Box>
+                </Box>
+
+            </Box>
+
+        </Box>
+
+        {/* C 区 */}
+        <Box style={{
+            padding: '0 60px 12px',
+            height: 46,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTop: '1px solid #E2E8F0',
+        }}>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>
+                周期 1 交付 = 9 个策略的"业务边界清单"，不写实现，只定义身份
+            </Text>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>04 / 11</Text>
+        </Box>
+
+    </Box>
+</Slide>

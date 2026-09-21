@@ -11,7 +11,7 @@ cd /d "%~dp0\.."
 if not exist build mkdir build
 
 echo === 编译 05/ 演示程序 ===
-g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\06\src src\main.cpp -o build\safety_demo.exe
+g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\06\src -I ..\07\src\rtdb src\main.cpp -o build\safety_demo.exe
 if errorlevel 1 (
     echo [FAIL] 编译失败
     exit /b 1

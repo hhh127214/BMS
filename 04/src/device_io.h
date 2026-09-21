@@ -107,6 +107,19 @@ public:
 
     // ⑧ 适配器名称（日志 / 自检 / 现场排障用）
     virtual const char* name() const = 0;
+
+    // ⑨ ② 的限值是否"活的"（运行期会变）。
+    //
+    // 为什么需要这个方法：`read_limits()` 是**每控制周期**该刷的（见 ② 的契约），
+    //   但 dev_ 同时也是装配层/测试的注入点（rt.device_limits() = cfg.limits）。
+    //   无条件每拍刷新会把注入覆盖掉，现有多处仿真注入（09/10/P1/P2）即刻失效。
+    //   所以"要不要每拍刷"取决于限值到底会不会在脚下变：
+    //     · 真实设备 / 共享内存适配器 → true：BMS 动态降功率、禁充放位、
+    //       PCS 额定都可能在中途变，只在装配期读一次 = 当常量用。
+    //     · 仿真适配器 → false：限值来自装配配置，同一进程内不存在
+    //       "没人通知就变了"的情况，刷新只会覆盖调用方的注入。
+    //   EmsRuntime::attach_device() 据此自动打开运行期刷新，现场装配不会忘。
+    virtual bool limits_are_live() const { return false; }
 };
 
 } // namespace ems

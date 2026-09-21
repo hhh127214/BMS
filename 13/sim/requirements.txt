@@ -1,0 +1,13 @@
+# 13/sim — Python 从站依赖
+#
+# 只装一个包。刻意保持最小：从站是**测试夹具**，不是产品组件，
+# 依赖越少越不容易因为环境漂移而失效。
+#
+# 版本下界说明：
+#   3.7 之前 ModbusSlaveContext/ModbusServerContext 是另一套 API；
+#   3.15 起 ModbusDeviceContext/SimData/SimDevice 才齐备，
+#        且 StartAsyncTcpServer 变成 fire-and-forget（拿不到 server 句柄）。
+#   本脚本按 3.15 的 API 写（用 pymodbus.simulator.SimData/SimDevice +
+#   pymodbus.server.ModbusTcpServer），并把 DeprecationWarning 当错误跑过一遍。
+#   装 4.x 之前请先看 13/sim/modbus_slave.py 的「与 pymodbus 版本有关的硬事实」。
+pymodbus>=3.15,<4

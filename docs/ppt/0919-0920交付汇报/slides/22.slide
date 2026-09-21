@@ -1,0 +1,35 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            24h 仿真：SOC 不出界，电价贵的时段少买电
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            左边看"安全边界有没有被守住"，右边看"钱是不是花在了便宜的时候"
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 24, alignItems: 'center', justifyContent: 'center' }}>
+        <Box style={{ width: 552, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Image src="assets/sim_soc.png" style={{ width: 552, height: 220 }} />
+            <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                允许区间 [10%, 90%]，实测最低 11.02%、最高 88.02% ——
+                区间没有一次被突破，也没有为了保守而不敢用。
+            </Text>
+        </Box>
+        <Box style={{ width: 552, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Image src="assets/sim_hourly.png" style={{ width: 552, height: 222 }} />
+            <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                谷段电价 0.30 元时多买、峰段 1.20 元时少买；全天购电 5180.8 kWh，
+                向电网倒送 0 kWh（不做不可控的倒送）。
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 44, display: 'flex', flexDirection: 'row', gap: 16, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            仿真模型是既有资产；本页曲线由 09-20 的验收门禁跑批产出，数据源为真实产物文件，不是手工填的示意。
+        </Text>
+    </Box>
+    <Box style={{ height: 34, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>22 / 24</Text>
+    </Box>
+</Slide>

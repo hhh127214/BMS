@@ -56,6 +56,18 @@ struct PlantConfig {
     double noise_kw  = 0.0;             // 功率量测噪声标准差
     double noise_soc = 0.0;             // SOC 量测噪声标准差
     unsigned int seed = 20260912;
+    // 关口电表的**系统偏差**（kW，进口为正方向）。
+    //
+    // 为什么需要这个字段（2026-09-19，缺口 A2 的断言前提）：
+    //   真实系统里关口电表是**唯一权威计量点**，而负荷/光伏/电池三路各有自己的
+    //   误差与不同时延 —— 用这三路相减去"推算"关口功率，误差是**叠加**而不是
+    //   抵消的。所以 EMS 必须读电表，不能自己算。
+    //   但在这之前，设备侧发布的 `MEAS.P_GRID` **恰好等于**那个相减式，
+    //   于是"改成读电表"这件事在夹具上**逐位恒等** —— 断言杀不死它。
+    //   加了这个偏差项，才能造出「电表读数 ≠ 功率平衡」的夹具：
+    //   只有真去读电表，算出来的关口功率才跟着变；继续推算，就会差整整 bias。
+    // 默认 0.0 → 既有行为**逐位不变**（07/T21~T24、11/T41~T49 全部不受影响）。
+    double meter_bias_kw = 0.0;
 
     // ---- 故障注入 ----
     bool comm_ok_bms   = true;          // BMS 通信
@@ -156,7 +168,14 @@ public:
         rt.p_bat_actual_kw = p_bat_actual_;
         rt.p_pv_kw      = p_pv_kw_ + noise(cfg_.noise_kw);
         rt.p_load_kw    = std::max(0.0, p_load_kw_ + cfg_.pcs_standby_kw + noise(cfg_.noise_kw));
-        rt.p_grid_kw    = rt.p_load_kw - rt.p_pv_kw - p_bat_actual_;
+        // 关口功率 = **电表读数**（不是"自己拿三路量测相减算出来的数"）。
+        //
+        // 2026-09-19（缺口 A2）：以前这里直接写 `rt.p_load_kw - rt.p_pv_kw - p_bat_actual_`，
+        // 而 read_actuals() 走的是 p_grid_actual() —— 同一路数据两个口径。
+        // 现在两个入口共用**同一个电表模型**（见下方 meter_p_grid()）：
+        // 量测路径带本拍噪声（电表测的就是这个带噪声的物理量），真值路径用无噪声值，
+        // 但**计量口径只有一处定义**，且都含电表系统偏差。
+        rt.p_grid_kw    = rt.p_load_kw - rt.p_pv_kw - p_bat_actual_ + cfg_.meter_bias_kw;
         rt.soc          = clamp(soc_ + noise(cfg_.noise_soc), 0.0, 1.0);
         rt.temperature_c = temperature_c_;
         rt.soh          = cfg_.soh;
@@ -166,13 +185,22 @@ public:
         return rt;
     }
 
+    // 关口电表模型（**关口功率的唯一定义**）。
+    //
+    // 为什么单独抽一个函数：本项目踩过的"同一路数据两个口径"正是从
+    // "同一个式子在两处各写一遍"开始的 —— 改一处忘一处，且没有编译错误。
+    // 现在 sample()（EMS 看到的量测）与 p_grid_actual()（真值）都从电表口径出，
+    // 差别只在"是否含本拍噪声"，不再有"谁在推算"的分歧。
+    double meter_p_grid() const {
+        return (p_load_kw_ + cfg_.pcs_standby_kw) - p_pv_kw_ - p_bat_actual_
+               + cfg_.meter_bias_kw;
+    }
+
     // ---- 访问器 ----
     double soc() const { return soc_; }
     double temperature_c() const { return temperature_c_; }
     double p_bat_actual() const { return p_bat_actual_; }
-    double p_grid_actual() const {
-        return (p_load_kw_ + cfg_.pcs_standby_kw) - p_pv_kw_ - p_bat_actual_;
-    }
+    double p_grid_actual() const { return meter_p_grid(); }
     double p_load() const { return p_load_kw_; }
     double p_pv() const { return p_pv_kw_; }
     double energy_charged_kwh() const { return total_energy_charge_kwh_; }

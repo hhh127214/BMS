@@ -1,0 +1,49 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            可信层：这套结果为什么可信
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            可信不是口号，是结构——四条纪律 + 一个口径判据
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, justifyContent: 'center' }}>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 16 }}>
+            <Box style={{ flex: 1, padding: '16px 20px', background: '#F8FAFC', borderRadius: 12, border: '1px solid #E2E8F0', borderLeft: '4px solid #EF4444' }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>① 静默失败是头号敌人</Text>
+                <Text style={{ fontSize: 13.5, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 6 }}>
+                    不报错、退出码 0，比报错危险。心跳永远 T+0s、跳过了却印「全部通过」——共同点都是静默。→ 允许跳过必须显式宣布自己跳过了（SKIPPED=n 一路传到最外层结论行）。
+                </Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '16px 20px', background: '#F8FAFC', borderRadius: 12, border: '1px solid #E2E8F0', borderLeft: '4px solid #3B82F6' }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>② 只有跨边界才照得出来</Text>
+                <Text style={{ fontSize: 13.5, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 6 }}>
+                    跨进程 / 跨内存 / 跨语言。补通路前先自问：这条路上有几步是测试夹具替我做的？跨内存边界 + 夹具注入 = 测试盲区——所以必须有一个不注入任何东西的测试。
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 16 }}>
+            <Box style={{ flex: 1, padding: '16px 20px', background: '#F8FAFC', borderRadius: 12, border: '1px solid #E2E8F0', borderLeft: '4px solid #3B82F6' }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>③ 判据本身会错，而且错得很安静</Text>
+                <Text style={{ fontSize: 13.5, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 6 }}>
+                    正确写法和错误写法逐位相等时，任何断言都杀不死旧写法。→ 新增判据当场反证一次（故意改坏、确认会红、再改回来）；覆盖型用例自带覆盖率守卫。
+                </Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '16px 20px', background: '#F8FAFC', borderRadius: 12, border: '1px solid #E2E8F0', borderLeft: '4px solid #06B6D4' }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>④ 文案声称的必须与代码一致</Text>
+                <Text style={{ fontSize: 13.5, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 6 }}>
+                    报告标题说 32、证据行说 40——断言不会红，因为技术上它是对的。→ 会进产物的数字从真相源派生；交付后回头看各模块的「未做」清单。
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ padding: '11px 16px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+            <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                口径判据：默认 9304（构建日志 SKIPPED=7）／装 pymodbus 后 9382（SKIPPED=0）——<Text style={{ fontSize: 14, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>每份报告必须写清用哪个口径</Text>；每个数字都对应一次可复跑复核的实测。
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 两天工作全量讲解</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>15 / 16</Text>
+    </Box>
+</Slide>

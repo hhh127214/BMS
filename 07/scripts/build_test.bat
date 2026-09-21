@@ -9,7 +9,7 @@ cd /d "%~dp0\.."
 if not exist build mkdir build
 
 echo === 编译并运行 07/ 单元测试 ===
-g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\08\src tests\test_realtime_loop.cpp -o build\test_realtime_loop.exe
+g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\08\src -I src\rtdb tests\test_realtime_loop.cpp -o build\test_realtime_loop.exe
 if errorlevel 1 (
     echo [FAIL] 编译失败
     exit /b 1

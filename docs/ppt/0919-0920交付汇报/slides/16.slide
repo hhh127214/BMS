@@ -1,0 +1,58 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            测试抓到了哪三类问题
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            第二类最值得记：测试自己出错，比产品缺陷更隐蔽 —— 因为它会以"全绿"的形式出现
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 13 }}>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 13, flex: 1 }}>
+            <Box style={{ flex: 1, padding: '13px 15px', background: '#FEF2F2', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>① 产品缺陷</Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.65, flex: 1 }}>
+                    发布协议缺"写之前也递增序号"；<br />
+                    点表对象缓存只判"文件在不在"不判"源文件更新了没"；<br />
+                    检查项标题说 32 点、证据行派生出来是 40 点；<br />
+                    跨语言层跳过了却仍印"三层测试全部通过"；<br />
+                    网关心跳永远印 0 秒（单位换算错）；<br />
+                    禁用位 / 禁充放位通路级失效。
+                </Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '13px 15px', background: '#EFF6FF', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>② 测试自己出错</Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.65, flex: 1 }}>
+                    判据测的是"机器闲不闲"，不是"代码对不对"；<br />
+                    并发用例空跑 300 次快照，一次都没被对账过，
+                    看着"零违规"，实际什么都没检查；<br />
+                    断言适用范围写错：拿超大量级当初始值，
+                    于是"恒等元"这条断言本身不成立；<br />
+                    覆盖率悄悄缩水：遍历时误把序号/时标点算成载荷点。
+                </Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '13px 15px', background: '#F1F5F9', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei' }}>③ 过期产物</Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.65, flex: 1 }}>
+                    正式验收报告标题写 32 点表、同一条检查项的实测值已经是 40；<br />
+                    已经交付的缺口仍挂在模块文档的"未做"栏里；<br />
+                    仓库根的构建日志还停在旧口径。<br /><br />
+                    这类不会变红 —— 断言错了会红，<br />产物里的数字错了永远是绿的。
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 13, padding: '12px 16px', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10 }}>
+            <Text style={{ fontSize: 15, color: '#1A1A1A', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+                另外还有两类"不出声"的缺陷：
+            </Text>
+            <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+                新建的 Modbus 模块内 6 个（协议细节、点表、容量边界）·
+                IEC104 网关内 6 个静默出错类（品质常量写反、原子宏破坏、计数早于载荷、窄类型溢出、报文分包、脚本里的控制字符）
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>16 / 24</Text>
+    </Box>
+</Slide>

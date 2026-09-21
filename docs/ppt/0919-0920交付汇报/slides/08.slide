@@ -1,0 +1,58 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            09-20：一个模块 + 三层缺口 + 一轮清扫
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            主线是把"指令从上面进来、从下面出去"这两条通路都接通，并且每一步都留证据
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 14, flex: 1.15 }}>
+            <Box style={{ flex: 1.2, padding: '16px 18px', background: '#ECFEFF', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <Text style={{ fontSize: 21, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>新建 13/ · Modbus TCP 设备接入</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.65, flex: 1 }}>
+                    对下接现场设备（BMS / PCS / 电表）。之所以不让模拟器直写共享内存，是因为那样"Modbus 写寄存器"这条路在接真机前一次都没走过 ——
+                    字节序、寄存器地址、写后回读、超时重试都会在现场第一次遇到。
+                </Text>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>223 + 133 + 83 = 439 断言（三层）</Text>
+            </Box>
+            <Box style={{ flex: 1.2, padding: '16px 18px', background: '#ECFEFF', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <Text style={{ fontSize: 21, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>缺口 A3.1 · EXT 外部设定点区</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.65, flex: 1 }}>
+                    IEC104 的遥调以前没有落点：指令收得下，却无处安放。新建 8 个 EXT 点承载"当前设定的状态"，
+                    并用"只有六个具名 setter"把网关的写权限从"不允许"变成"写不出来"。
+                </Text>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>点表 32 → 40 点；P3 168 → 497</Text>
+            </Box>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 14, flex: 1 }}>
+            <Box style={{ flex: 1, padding: '13px 15px', background: '#FFFFFF', borderRadius: 10, border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>缺口 A3.2 · 接进安全链</Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, flex: 1 }}>
+                    落点有了还得接线：接进安全引擎的第 10 条约束，并拍板"停机 / 闭锁在失联后粘住"。
+                </Text>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>05 +26 / P3 +4 / 11 +1</Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '13px 15px', background: '#FFFFFF', borderRadius: 10, border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>转发表外置 CSV</Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, flex: 1 }}>
+                    现场改一个 IOA 不该重编 C++。外置之后必须配校验，否则外置表本身就是新的错误来源。
+                </Text>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>T77 +28 断言</Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '13px 15px', background: '#FEF2F2', borderRadius: 10, border: '1px solid #EF4444', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>三遍文案 / 遗留清扫</Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, flex: 1 }}>
+                    全仓扫 115 处过期数字，真正过期的只有 27 处 —— 其余是对的，因为同一个数字指不同的表。
+                    所以必须先分类，再动手。
+                </Text>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Consolas' }}>6 张清单成立 / 8 处已过期</Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>08 / 24</Text>
+    </Box>
+</Slide>

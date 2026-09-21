@@ -1,0 +1,45 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            五层测试体系：每层专补上一层的盲区
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            越往上越接近真实链路，越往下越接近纯逻辑；分层的意义是任何一次失败都能定位到它所属的那层
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 26, alignItems: 'center' }}>
+        <Box style={{ width: 620 }}>
+            <Image src="assets/test_pyramid.png" style={{ width: 620, height: 269 }} />
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Box style={{ padding: '12px 14px', background: '#EFF6FF', borderRadius: 10, borderLeft: '4px solid #3B82F6' }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>
+                    ①② 单元与跨进程
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    9026 条纯逻辑断言打底；再起三个真进程经共享内存交互，补上夹具替不了的那一段（跨内存边界 + 并发）。
+                </Text>
+            </Box>
+            <Box style={{ padding: '12px 14px', background: '#ECFEFF', borderRadius: 10, borderLeft: '4px solid #06B6D4' }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Microsoft YaHei' }}>
+                    ③ 跨内存边界落点 · 121 条
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    这个模块专门做一件事：不注入任何东西 —— 写走真实写者、读走真实接口，并按点名反查索引对账。
+                </Text>
+            </Box>
+            <Box style={{ padding: '12px 14px', background: '#ECFEFF', borderRadius: 10, borderLeft: '4px solid #06B6D4' }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Microsoft YaHei' }}>
+                    ④⑤ 跨语言对账与交付门禁
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    83 条对上真外部对端（自己写两端 = 自己和自己对答案）；最后是七维度 55 项交付门禁。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>13 / 24</Text>
+    </Box>
+</Slide>

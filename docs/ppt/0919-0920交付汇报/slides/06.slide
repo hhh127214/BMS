@@ -1,0 +1,48 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            原理 · 点表的索引是「运行时坐标」
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            A1 的两个决策，以及 A2 差点"修了个寂寞"的教训
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 28, alignItems: 'center' }}>
+        <Box style={{ width: 640 }}>
+            <Image src="assets/point_append.png" style={{ width: 640, height: 280 }} />
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 13 }}>
+            <Box style={{ padding: '12px 14px', background: '#ECFEFF', borderRadius: 10, borderLeft: '4px solid #06B6D4' }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Microsoft YaHei' }}>
+                    决策一 · 只追加在末尾
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    共享内存里已经有段，段里的索引不会跟着新代码变。中间插入会让其后所有点整体偏移 ——
+                    现场表现是「点名对得上、值全是隔壁点的」。
+                </Text>
+            </Box>
+            <Box style={{ padding: '12px 14px', background: '#ECFEFF', borderRadius: 10, borderLeft: '4px solid #06B6D4' }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Microsoft YaHei' }}>
+                    决策二 · 新点默认"允许"
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    默认"禁止"会让"设备侧尚未上线"直接锁死区间，冷启动不可用；
+                    默认"允许"与修复前逐位一致，不引入新风险。
+                </Text>
+            </Box>
+            <Box style={{ padding: '12px 14px', background: '#FEF2F2', borderRadius: 10, borderLeft: '4px solid #EF4444' }}>
+                <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>
+                    教训 · 先造出可观测差异，再谈修好
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    A2 改完后所有旧用例逐位恒等 —— 把代码退回去，一条断言也不会红。
+                    所以先加一个默认 0、可注入的电表偏差把两条路径拉开，再去断言"跟电表、不跟平衡值"。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>06 / 24</Text>
+    </Box>
+</Slide>

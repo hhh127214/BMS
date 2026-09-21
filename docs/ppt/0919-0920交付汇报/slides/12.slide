@@ -1,0 +1,26 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: 'linear-gradient(135deg, #EFF6FF 0%, #FFFFFF 52%, #F0FDFA 100%)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+    <Text style={{ fontSize: 128, fontWeight: 'bold', color: '#DBEAFE', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+        03
+    </Text>
+    <Text style={{ fontSize: 72, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.2, marginTop: -18 }}>
+        测试工作
+    </Text>
+    <Text style={{ fontSize: 22, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.7, marginTop: 18 }}>
+        这两天最重要的结构性变化：测试从「一层」变成「五层」，
+        而且每一层都专门覆盖上一层覆盖不到的东西。
+    </Text>
+    <Box style={{ display: 'flex', flexDirection: 'row', gap: 34, marginTop: 26, alignItems: 'center' }}>
+        <Text style={{ fontSize: 17, color: '#3B82F6', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            断言 +1219
+        </Text>
+        <Text style={{ fontSize: 17, color: '#3B82F6', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            抓到 12 类问题
+        </Text>
+        <Text style={{ fontSize: 17, color: '#3B82F6', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            判据反证 8 次
+        </Text>
+        <Text style={{ fontSize: 16, color: '#EF4444', fontWeight: 'bold', fontFamily: 'Microsoft YaHei' }}>
+            本报告重点
+        </Text>
+    </Box>
+</Slide>

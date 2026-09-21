@@ -1,0 +1,59 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            结果 ②：测试抓到三类问题
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            最值得记的是第二类——测试自己也会出错，而且错得很安静
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, justifyContent: 'center' }}>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 22, alignItems: 'stretch' }}>
+            <Box style={{ flex: 1, background: '#F8FAFC', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8, borderTop: '4px solid #EF4444' }}>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>① 产品缺陷</Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.65 }}>
+                    · 发布协议缺「写之前也递增序号」——一次写 6 个点的清空操作才暴露<br />
+                    · 同名点表两套内容：缓存只判存在、不判源文件更新，编译期一个字都不说<br />
+                    · SKIP 了却印「三层测试全部通过」——把「没验」写成「验过」<br />
+                    · 心跳行永远印 T+0s：换算单位写错<br />
+                    · 禁充/禁放位通路级失效：看着在跑、实际没生效
+                </Text>
+                <Text style={{ marginTop: 'auto', fontSize: 13, color: '#94A3B8', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                    另有 13/ 内 6 个、P3/ 内 6 个静默出错类缺陷，详见 CHANGES.md
+                </Text>
+            </Box>
+            <Box style={{ flex: 1, background: '#F8FAFC', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8, borderTop: '4px solid #3B82F6' }}>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>② 测试自己出错</Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.65 }}>
+                    · T47 断言测的是「机器闲不闲」不是「代码对不对」——全量构建下红了一次，单跑恒绿<br />
+                    · 从仓库根目录跑测试「假红」：165/6、126/12；换到模块目录立刻 171/0、144/0<br />
+                    · 「假红」和「假绿」一样危险，只是方向相反
+                </Text>
+                <Text style={{ marginTop: 'auto', fontSize: 13, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                    对策：新增判据当场反证一次；失败先怀疑工作目录，再怀疑代码
+                </Text>
+            </Box>
+            <Box style={{ flex: 1, background: '#F8FAFC', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8, borderTop: '4px solid #3B82F6' }}>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>③ 过期产物</Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.65 }}>
+                    · 验收报告标题「32 点表自检」，证据行已是 40——一条检查项自己和自己矛盾<br />
+                    · 已交付的缺口仍挂在「未做」栏<br />
+                    · 根目录构建日志停在旧口径<br />
+                    · 这种错断言抓不到——技术上它是对的，错的是文案
+                </Text>
+                <Text style={{ marginTop: 'auto', fontSize: 13, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                    对策：进产物的数字从真相源派生，让它结构上不可能过期
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ padding: '11px 16px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+            <Text style={{ fontSize: 15, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                三类问题的共同点：<Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>不报错、退出码 0</Text>。所以「没报违规」≠「查过之后没违规」——每一类都靠主动复核才浮出水面。
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 工作汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>08 / 10</Text>
+    </Box>
+</Slide>

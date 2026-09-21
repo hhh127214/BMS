@@ -1,0 +1,39 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            两天净增 1219 条断言，0 失败
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            断言 = 系统「必须成立的行为」被写下来、并被机器反复检查的次数
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 30, alignItems: 'center' }}>
+        <Box style={{ width: 340, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>全量断言（本机默认口径）</Text>
+            <Text style={{ fontSize: 118, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                9304
+            </Text>
+            <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>+1219</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>较 09-19 起点（+15%）</Text>
+            </Box>
+            <Box style={{ marginTop: 8, padding: '12px 14px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+                <Text style={{ fontSize: 15, color: '#1A1A1A', fontWeight: 600, fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    这个数字的意义不是"代码变多"，<br />
+                    而是"能被自动验证的行为变多"。
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+            <Image src="assets/test_baseline.png" style={{ width: 700, height: 299 }} />
+            <Text style={{ fontSize: 13, color: '#94A3B8', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                基线口径：本机默认环境 9304；把跨语言层依赖装上后为 9382 —— 报告里必须写清用的是哪个口径。
+                判据：构建日志里是否出现「跳过 0 项」。
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>14 / 24</Text>
+    </Box>
+</Slide>

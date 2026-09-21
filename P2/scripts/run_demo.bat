@@ -11,7 +11,7 @@ if not exist build mkdir build
 if not exist out   mkdir out
 
 echo === 编译 P2/ 产品化 P2 可观测性演示 ===
-g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\07\src -I ..\08\src -I ..\10\src src\main.cpp -o build\ems_observe.exe
+g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\07\src -I ..\08\src -I ..\10\src -I ..\07\src\rtdb src\main.cpp -o build\ems_observe.exe
 if errorlevel 1 (
     echo [FAIL] 编译失败
     exit /b 1

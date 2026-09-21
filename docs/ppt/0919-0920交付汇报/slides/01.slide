@@ -1,0 +1,49 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 22 }}>
+    <Text style={{ fontSize: 16, color: '#3B82F6', fontFamily: 'Microsoft YaHei', letterSpacing: 3 }}>
+        工商业储能 EMS · 2026-09-19 ~ 09-20
+    </Text>
+    <Text style={{ fontSize: 64, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.2 }}>
+        这两天完成的交付
+    </Text>
+    <Text style={{ fontSize: 24, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+        从「自己能算」到「能被上层调度、能被现场设备接入，而且每一步都有证据」
+    </Text>
+    <Box style={{ display: 'flex', flexDirection: 'row', gap: 28, marginTop: 26 }}>
+        <Box style={{ flex: 1, padding: '22px 24px', background: '#EFF6FF', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <Text style={{ fontSize: 96, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                +1219
+            </Text>
+            <Text style={{ fontSize: 17, color: '#1A1A1A', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+                两天净增的断言条数
+            </Text>
+            <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+                8085 → 9304（+15%）
+            </Text>
+        </Box>
+        <Box style={{ flex: 1, padding: '22px 24px', background: '#EFF6FF', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <Text style={{ fontSize: 96, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                4
+            </Text>
+            <Text style={{ fontSize: 17, color: '#1A1A1A', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+                新建的交付模块
+            </Text>
+            <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+                11/ 跨进程 · 12/ 验收 · P3/ IEC104 · 13/ Modbus
+            </Text>
+        </Box>
+        <Box style={{ flex: 1, padding: '22px 24px', background: '#F1F5F9', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <Text style={{ fontSize: 96, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                0
+            </Text>
+            <Text style={{ fontSize: 17, color: '#1A1A1A', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+                失败断言
+            </Text>
+            <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+                15 个测试进程全绿，构建退出码 0
+            </Text>
+        </Box>
+    </Box>
+    <Text style={{ fontSize: 14, color: '#94A3B8', fontFamily: 'Microsoft YaHei', marginTop: 4 }}>
+        本报告只讲这两天的增量；此前周期的实现另有一份汇报。
+    </Text>
+</Slide>

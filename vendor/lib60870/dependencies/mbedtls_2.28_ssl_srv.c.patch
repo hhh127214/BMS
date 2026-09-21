@@ -1,0 +1,42 @@
+--- orig/mbedtls-2.28.10/library/ssl_srv.c	2025-03-24 11:49:00.000000000 +0000
++++ mbedtls-2.28.10/library/ssl_srv.c	2026-01-30 18:15:47.656423746 +0000
+@@ -2691,15 +2691,36 @@
+     if (session->id_len == 0) {
+         return;
+     }
+-    if (ssl->conf->f_get_cache == NULL) {
+-        return;
+-    }
+ #if defined(MBEDTLS_SSL_RENEGOTIATION)
+     if (ssl->renego_status != MBEDTLS_SSL_INITIAL_HANDSHAKE) {
++        if (ssl->session != NULL &&
++            ssl->session->id_len == session->id_len &&
++            memcmp(ssl->session->id, session->id, session->id_len) == 0 &&
++            mbedtls_ssl_session_copy(session, ssl->session) == 0) {
++            MBEDTLS_SSL_DEBUG_MSG(3, ("renegotiation: resuming existing session"));
++            ssl->handshake->resume = 1;
++            ssl->secure_renegotiation = MBEDTLS_SSL_SECURE_RENEGOTIATION;
++
++            /* call session cache just to inform application about session resumption */
++            if (ssl->conf->f_get_cache != NULL) {
++                mbedtls_ssl_session_init(&session_tmp);
++
++                session_tmp.id_len = session->id_len;
++                memcpy(session_tmp.id, session->id, session->id_len);
++
++                ret = ssl->conf->f_get_cache(ssl->conf->p_cache,
++                                                &session_tmp);
++            }
++            return;
++        }
+         return;
+     }
+ #endif
+ 
++    if (ssl->conf->f_get_cache == NULL) {
++        return;
++    }
++
+     mbedtls_ssl_session_init(&session_tmp);
+ 
+     session_tmp.id_len = session->id_len;

@@ -1,0 +1,35 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            怎么做的 ①：8 次「故意改坏」
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            测试全绿不等于测试有效——每加一批判据，当场把实现故意改坏，确认它真的会红，再改回来
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 14 }}>
+        <Image src="assets/test_refute.png" style={{ width: 1152, height: 403 }} />
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 24 }}>
+            <Box style={{ flex: 1, padding: '12px 16px', background: '#F8FAFC', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+                <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                    6 次如预期变红
+                </Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    红的正是该抓的形态：序号写序挪后一拍，读到「新下界配旧序号」；去掉「序号必须为偶数」，抓到半更新快照；Python 侧去掉电表偏差，3 条红并定位到具体行。
+                </Text>
+            </Box>
+            <Box style={{ flex: 1, padding: '12px 16px', background: '#F8FAFC', borderRadius: 8, borderLeft: '3px solid #64748B' }}>
+                <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                    2 次没变红——证明我的注释写错了
+                </Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    原以为「两端表顺序写反只能靠对账抓」，实测模拟器构造时就拒绝——注释是错的，判据是多余的。注释声称的行为必须与代码实际行为一致。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 工作汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>05 / 10</Text>
+    </Box>
+</Slide>

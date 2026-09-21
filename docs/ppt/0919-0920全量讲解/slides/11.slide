@@ -1,0 +1,47 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            验路 ①：测试从一层变五层，基线九连涨
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            每一层专门覆盖上一层覆盖不了的东西
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 26, alignItems: 'center' }}>
+        <Box style={{ width: 560, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+            <Image src="assets/test_pyramid.png" style={{ width: 560, height: 243 }} />
+            <Image src="assets/baseline.png" style={{ width: 560, height: 239 }} />
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 9 }}>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Text style={{ width: 118, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>① 单元+协议</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>9026 条：各模块纯逻辑 + 协议层，秒级出结果</Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Text style={{ width: 118, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>② 跨进程</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>152 条：真进程×3 读写同一块共享内存——夹具替不了的那段</Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Text style={{ width: 118, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>③ 跨内存落点</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>121 条：不注入任何东西，真写者、真 API、按名字反查</Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Text style={{ width: 118, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>④ 跨语言</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>83 条：对第三方 pymodbus 真对端（默认环境跳过 7 条、计 5）</Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Text style={{ width: 118, fontSize: 15, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Microsoft YaHei' }}>⑤ 端到端+验收</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>55/55：五进程闭环 600 拍 + 七维度交付门禁</Text>
+            </Box>
+            <Box style={{ marginTop: 6, padding: '11px 14px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    合计 9382；默认口径 9304（差 78 = 跨语言 83−5）。<Text style={{ fontSize: 14, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>19 个测试目标逐项实跑，与基线逐位一致，9304 加总闭合</Text>——报告必须写清用哪个口径。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 两天工作全量讲解</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>11 / 16</Text>
+    </Box>
+</Slide>

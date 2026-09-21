@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工商业储能 EMS · 2026-09-19 ~ 09-20 工作汇报</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1e2430; --sub:#5a6474; --faint:#8b94a3;
+    --line:#e4e7ee; --line2:#eef1f6;
+    --accent:#1f5fd6; --accent-bg:#eef3fd;
+    --ok:#12794a; --ok-bg:#eaf6ef;
+    --warn:#a55a06; --warn-bg:#fdf3e6;
+    --bad:#b3261e; --bad-bg:#fdeeed;
+    --purple:#6b3fa0; --purple-bg:#f3eefb;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;
+    font-size:15px; line-height:1.72;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:32px 24px 72px}
+  *{font-variant-numeric:tabular-nums}
+
+  /* ---------- header ---------- */
+  header.top{
+    background:linear-gradient(160deg,#ffffff 0%,#f2f5fb 100%);
+    border:1px solid var(--line); border-radius:16px; padding:30px 32px 26px;
+  }
+  .kicker{font-size:12.5px; letter-spacing:.14em; color:var(--accent); font-weight:600}
+  h1{font-size:29px; line-height:1.3; margin:10px 0 8px; letter-spacing:-.2px}
+  .lead{margin:0; color:var(--sub); font-size:15px; max-width:74ch}
+  .meta{margin-top:16px; padding-top:14px; border-top:1px dashed var(--line); font-size:13px; color:var(--faint)}
+  .meta b{color:var(--sub); font-weight:600}
+
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-top:24px}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px}
+  .card .k{font-size:12px; color:var(--faint); letter-spacing:.06em}
+  .card .v{font-size:24px; font-weight:700; margin-top:4px; letter-spacing:-.4px}
+  .card .d{font-size:12.5px; color:var(--sub); margin-top:2px}
+  .card.ok .v{color:var(--ok)}
+  .card.accent .v{color:var(--accent)}
+
+  /* ---------- sections ---------- */
+  section{background:var(--card); border:1px solid var(--line); border-radius:16px; padding:26px 30px; margin-top:18px}
+  h2{font-size:20px; margin:0 0 4px; letter-spacing:-.2px}
+  h2 .num{display:inline-block; min-width:22px; color:var(--accent); font-weight:700; margin-right:6px}
+  h3{font-size:16px; margin:26px 0 8px; padding-left:11px; border-left:3px solid var(--accent)}
+  h4{font-size:14.5px; margin:20px 0 6px; color:var(--sub)}
+  p{margin:9px 0}
+  ul,ol{margin:9px 0; padding-left:22px}
+  li{margin:5px 0}
+  code{background:#f2f4f8; border:1px solid var(--line2); border-radius:5px; padding:1px 5px;
+       font-family:"Cascadia Mono",Consolas,"Courier New",monospace; font-size:13px; color:#2b3444}
+  .sub{color:var(--sub); font-size:13.5px}
+  .tag{display:inline-block; font-size:11.5px; padding:1px 8px; border-radius:20px; font-weight:600;
+       border:1px solid transparent; white-space:nowrap}
+  .t-ok{background:var(--ok-bg); color:var(--ok); border-color:#cfe8dc}
+  .t-warn{background:var(--warn-bg); color:var(--warn); border-color:#f3ddbe}
+  .t-bad{background:var(--bad-bg); color:var(--bad); border-color:#f3cdca}
+  .t-acc{background:var(--accent-bg); color:var(--accent); border-color:#d2e0f8}
+  .t-pur{background:var(--purple-bg); color:var(--purple); border-color:#e2d6f4}
+
+  /* ---------- tables ---------- */
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px}
+  th,td{padding:8px 11px; text-align:left; border-bottom:1px solid var(--line2); vertical-align:top}
+  th{background:#f4f6fa; font-weight:600; color:#39445a; font-size:13px; white-space:nowrap}
+  tbody tr:nth-child(even){background:#fbfcfe}
+  td.n,th.n{text-align:right; white-space:nowrap; font-family:"Cascadia Mono",Consolas,monospace; font-size:13px}
+  td.c,th.c{text-align:center}
+  .mono{font-family:"Cascadia Mono",Consolas,monospace; font-size:12.8px}
+  tfoot td{background:#f4f6fa; font-weight:700; border-top:2px solid #d9dee8}
+
+  /* ---------- callouts ---------- */
+  .note{border-left:3px solid var(--accent); background:var(--accent-bg); border-radius:0 10px 10px 0;
+        padding:12px 16px; margin:14px 0; font-size:14px}
+  .note.warn{border-color:var(--warn); background:var(--warn-bg)}
+  .note.bad{border-color:var(--bad); background:var(--bad-bg)}
+  .note.ok{border-color:var(--ok); background:var(--ok-bg)}
+  .note b{font-weight:700}
+  .q{color:var(--sub); font-style:normal}
+
+  /* ---------- layer diagram ---------- */
+  .stack{margin:16px 0; border:1px solid var(--line); border-radius:12px; overflow:hidden}
+  .lay{display:grid; grid-template-columns:190px 1fr 132px; border-top:1px solid var(--line2)}
+  .lay:first-child{border-top:none}
+  .lay>div{padding:10px 13px}
+  .lay .lname{background:#f4f6fa; font-weight:600; font-size:13px; border-right:1px solid var(--line2)}
+  .lay .ldesc{font-size:13.5px}
+  .lay .lnum{font-size:13px; text-align:right; color:var(--sub);
+             font-family:"Cascadia Mono",Consolas,monospace; background:#fbfcfe; border-left:1px solid var(--line2)}
+  .lay.hi .lname{background:var(--accent-bg); color:var(--accent)}
+
+  /* ---------- flow (end-to-end) ---------- */
+  .flow{display:flex; flex-wrap:wrap; align-items:stretch; gap:8px; margin:16px 0}
+  .node{flex:1 1 150px; background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:10px 12px}
+  .node .nm{font-weight:600; font-size:13.5px}
+  .node .nd{font-size:12px; color:var(--sub); margin-top:3px; line-height:1.55}
+  .arrow{align-self:center; color:var(--faint); font-size:16px; padding:0 2px}
+
+  /* ---------- baseline chain ---------- */
+  .chain{display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:14px 0; font-size:13px}
+  .step{background:#fbfcfe; border:1px solid var(--line); border-radius:8px; padding:6px 11px}
+  .step.end{background:var(--ok-bg); border-color:#cfe8dc; color:var(--ok); font-weight:700}
+  .step.now{background:var(--accent-bg); border-color:#d2e0f8; color:var(--accent); font-weight:700}
+  .chain .ar{color:var(--faint)}
+
+  footer{max-width:1080px; margin:18px auto 0; padding:0 24px; color:var(--faint); font-size:12.5px}
+  footer .fbox{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 20px}
+  footer ul{padding-left:20px}
+  @media print{
+    body{background:#fff} .wrap{max-width:none} section,header.top{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="kicker">工商业储能 EMS · 储能协调控制器 · 工作汇报</div>
+  <h1>2026-09-19 ~ 09-20 工作汇报<br><span style="font-size:19px;color:var(--sub);font-weight:600">两天交付 6 项功能增量，测试基线从 8085 涨到 9304，全部逐项实测复核</span></h1>
+  <p class="lead">
+    这两天做的是同一件事的两半：<b>把「调度能指挥设备」这条链路补完整</b>（外部设定落点、Modbus 设备接入、转发表外置），
+    以及<b>把「怎么证明它是对的」升级了一级</b>（跨进程联调、七维度验收、跨语言对账、跨内存边界测试）。
+    汇报的重点在测试：<b>新增了什么测试、结果是多少、测试抓出了什么问题</b>。
+  </p>
+  <div class="meta">
+    <b>汇报周期</b> 2026-09-19 ~ 09-20 &nbsp;·&nbsp;
+    <b>工程</b> <span class="mono">C:\Users\17128\Desktop\BMS</span> &nbsp;·&nbsp;
+    <b>基线口径</b> 本机默认 9304（无 <span class="mono">pymodbus</span>）／装后 9382 &nbsp;·&nbsp;
+    <b>构建</b> 31 步
+  </div>
+
+  <div class="cards">
+    <div class="card accent">
+      <div class="k">交付增量</div><div class="v">6 项</div>
+      <div class="d">2 个新模块（11/ 12/）+ 1 个新产品模块（13/）+ 3 项缺口修复</div>
+    </div>
+    <div class="card ok">
+      <div class="k">测试断言</div><div class="v">8085 → 9304</div>
+      <div class="d">默认口径 +1219 断言，0 失败</div>
+    </div>
+    <div class="card">
+      <div class="k">本轮复核</div><div class="v">19 / 19</div>
+      <div class="d">测试目标逐项本地实测，与基线逐位一致</div>
+    </div>
+    <div class="card">
+      <div class="k">交付门禁</div><div class="v">55 / 55</div>
+      <div class="d">七维度验收全通过，退出码 0</div>
+    </div>
+    <div class="card">
+      <div class="k">判据反证</div><div class="v">8 次</div>
+      <div class="d">故意改坏代码，验证测试真的能抓到</div>
+    </div>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">一</span>两天总览：做了什么，为什么做</h2>
+
+  <p>所有改动围绕一条主线：<b>让 EMS 从「自己能算」变成「能被上层调度、能被现场设备接入、并且每一步都有证据」</b>。</p>
+
+  <table>
+    <thead>
+      <tr><th style="width:74px">日期</th><th style="width:210px">交付项</th><th>一句话说明</th><th style="width:126px" class="c">性质</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">09-19</td>
+        <td>新建 <code>11/</code> 周期 11</td>
+        <td>系统级联调：起真进程、跨进程读写同一块共享内存，把「模块内自洽」升级成「装到一起还对不对」</td>
+        <td class="c"><span class="tag t-acc">新模块</span></td>
+      </tr>
+      <tr>
+        <td class="mono">09-19</td>
+        <td>新建 <code>12/</code> 周期 12</td>
+        <td>最终验收：七维度 55 项检查，输出正式验收报告（md/json/html），作为交付门禁</td>
+        <td class="c"><span class="tag t-acc">新模块</span></td>
+      </tr>
+      <tr>
+        <td class="mono">09-19</td>
+        <td>修 <code>07/</code> 三处真实缺陷</td>
+        <td>联调才暴露的问题：单模块自己测永远测不出来</td>
+        <td class="c"><span class="tag t-warn">修复</span></td>
+      </tr>
+      <tr>
+        <td class="mono">09-19</td>
+        <td>判据缺陷 T47</td>
+        <td>原断言 <span class="mono">stale==0</span> 测的是「机器闲不闲」，不是「代码对不对」→ 改成四层判据</td>
+        <td class="c"><span class="tag t-warn">修复</span></td>
+      </tr>
+      <tr>
+        <td class="mono">09-19</td>
+        <td>新建 <code>P3/</code> IEC104 从站网关</td>
+        <td>对上接调度／虚拟电厂：真实 TCP、真实报文、真实遥控遥调时序</td>
+        <td class="c"><span class="tag t-acc">新模块</span></td>
+      </tr>
+      <tr>
+        <td class="mono">09-19</td>
+        <td>A1 + A2 缺口</td>
+        <td>BMS 禁充/禁放位接进安全链；关口功率口径统一为「只读电表」</td>
+        <td class="c"><span class="tag t-warn">修复</span></td>
+      </tr>
+      <tr>
+        <td class="mono">09-20</td>
+        <td>新建 <code>13/</code> Modbus TCP 设备接入</td>
+        <td>对下接现场设备（BMS/PCS/电表）：三层测试 + 跨语言对账</td>
+        <td class="c"><span class="tag t-acc">新模块</span></td>
+      </tr>
+      <tr>
+        <td class="mono">09-20</td>
+        <td>A3.1 EXT 点区</td>
+        <td>外部设定落点：点表 32 → 40 点，调度遥调第一次「落得到地方」</td>
+        <td class="c"><span class="tag t-acc">功能</span></td>
+      </tr>
+      <tr>
+        <td class="mono">09-20</td>
+        <td>A3.2 接进安全链</td>
+        <td>把落点接进安全引擎第 10 条约束，并拍板「停机/闭锁 stale 后粘住」</td>
+        <td class="c"><span class="tag t-acc">功能</span></td>
+      </tr>
+      <tr>
+        <td class="mono">09-20</td>
+        <td>转发表外置 CSV</td>
+        <td>IEC104 的 CA/IOA 映射改成数据文件，现场改 IOA 不用重编 C++</td>
+        <td class="c"><span class="tag t-acc">功能</span></td>
+      </tr>
+      <tr>
+        <td class="mono">09-20</td>
+        <td>文案/遗留清单清扫（三遍）</td>
+        <td>扫掉会印进正式产物里的过期数字与已关闭的缺口，改「结构」不改「数值」</td>
+        <td class="c"><span class="tag t-pur">整理</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <b>为什么把「清扫文案」也算交付？</b>
+    因为它和断言不一样 —— <b>断言错了会变红，产物里的数字错了永远是绿的</b>。
+    这两天就发现：正式验收报告里写着「32 点表自检」，而同一条检查项的实测值已经是 40 ——
+    一条检查项自己和自己矛盾。这种错会直接跟着交付物到客户手里。
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">二</span>改动明细：改了什么 · 为什么这么改</h2>
+
+  <h3>2.1 新增 <code>11/</code>：跨进程系统级联调</h3>
+  <table>
+    <thead><tr><th style="width:250px">改动</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>新增 3 个可执行进程（初始化器 / 设备侧 / EMS 侧）+ 测试 <span class="mono">T41~T49</span>（151 → 152 断言）</td>
+        <td>此前每个模块的测试都是「自己和自己对答案」——数据是夹具造好直接喂进去的。<b>跨进程读同一块共享内存，是夹具替不了的那一段</b>，必须真起进程才能验</td>
+      </tr>
+      <tr>
+        <td>点区纪律写进测试：设备侧只写 MEAS/STA/CFG，<b>不碰 CMD，也不碰 EXT</b></td>
+        <td>三个写入者（设备侧 / EMS 侧 / 网关）各写一段互不重叠的地址。这个边界一旦破了，故障现象是「数据莫名其妙被改」，根本追不到源头 —— 所以要有一条断言专门守着它</td>
+      </tr>
+      <tr>
+        <td>T47 并发判据：从「降级必须恒为 0」改成四层判据</td>
+        <td>见下面 <b>2.4 与 6.2</b>，这是本轮最有代表性的一个判据缺陷</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>2.2 新增 <code>12/</code>：最终验收（交付门禁）</h3>
+  <p>
+    七维度 55 项检查：<b>A1 功能 9 / A2 策略 9 / A3 安全 11 / A4 性能 5 / A5 稳定性 7 / A6 多策略协同 8 / A7 文档 6</b>。
+  </p>
+  <table>
+    <thead><tr><th style="width:250px">改动</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>验收器产出正式报告 <span class="mono">ACCEPTANCE-REPORT.{md,json,html}</span>，而不是只印几行日志</td>
+        <td>验收结论要能给第三方复核。<b>报告是产物，日志是过程</b> —— 产物需要能被引用、被归档、被逐条追溯</td>
+      </tr>
+      <tr>
+        <td>检查项里凡涉及点数的，<b>从真相源派生</b>（<span class="mono">EMS_POINT_COUNT</span>），不手抄数字</td>
+        <td>点表从 32 扩到 40 时，手抄的「32 点表自检」标题没跟着变，而证据行已经是 40 —— 让它<b>结构上不可能过期</b>，比每次记得改更可靠</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>2.3 新增 <code>13/</code>：Modbus TCP 设备接入（09-20 新模块）</h3>
+  <p>现场设备（BMS / PCS / 电表）走 Modbus TCP。这一层的关键词是「<b>跨语言</b>」：设备侧模拟器是 Python（pymodbus），EMS 侧是 C++。</p>
+  <table>
+    <thead><tr><th style="width:250px">改动</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>测试分三层：协议层 <span class="mono">T01~T15</span>（223）/ 适配器契约 <span class="mono">T21~T30</span>（133）/ 跨语言对账 <span class="mono">T40~T47</span>（83，需 Python）</td>
+        <td>三层各自能独立失败，才能一眼看出「是协议写错了、还是适配器接错了、还是两边理解不一致」</td>
+      </tr>
+      <tr>
+        <td>必须有<b>外部对端</b>（真 pymodbus），不能只用自己写的 Python 模拟器</td>
+        <td><b>自己写两端 = 自己和自己对答案</b>，双方同时理解错也能「对得上」。用第三方库当对端，才有独立参照</td>
+      </tr>
+      <tr>
+        <td>环境缺失时 SKIP 而非 FAIL，但必须<b>显式宣布自己 SKIP 了</b>（总是打印 <span class="mono">SKIPPED=n</span>）</td>
+        <td>原来只在 skip 时才打印，于是「跑了」在日志里<b>没有正面证据</b>，和「没跑 / grep 写错 / 日志被截断」无法区分。<b>把「没验」写成「验过」是这一行最危险的失败方式</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>2.4 A3 缺口：外部设定（调度遥调）落进安全链</h3>
+  <p>分两步：<b>A3.1 通路</b>（能落到地方）→ <b>A3.2 语义</b>（落到地方之后，安全引擎怎么用）。</p>
+  <table>
+    <thead><tr><th style="width:250px">改动</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>A3.1：点表 32 → 40 点，<b>纯追加</b>，新增 EXT 点区（8 点）+ 网关落点 + 接口 <span class="mono">IExtSetpointSink</span></td>
+        <td>而点表索引就是运行时坐标 → 插入点会让所有已有点的地址平移，等于全系统错位。<b>只能追加在末尾</b></td>
+      </tr>
+      <tr>
+        <td>接口只提供<b>六个具名 setter</b>，没有「按索引写 / 按点名写 / 批量写」入口</td>
+        <td>把边界写进类型里：网关想写 <span class="mono">CMD.*</span> 不是「不允许」，而是<b>写不出来</b>。运行期白名单校验此前已失手两次，编译期约束更硬</td>
+      </tr>
+      <tr>
+        <td>一区一个 <span class="mono">SEQ</span> + 一个 <span class="mono">TS</span>，发布时<b>序号前后各递增一次</b></td>
+        <td>共享内存只保证「单点不撕裂」，而「上界+下界+设定」是一组要同时生效的量。<b>中间态可能比两端都宽</b>（新的上界配旧的下界）—— 只递增一次挡不住「读的过程中正在变」</td>
+      </tr>
+      <tr>
+        <td>失效兜底做<b>两条正交判据</b>：网关断开时清空（快路径）+ EMS 侧看时标是否过期（兜底）</td>
+        <td>网关进程被强杀时「清空」这段代码根本不会跑 → 最后一条设定会永远生效。<b>兜底不能只靠写者还活着</b></td>
+      </tr>
+      <tr>
+        <td>A3.2：接进安全引擎，成为<b>第 10 条约束</b>，位置在「9 条收敛之后、区间矛盾检查之前」</td>
+        <td>外部设定只会收紧区间，但<b>收紧本身可能制造矛盾</b>（调度限放 50 kW，而本地防逆流要求放电 ≥100 kW）。放在矛盾检查之后，这个矛盾就会被漏判成「正常」</td>
+      </tr>
+      <tr>
+        <td>A3.2：拍板「<b>停机/闭锁 stale 后粘住，功率设定不生效</b>」</td>
+        <td>安全不对称：<b>丢「停机」会丢安全，粘「停机」只丢钱</b>。调度让停机的理由本地看不到，网关失联后自动复机可能违背安全意图；而粘住只是停在 [0,0]（少赚钱、零风险）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>2.5 转发表外置 CSV</h3>
+  <table>
+    <thead><tr><th style="width:250px">改动</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>IEC104 的 CA/IOA 映射从编译进程序改成可加载 <span class="mono">--point-map &lt;file&gt;</span>，失败自动回退内置默认表</td>
+        <td>转发表是每个现场不同的。让现场为了改一个 IOA 去重编 C++ 不可接受 —— 现场没有编译环境，改完还得过一遍测试</td>
+      </tr>
+      <tr>
+        <td>加载后走<b>和内置表完全同一套自检规则</b>；任一条不过就整体回退，<b>绝不「加载一半就开始跑」</b></td>
+        <td>外置表如果不校验，它就变成了新的错误来源；「一半生效」比「整体不生效」难排查得多</td>
+      </tr>
+      <tr>
+        <td>随程序提供样例 CSV，与内置默认表<b>互为镜像</b>（测试逐字段对账）</td>
+        <td>样例文件和编译进去的兜底如果不一样，现场按样例改就会踩坑。对账让「谁改了一边」立刻露馅</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>2.6 顺手清扫（三遍）</h3>
+  <ul>
+    <li><b>第一遍</b>：点表扩容后 <span class="mono">grep "32 点"</span> → 抓到 2 处会印进正式报告/联调报告的过期标题。</li>
+    <li><b>第二遍</b>：全仓审计 <span class="mono">30/27/29/32 点</span> 共 115 处 / 22 文件 → <b>真过期只有 27 处</b>，其余指的是别的表（<code>13/</code> 的「32」是设备侧绑定数、<code>P3/</code> 的「30」是映射表子集）。</li>
+    <li><b>第三遍</b>：全项目复核 13 张「未做/遗留」清单 → 8 处过期（含一条已交付的缺口仍挂在「未做」栏）。</li>
+  </ul>
+  <div class="note warn">
+    <b>关键教训：清扫前必须先分类，不能全局替换。</b>
+    本项目里同一个「32 点」有两种含义 —— 无脑替换会把 A 文件改对、把 B 文件改错。
+    另外修法优先<b>改结构</b>（改成派生、或干脆去掉硬数字写成「全点表」），只改数值等于下次一定重犯。
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">三</span>测试体系：这两天搭起来的五层结构</h2>
+  <p>这两天最重要的结构性变化，是测试从「一层」变成「五层」——<b>每一层专门覆盖上一层覆盖不了的东西</b>。</p>
+
+  <div class="stack">
+    <div class="lay hi">
+      <div class="lname">① 单元测试</div>
+      <div class="ldesc">每个模块自己的 <span class="mono">tests/</span>，纯逻辑、确定性、秒级。04/05/06/07/08/09/10/P1/P2 共 <b>13 个测试可执行文件</b></div>
+      <div class="lnum">~7900 断言</div>
+    </div>
+    <div class="lay">
+      <div class="lname">② 跨进程集成</div>
+      <div class="ldesc"><code>11/</code>：真进程 × 3，经共享内存交互。<b>夹具替不了的那一段</b>（跨内存边界 + 并发）</div>
+      <div class="lnum">152</div>
+    </div>
+    <div class="lay">
+      <div class="lname">③ 跨内存边界落点</div>
+      <div class="ldesc"><code>P3/</code> T73~T76：<b>不注入任何东西</b>，写走真实写者、读走真实 API，并按名字反查索引对账</div>
+      <div class="lnum">121</div>
+    </div>
+    <div class="lay">
+      <div class="lname">④ 跨语言对账</div>
+      <div class="ldesc"><code>13/</code> T40~T47：C++ 侧 ↔ Python/pymodbus 真对端，双向命令与量测逐拍对账</div>
+      <div class="lnum">83</div>
+    </div>
+    <div class="lay hi">
+      <div class="lname">⑤ 端到端 + 验收</div>
+      <div class="ldesc"><code>P3/</code> 双侧证据实测、<code>A3</code> 五进程闭环、<code>12/</code> 七维度 55 项交付门禁</div>
+      <div class="lnum">55 / 55</div>
+    </div>
+  </div>
+
+  <div class="note ok">
+    <b>为什么非要分五层、还要有一个「不注入任何东西」的测试？</b>
+    因为吃过亏：跨内存边界 + 测试夹具替我做 = <b>测试盲区</b> —— 所有断言都绿，但真实链路是断的。
+    现在 <code>P3/tests/test_ext_rtdb.cpp</code> 专门做「走真段、真写者、真 API、按名字反查」的那一遍。
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">四</span>测试工作量：这两天新增／改写了什么</h2>
+
+  <table>
+    <thead>
+      <tr><th style="width:190px">测试文件</th><th style="width:150px">用例</th><th class="n" style="width:92px">断言变化</th><th>新增/改写的关键内容</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>11/tests/test_system_integration.cpp</code></td>
+        <td class="mono">T41~T49</td>
+        <td class="n">133 → <b>152</b></td>
+        <td>T41~T45 跨进程量测/指令/角色边界；<b>T47 并发四层判据（重写）</b>；<b>「设备侧不碰 EXT 区」断言（+1）</b></td>
+      </tr>
+      <tr>
+        <td><code>12/tests/test_acceptance.cpp</code></td>
+        <td class="mono">T51~T59</td>
+        <td class="n">114</td>
+        <td>验收器自身的自测：七维度检查项、报告生成、<b>验收结论 55/55</b></td>
+      </tr>
+      <tr>
+        <td><code>P3/tests/test_iec104.cpp</code></td>
+        <td class="mono">T61~T72, T77</td>
+        <td class="n">168 → <b>408</b></td>
+        <td>协议层（真实 TCP/报文/时序）；<b>T69~T72 EXT 点区契约、六个下发口穷举、失效兜底、仅收紧语义</b>；<b>T77 转发表 CSV 加载（+28）</b></td>
+      </tr>
+      <tr>
+        <td><code>P3/tests/test_ext_rtdb.cpp</code></td>
+        <td class="mono">T73~T76</td>
+        <td class="n">— → <b>121</b></td>
+        <td><b>跨共享内存边界、不注入任何东西</b>：落点 / 发布协议 / 失效兜底 / <b>并发半更新快照</b>（带覆盖率守卫）</td>
+      </tr>
+      <tr>
+        <td><code>13/tests/test_modbus_tcp.cpp</code></td>
+        <td class="mono">T01~T15</td>
+        <td class="n">— → <b>223</b></td>
+        <td>Modbus 协议层：功能码 / 异常码 / 分块 / 边界</td>
+      </tr>
+      <tr>
+        <td><code>13/tests/test_modbus_device_io.cpp</code></td>
+        <td class="mono">T21~T30</td>
+        <td class="n">— → <b>133</b></td>
+        <td>适配器契约：三次请求语义、超时 ≠ 暂时无数据、超范围钳位</td>
+      </tr>
+      <tr>
+        <td><code>13/tests/test_modbus_bridge.cpp</code></td>
+        <td class="mono">T40~T47</td>
+        <td class="n">— → <b>83</b></td>
+        <td><b>跨语言对账</b>：模型跟踪指令、BMS 禁充放位、从站不可达快速失败（离线端口 <b>304 ms</b>）</td>
+      </tr>
+      <tr>
+        <td><code>05/tests/test_safety_engine.cpp</code></td>
+        <td class="mono">T07</td>
+        <td class="n">68 → <b>94</b></td>
+        <td><b>外部设定第 10 条约束</b>：无设定 / 新鲜停机 / 新鲜闭锁 / 新鲜限功率 / <b>stale 停机粘住</b> / stale 功率不生效 / <b>收紧制造矛盾 → 降额</b></td>
+      </tr>
+      <tr>
+        <td><code>07/tests/test_rtdb_device_io.cpp</code></td>
+        <td class="mono">T25 等</td>
+        <td class="n">546 → <b>554</b></td>
+        <td>逐点循环随点表扩容自动多跑 8 次（32 → 40 点）</td>
+      </tr>
+      <tr>
+        <td>其余 10 个测试文件</td>
+        <td class="mono">—</td>
+        <td class="n">逐位不变</td>
+        <td>04=65 / 06=34 / 07 P0=81 / 07 loop=6050 / 08=444 / 09=77 / 10=144 / P1=171 / P2=434 / 12=114</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <b>「逐位不变」也是本轮要验证的东西。</b>
+    这几步改动都是<b>追加式</b>（新增可选参数、默认行为不变）。所以除了有意增加断言的那几个文件，
+    其余模块的断言数必须<b>一个字都不差</b> —— 数字变了就说明我不止改了该改的地方。
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">五</span>测试结果：基线演进与逐项复核</h2>
+
+  <h3>5.1 断言基线演进</h3>
+  <div class="chain">
+    <span class="step">8085<p style="margin:1px 0 0;font-size:11.5px;color:var(--faint)">09-19 起点</p></span>
+    <span class="ar">→</span>
+    <span class="step">8331<p style="margin:1px 0 0;font-size:11.5px;color:var(--faint)">+11/ +12/</p></span>
+    <span class="ar">→</span>
+    <span class="step">8498<p style="margin:1px 0 0;font-size:11.5px;color:var(--faint)">T47 判据修正</p></span>
+    <span class="ar">→</span>
+    <span class="step">8523 / 8547<p style="margin:1px 0 0;font-size:11.5px;color:var(--faint)">A1 / A2</p></span>
+    <span class="ar">→</span>
+    <span class="step">8906 / 8984<p style="margin:1px 0 0;font-size:11.5px;color:var(--faint)">09-20 新模块 13/</p></span>
+    <span class="ar">→</span>
+    <span class="step">9245 / 9323<p style="margin:1px 0 0;font-size:11.5px;color:var(--faint)">A3.1</p></span>
+    <span class="ar">→</span>
+    <span class="step">9276 / 9354<p style="margin:1px 0 0;font-size:11.5px;color:var(--faint)">A3.2</p></span>
+    <span class="ar">→</span>
+    <span class="step now">9304 / 9382<p style="margin:1px 0 0;font-size:11.5px;color:var(--accent)">转发表 CSV（现状）</p></span>
+  </div>
+  <p class="sub">左值 = 本机默认口径（跨语言层缺环境 SKIP 7 条）；右值 = 装 <span class="mono">pymodbus</span> 后。两天净增 <b>+1219 断言（默认口径）</b>。</p>
+
+  <h3>5.2 逐项复核（本次汇报前实测）</h3>
+  <p>为了给出可核对的数字，把 19 个测试目标逐个本地跑了一遍：</p>
+  <table>
+    <thead>
+      <tr><th style="width:150px">模块</th><th style="width:190px">测试目标</th><th class="n" style="width:110px">实测</th><th class="n" style="width:110px">基线记录</th><th class="c" style="width:64px">一致</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>04 策略管理层</td><td class="mono">test_arbiter.exe</td><td class="n">65 / 0</td><td class="n">65</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>05 安全约束引擎</td><td class="mono">test_safety_engine.exe</td><td class="n">94 / 0</td><td class="n">94</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>06 EMS 状态机</td><td class="mono">test_state_machine.exe</td><td class="n">34 / 0</td><td class="n">34</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>07 设备 I/O 抽象</td><td class="mono">test_device_io.exe</td><td class="n">81 / 0</td><td class="n">81</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>07 实时数据库</td><td class="mono">test_rtdb_device_io.exe</td><td class="n">554 / 0</td><td class="n">554</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>07 实时控制闭环</td><td class="mono">test_realtime_loop.exe</td><td class="n">6050 / 0</td><td class="n">6050</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>08 优化调度协同</td><td class="mono">test_dispatch_coordinator.exe</td><td class="n">444 / 0</td><td class="n">444</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>09 多策略组合</td><td class="mono">test_multi_strategy.exe</td><td class="n">77 / 0</td><td class="n">77</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>10 24h 离线仿真</td><td class="mono">test_sim_24h.exe</td><td class="n">144 / 0</td><td class="n">144</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>P1 配置化</td><td class="mono">test_config.exe</td><td class="n">171 / 0</td><td class="n">171</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>P2 可观测性</td><td class="mono">test_observe.exe</td><td class="n">434 / 0</td><td class="n">434</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>11 跨进程联调</td><td class="mono">test_system_integration.exe</td><td class="n">152 / 0</td><td class="n">152</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>12 验收自测</td><td class="mono">test_acceptance.exe</td><td class="n">114 / 0</td><td class="n">114</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>12 交付门禁</td><td class="mono">acceptance.exe --root ..</td><td class="n">55 / 55</td><td class="n">55 / 55</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>P3 协议层</td><td class="mono">test_iec104.exe</td><td class="n">408 / 0</td><td class="n">408</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>P3 落点层</td><td class="mono">test_ext_rtdb.exe</td><td class="n">121 / 0</td><td class="n">121</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>13 协议层</td><td class="mono">test_modbus_tcp.exe</td><td class="n">223 / 0</td><td class="n">223</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>13 适配器契约</td><td class="mono">test_modbus_device_io.exe</td><td class="n">133 / 0</td><td class="n">133</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+      <tr><td>13 跨语言桥接</td><td class="mono">test_modbus_bridge.exe</td><td class="n">5 / 0<br><span style="font-size:11.5px;color:var(--warn)">SKIPPED=7</span></td><td class="n">5（默认口径）</td><td class="c"><span class="tag t-ok">✓</span></td></tr>
+    </tbody>
+    <tfoot>
+      <tr><td colspan="2">加总（默认口径，18 项有计数的测试）</td><td class="n">9304</td><td class="n">9304</td><td class="c"><span class="tag t-ok">闭合</span></td></tr>
+    </tfoot>
+  </table>
+
+  <div class="note ok">
+    <b>结论：19 个测试目标逐项实测，全部与基线逐位一致；9304 的加总闭合。</b><br>
+    装 <span class="mono">pymodbus</span> 后跨语言层 7 条 SKIP 变成实跑（13/ 贡献 5 → 83），全量为 <b>9382</b>。
+    两种口径的判据是 <span class="mono">grep "SKIPPED=0|SKIPPED=7"</span> —— <b>报告里必须写清用哪个口径</b>。
+  </div>
+
+  <h3>5.3 复核时新发现：从根目录跑测试会「假红」</h3>
+  <p>
+    复核中先是在仓库根目录直接跑 <span class="mono">P1/build/test_config.exe</span> 和
+    <span class="mono">10/build/test_sim_24h.exe</span>，分别报 <b>165/6</b> 与 <b>126/12</b> 失败。
+    换到<b>模块目录下</b>再跑，立刻变成 <b>171/0</b> 与 <b>144/0</b>。
+  </p>
+  <p>
+    根因是这些用例读写<b>相对路径</b>的产物（配置 JSON、导出文件），工作目录变了，读写地址就变了。
+    值得记一笔的是它的失败形态：<span class="mono">|读回值 − 写入值| = 5.5 &gt; 1e-12（2 vs 7.5）</span> ——
+    <b>看起来像一个真实的产品缺陷</b>（写入 7.5 读回 2，像是回退到了默认值），
+    很容易被当成回归去查代码。<b>「假红」和「假绿」一样危险，只是方向相反。</b>
+  </p>
+  <div class="note warn">
+    <b>纪律（本轮新增）：</b>单独跑测试可执行文件<b>必须在对应模块目录下</b>执行（与 <span class="mono">build_all.bat</span> 的行为一致）；
+    从仓库根目录跑出来的失败，先怀疑工作目录，再怀疑代码。
+  </div>
+
+  <h3>5.4 本轮验证方式说明（诚实交代）</h3>
+  <ul>
+    <li>本机 <span class="mono">cmd.exe</span> 被安全策略禁止调用，<b>无法直接执行官方的 <span class="mono">scripts\build_all.bat</span></b>。</li>
+    <li>因此本轮采用：<b>逐条照抄 <span class="mono">.bat</span> 里的 gcc/g++ 命令行重编关键目标</b> + <b>运行现有测试可执行文件逐项复核</b>（上表）。</li>
+    <li>副作用：仓库根的 <span class="mono">build_all.log</span> 还停在 09-20 13:35 的旧口径（P3=168 / 13=221），<b>需要在能跑 <span class="mono">.bat</span> 的环境里重新跑一次刷新</b>。已列入下节遗留项。</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">六</span>测试抓到了什么：三类问题</h2>
+
+  <h3>6.1 产品缺陷（测试真的拦住了）</h3>
+  <table>
+    <thead><tr><th style="width:52px" class="c">序</th><th style="width:300px">缺陷</th><th>为什么危险 / 怎么发现</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="c">1</td>
+        <td><b>发布协议缺「写之前也递增序号」</b><br><span class="sub">EXT 点区</span></td>
+        <td>共享内存单点不撕裂，但一组量会读到「新的上界 + 旧的下界」，<b>中间态可能比两端都宽</b>。单点写入看不出问题；只有一次写 6 个点的清空操作才暴露。<b>末次递增只挡「读完之后才变」，挡不住「读的过程中在变」</b></td>
+      </tr>
+      <tr>
+        <td class="c">2</td>
+        <td><b><span class="mono">.o</span> 缓存只判「存在」不判「源文件更新」</b></td>
+        <td>点表从 32 扩到 40 后，某个目录里的点表对象文件还是<b>前一天</b>编的 32 点版本，而别的目录里同名对象是新的 —— <b>同名点表、两套内容</b>，编译期一个字都不说。根因是手写的 make 判断：改的是 <span class="mono">.h</span>，编的是 <span class="mono">.c</span>，判断的却是 <span class="mono">.o</span> 在不在</td>
+      </tr>
+      <tr>
+        <td class="c">3</td>
+        <td><b>「一个检查项自己和自己矛盾」</b><br><span class="sub">正式验收报告</span></td>
+        <td>标题写「<b>32</b> 点表自检」，证据行是按真相源派生的「点数=<b>40</b>」。<b>断言不会红，因为技术上它是对的</b> —— 错的是文案，而文案会跟着报告交到客户手里</td>
+      </tr>
+      <tr>
+        <td class="c">4</td>
+        <td><b>SKIP 了却仍印「三层测试全部通过」</b><br><span class="sub">13/ 跨语言层</span></td>
+        <td>最外层结论行是假的 —— 把「没验」写成了「验过」。这是静默失败的教科书形态：<b>不报错、退出码 0、结论行还是正面的</b></td>
+      </tr>
+      <tr>
+        <td class="c">5</td>
+        <td><b>心跳行永远印 <span class="mono">T+0s</span></b></td>
+        <td>换算单位写错。修法不是改个除数，而是把换算抽成<b>可被断言覆盖的纯函数</b> —— 不可断言的计算，改多少次都可能再错</td>
+      </tr>
+      <tr>
+        <td class="c">6</td>
+        <td><b>禁用位、禁充放位通路级失效</b><br><span class="sub">A1 / A2 缺口</span></td>
+        <td>BMS 的禁充/禁放位没有接进安全链；关口功率口径不一致。都是「看起来在跑、实际没生效」那一类</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="sub">另有 <code>13/</code> 模块内 6 个、<code>P3/</code> 6 个静默出错类缺陷（协议细节、点表、容量边界），详见 <span class="mono">CHANGES.md</span> §27 / §11。</p>
+
+  <h3>6.2 测试自己出错：假绿与假红（这一类最值得记）</h3>
+  <table>
+    <thead><tr><th style="width:52px" class="c">序</th><th style="width:290px">问题</th><th>教训</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="c">1</td>
+        <td><b>T47 断言 <span class="mono">stale == 0</span></b><br>全量构建下红了一次（降级=22 / 106 万次读），<b>同一二进制单跑恒为 0</b></td>
+        <td>这条判据测的是「<b>机器闲不闲</b>」，不是「代码对不对」。<span class="mono">stale</span> 的语义是「保留上次有效值 + 品质置不可信」，属<b>设计内降级</b>。→ 改成四层判据（碰撞&gt;0 / 降级&lt;碰撞 / 量级 / 硬判据），并<b>刻意不调大重试次数</b> —— 那只是把假红推远</td>
+      </tr>
+      <tr>
+        <td class="c">2</td>
+        <td><b>并发用例「空跑」</b><br>300 次快照<b>一次都没被对账过</b>，看着「零违规」，实际什么都没检查</td>
+        <td>写者「先提交再记账」，而读者能拿到稳定窗口的时刻恰好就在记账之前。<b>「没报违规」与「查过之后没违规」是两件事</b> → 改成按公式预推期望值 + <b>覆盖率守卫</b>（已对账数 == 可用数，本次实测 300/300）</td>
+      </tr>
+      <tr>
+        <td class="c">3</td>
+        <td><b>断言适用范围写错</b><br>断言「±1e9 哨兵对<b>任意</b>区间都是恒等元」，用 ±1e30 当初始区间 → 2 条红</td>
+        <td>真相是 1e9 确实会裁剪 ±1e30 的区间。<b>不要为了消红去调大魔数</b> → 改成「对量级正常的区间是恒等元」，并把前提本身也断言下来</td>
+      </tr>
+      <tr>
+        <td class="c">4</td>
+        <td><b>覆盖率不足的循环</b><br>T76 的遍历误把序号/时标点也算进载荷点，实际只覆盖了 6 个点</td>
+        <td>断言数看着对，覆盖面悄悄缩水。<b>并发/覆盖型用例必须自带守卫</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>6.3 过期产物（不会变红的那一类）</h3>
+  <ul>
+    <li>正式验收报告 / 联调报告里的过期点数标题（已在第二遍清扫中改为派生或去数字）。</li>
+    <li><code>13/docs/README.md</code> §8.1 把<b>已交付</b>的缺口仍挂在「未做」栏；<code>P3/docs/README.md</code> §8 同款。</li>
+    <li>仓库根 <span class="mono">build_all.log</span> 仍是旧口径（本轮受限于环境无法刷新，见 5.4）。</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">七</span>判据反证：8 次「故意改坏」</h2>
+  <p>
+    测试全绿不等于测试有效。<b>如果正确写法和错误写法跑出来一模一样，那这条断言就是「修了个寂寞」</b> ——
+    所以每加一批判据，都当场把实现故意改坏，确认它真的会红，再改回来。
+  </p>
+  <table>
+    <thead><tr><th style="width:52px" class="c">序</th><th style="width:270px">故意改坏的地方</th><th style="width:120px" class="c">预期</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr><td class="c">1</td><td>跨语言：Python 侧去掉电表偏差项</td><td class="c">应报错</td><td><b>3 条红</b>（<span class="mono">p_grid=232 vs 272</span>）</td></tr>
+      <tr><td class="c">2</td><td>跨语言：Python 点表寄存器地址 6 → 7</td><td class="c">应报错</td><td><b>3 条红</b>，且定位到具体行、并排打两侧</td></tr>
+      <tr><td class="c">3</td><td>跨语言：<span class="mono">read_command</span> 恒返回空</td><td class="c">应报错</td><td><b>4 条红</b>（T43 三条 + T44 一条）</td></tr>
+      <tr><td class="c">4</td><td>交换模拟器的 DI ↔ IR 表</td><td class="c">—</td><td>构造时直接拒绝 → <b>证明「非缺陷」，我原先的注释写错了</b></td></tr>
+      <tr><td class="c">5</td><td>交换模拟器的 CO ↔ DI 表</td><td class="c">—</td><td>仍 83/0 → 同上，<b>按实测改正注释</b></td></tr>
+      <tr><td class="c">6</td><td>EXT 读侧去掉「序号必须为偶数」判据</td><td class="c">应报错</td><td><b>3 条红</b>，红的正是「接受了半更新快照」</td></tr>
+      <tr><td class="c">7</td><td>把「写前递增序号」挪到载荷写入<b>之后</b>（序号算术完全不变）</td><td class="c">应报错</td><td><b>2 次违规</b>：<span class="mono">seq=66058 读到 (-16610.0, 49627.0)，该序号应为 (-16609.0, 49627.0)</span> —— 形态正是「新下界配旧序号」</td></tr>
+      <tr><td class="c">8</td><td>转发表：把「已加载 CSV 则用覆盖表」分支改成恒假</td><td class="c">应报错</td><td><b>1 条红</b>（407/1），恢复后全绿</td></tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <b>反证 4、5 的价值不在「测试有效」，而在「证明我写错了」。</b>
+    原以为「两端表顺序写反只能靠跨语言对账抓」，实测发现模拟器构造时就会拒绝 —— 注释是错的，判据是多余的。
+    <b>「注释声称的行为必须与代码实际行为一致」</b>，这是这两天反复出现的一条。
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">八</span>端到端实测（两层证据）</h2>
+
+  <h3>8.1 A3 全链路：五进程闭环 600 拍</h3>
+  <div class="flow">
+    <div class="node"><div class="nm">初始化器</div><div class="nd">建立并持有共享内存段</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="nm">设备侧</div><div class="nd">按拍发布 MEAS/STA/CFG</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="nm">IEC104 网关</div><div class="nd"><span class="mono">--ext-rt-db</span><br>接收调度遥控遥调 → 写 EXT 区</div></div>
+    <div class="arrow">←</div>
+    <div class="node"><div class="nm">主站模拟器</div><div class="nd"><span class="mono">--set 6001 120.5</span><br><span class="mono">--cmd 5001 0</span>（停机）</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="nm">EMS 侧</div><div class="nd">读 EXT 区 → 安全引擎收窄</div></div>
+  </div>
+  <table>
+    <thead><tr><th style="width:210px">证据位置</th><th>实测结果</th></tr></thead>
+    <tbody>
+      <tr><td>读侧探针（段内真值）</td><td class="mono">present=1 seq=4，p_setpoint=120.500，pcs_onoff=0，narrow([-200,200]) = [0,0]</td></tr>
+      <tr><td>EMS 进程（联调检查项）</td><td><span class="tag t-ok">PASS</span> <span class="mono">外部设定 · EXT 停机/闭锁收成 [0,0] — ext_active=600 / [0,0]拍=600</span></td></tr>
+      <tr><td>顺带观察到的兜底</td><td>主站断开后网关立刻执行清空（快路径失效兜底生效）</td></tr>
+      <tr><td>3 个 FAIL（预期内，非缺陷）</td><td>停机场景下「设备侧出力非零」必为 0；BMS 禁放两项因刻意移除故障剧本而无窗口 —— <b>反向守卫正确地报了「没发生」</b></td></tr>
+    </tbody>
+  </table>
+
+  <h3>8.2 P3 网关：双侧证据实测</h3>
+  <ul>
+    <li><b>设备在线</b>：全部点品质 <span class="mono">GOOD</span>；<b>设备停止</b>：全部 <span class="mono">NT</span>；坏点标志位 <span class="mono">0x80</span> 共 <b>0 条</b>。</li>
+    <li>跨语言层：离线端口<b>304 ms 快速失败</b>（不挂住）、分块失败 0 / 解码失败 0 / 不可信点 0。</li>
+  </ul>
+
+  <h3>8.3 交付门禁</h3>
+  <p><span class="mono">acceptance.exe --root ..</span> → <b>结论：通过，55 / 55 项通过，0 个维度未全通过</b>，报告已刷新（本次汇报前刚重新生成）。</p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">九</span>这两天沉淀下来的四条测试纪律</h2>
+  <table>
+    <thead><tr><th style="width:230px">纪律</th><th>来自哪里 / 怎么落地</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>① 静默失败是头号敌人</b></td>
+        <td>心跳永远 T+0s、SKIP 了却印「全部通过」、同名点表两套内容 —— 共同点都是<b>不报错、退出码 0</b>。
+            → 允许 SKIP 就必须<b>显式宣布自己 SKIP 了</b>，而且这个信号要一路传到最外层的结论行</td>
+      </tr>
+      <tr>
+        <td><b>② 只有跨边界才照得出来</b></td>
+        <td>跨进程、跨内存段、跨语言。补通路前先自问：<b>这条路上有几步是测试夹具替我做的？</b>
+            跨内存边界 + 夹具注入 = 测试盲区 → 必须有一个走真段、不注入任何东西的测试</td>
+      </tr>
+      <tr>
+        <td><b>③ 判据本身会错，而且错得很安静</b></td>
+        <td>T47 测「机器闲不闲」、并发用例空跑、断言适用范围写错。
+            → 新增判据必须<b>当场反证一次</b>（故意改坏，确认会红），并给覆盖型用例加<b>覆盖率守卫</b></td>
+      </tr>
+      <tr>
+        <td><b>④ 文案/产物声称的行为必须与代码一致</b></td>
+        <td>报告标题说 32、证据说 40；注释说只跳 CMD、代码连 EXT 一起写了。
+            → 会进产物的数字<b>从真相源派生</b>；注释里的数字干脆去掉；每次交付后<b>回头看一遍各模块的「未做」清单</b></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="note warn">
+    <b>「没报违规」≠「查过之后没违规」；<br>「允许的降级」不能用恒零断言；<br>「不修」也是一个决定，但必须留证据。</b>
+    —— 这三句话本轮各被实证了一次。
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">十</span>遗留与风险</h2>
+  <table>
+    <thead><tr><th style="width:56px" class="c">级别</th><th style="width:270px">事项</th><th>说明 / 建议</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="c"><span class="tag t-bad">阻塞</span></td>
+        <td>依赖库 <b>GPL-3.0 授权</b></td>
+        <td>交付前必须处理（替换或取得授权），这是唯一的交付阻塞项</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag t-warn">高</span></td>
+        <td><b>9 策略目前仍是演示实现</b></td>
+        <td><code>04/strategies_9.h</code> 文件自述「演示模式，部署时替换为 01/02/03 真实算法适配器」。
+            真实算法（LP/MILP、安全约束、防逆流/需量/平滑）都做了，但<b>没接进调度链</b>。这是与「能用」距离最大的一项</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag t-warn">高</span></td>
+        <td>现场化参数与数据源：<span class="mono">stale_s</span> 取值<br>、BMS 限值来源、电表漂移与时延、累计量</td>
+        <td><span class="mono">stale_s</span> 现硬编码 30 s，需按现场网关心跳周期确定；BMS 充放限值目前无真实来源；
+            电表目前只有常量偏差，缺漂移与一阶时延；累计电量（BCR）编码未做</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag t-warn">高</span></td>
+        <td><b>刷新 <span class="mono">build_all.log</span></b></td>
+        <td>根目录日志仍是旧口径（见 5.4）。需在能执行 <span class="mono">.bat</span> 的环境里跑一次
+            <span class="mono">scripts\build_all.bat</span>，把 9304/9382 的官方日志补齐</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag t-acc">中</span></td>
+        <td>设备全点表（B2）</td>
+        <td>段里目前只有 EMS 抽象表；现场设备的完整点表尚未建模，是下一项按优先级要做的</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag t-acc">中</span></td>
+        <td>云侧接入、EMS 当主站、指令环形队列</td>
+        <td>B6/B7/B8：机制骨架在，真实链路未接</td>
+      </tr>
+      <tr>
+        <td class="c"><span class="tag t-pur">低</span></td>
+        <td><code>07/</code> L2 需量 1 拍极限环（已知，刻意不修）</td>
+        <td>修它会动 7500+ 断言，当前行为在可接受范围内，已留证据与建议修法</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  <div class="fbox">
+    <b>证据索引（可逐条复核）</b>
+    <ul>
+      <li><span class="mono">CHANGES.md</span> §25 A1 · §26 A2 · §27 B1（13/）· §28 A3.1 · §29~§31 文案与遗留清扫 · §32 A3.2 · §33 转发表 CSV</li>
+      <li><span class="mono">README.md</span>：基线真相源（逐模块明细、口径判据、基线演进链）</li>
+      <li><span class="mono">12/docs/ACCEPTANCE-REPORT.md</span>：七维度验收报告（本次汇报前重新生成）</li>
+      <li><span class="mono">logs/</span>：<span class="mono">build_all_a31_final.log</span>（9245/9323）、<span class="mono">build_all_a32_verify.log</span>（9276/9354）、<span class="mono">build_all_a32_e2e_*.log</span>（端到端）</li>
+      <li>本轮 19 项实测数字：见 §5.2 表（逐项与 <span class="mono">README.md</span> 明细比对一致）</li>
+    </ul>
+    <p style="margin:10px 0 0;color:var(--faint)">
+      报告生成：2026-09-20 · 数字口径以 <span class="mono">README.md</span> 基线块为准；
+      本机默认口径 <b>9304</b>，装 <span class="mono">pymodbus</span> 后 <b>9382</b>。
+    </p>
+  </div>
+</footer>
+
+</div>
+</body>
+</html>

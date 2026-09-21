@@ -1,0 +1,45 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            原理 · 把外部设定接进安全链
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            位置有讲究：9 条约束收敛之后、矛盾检查之前；语义有取舍：停机粘住，功率不生效
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 26, alignItems: 'center' }}>
+        <Box style={{ width: 620 }}>
+            <Image src="assets/safety_chain.png" style={{ width: 620, height: 290 }} />
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 13 }}>
+            <Box style={{ padding: '13px 15px', background: '#EFF6FF', borderRadius: 10, borderLeft: '4px solid #3B82F6' }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>
+                    为什么是这个位置
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    EXT 是「监督命令」，不是设备降额 —— 它不进降额项，也不能绕过本地安全约束。
+                    也不会直接覆盖调度目标，只做单侧收紧。
+                </Text>
+            </Box>
+            <Box style={{ padding: '13px 15px', background: '#FEF2F2', borderRadius: 10, borderLeft: '4px solid #EF4444' }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>
+                    停机 / 闭锁在失联后粘住
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    安全不对称：丢掉"停机"会丢安全（调度要停的理由本地看不到）；多粘一会儿"停机"只丢钱 ——
+                    区间收成 [0, 0] 永远安全。
+                </Text>
+            </Box>
+            <Box style={{ padding: '13px 15px', background: '#F1F5F9', borderRadius: 10 }}>
+                <Text style={{ fontSize: 15, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    失效兜底必须有两条正交判据：网关侧的快路径（主站断开立刻清空）+ EMS 侧不依赖任何进程活着的
+                    时标判据（距上次设定超过阈值即判不可用）。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>11 / 24</Text>
+    </Box>
+</Slide>

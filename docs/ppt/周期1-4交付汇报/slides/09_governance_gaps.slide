@@ -1,0 +1,226 @@
+<Slide padding={0}>
+
+    <Box style={{
+        width: '100%',
+        height: '100%',
+        background: '#FFFFFF',
+        flexDirection: 'column',
+        padding: 0,
+    }}>
+
+        {/* A 区 */}
+        <Box style={{ padding: '20px 60px 0', height: 70 }}>
+            <Box style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <Box>
+                    <Text style={{ fontSize: 16, color: '#EF4444', fontWeight: 'bold', letterSpacing: 2 }}>
+                        审  计 与 治 理 · GAPS
+                    </Text>
+                    <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#1A1A1A', marginTop: 6 }}>
+                        4 周达成率 92%·还差 3 件事要补
+                    </Text>
+                </Box>
+                <Text style={{ fontSize: 14, color: '#94A3B8' }}>P09 / 11</Text>
+            </Box>
+        </Box>
+
+        {/* B 区 */}
+        <Box style={{
+            flex: 1,
+            padding: '8px 60px 0',
+            flexDirection: 'row',
+            gap: 16,
+        }}>
+
+            {/* 左：周期达成率 */}
+            <Box style={{ width: 280, flexDirection: 'column' }}>
+                <Text style={{ fontSize: 14, color: '#64748B', fontWeight: 'bold', letterSpacing: 1.5, marginBottom: 12 }}>
+                    达成率
+                </Text>
+                {[
+                    { name: '第 1 周 · 9 诉求梳理', rate: 90, color: '#3B82F6' },
+                    { name: '第 2 周 · 共同语言', rate: 85, color: '#06B6D4' },
+                    { name: '第 3 周 · 调度台', rate: 100, color: '#22C55E' },
+                    { name: '第 4 周 · 仲裁机制', rate: 95, color: '#EF4444' },
+                ].map((row, idx) => (
+                    <Box key={idx} style={{ marginBottom: 14 }}>
+                        <Box style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                            <Text style={{ fontSize: 13, color: '#1A1A1A', fontWeight: 'bold' }}>{row.name}</Text>
+                            <Box style={{ flex: 1 }} />
+                            <Text style={{
+                                fontSize: 16,
+                                color: row.color,
+                                fontWeight: 'bold',
+                                fontFamily: 'JetBrains Mono, monospace',
+                            }}>{row.rate}%</Text>
+                        </Box>
+                        <Box style={{
+                            width: '100%',
+                            height: 10,
+                            background: '#F1F5F9',
+                            borderRadius: 5,
+                            overflow: 'hidden',
+                        }}>
+                            <Box style={{
+                                width: row.rate + '%',
+                                height: '100%',
+                                background: row.color,
+                                borderRadius: 5,
+                            }} />
+                        </Box>
+                    </Box>
+                ))}
+
+                <Box style={{
+                    marginTop: 6,
+                    padding: '10px 14px',
+                    background: '#F8FAFC',
+                    borderRadius: 8,
+                    border: '1px dashed #CBD5E1',
+                }}>
+                    <Text style={{ fontSize: 12, color: '#64748B', lineHeight: 1.5 }}>
+                        综合达成率 = 4 周达成率的加权平均，反映"设计与实施对齐度"
+                    </Text>
+                </Box>
+
+                <Box style={{
+                    marginTop: 12,
+                    padding: '12px 14px',
+                    background: '#FEF2F2',
+                    borderRadius: 8,
+                }}>
+                    <Text style={{ fontSize: 13, color: '#EF4444', fontWeight: 'bold', letterSpacing: 1.5 }}>
+                        平均 92%
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1A1A1A', marginTop: 6, lineHeight: 1.5 }}>
+                        余下 8% 是 3 处"治理差距"，不是功能未达
+                    </Text>
+                </Box>
+            </Box>
+
+            {/* 右：3 个差距 */}
+            <Box style={{ flex: 1, flexDirection: 'column', gap: 10 }}>
+
+                <Text style={{ fontSize: 14, color: '#64748B', fontWeight: 'bold', letterSpacing: 1.5, marginBottom: 4 }}>
+                    3 处治理差距
+                </Text>
+
+                {/* 差距 1 */}
+                <Box style={{
+                    flex: 1,
+                    padding: '12px 16px',
+                    background: '#FEF2F2',
+                    borderRadius: 10,
+                    borderLeft: '5px solid #EF4444',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                }}>
+                    <Box style={{
+                        width: 48, height: 48, borderRadius: 8,
+                        background: '#EF4444',
+                        alignItems: 'center', justifyContent: 'center',
+                        marginRight: 14,
+                    }}>
+                        <Text style={{ color: '#FFFFFF', fontSize: 22, fontWeight: 'bold', fontFamily: 'JetBrains Mono, monospace' }}>
+                            G1
+                        </Text>
+                    </Box>
+                    <Box style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A' }}>
+                            策略 ID 与字段命名不统一
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 5, lineHeight: 1.5 }}>
+                            设计方案、接口规范、实际代码对"诉求编号"和"功率区间字段"有 3 套编号和命名。后续要建一份 <Text style={{ fontWeight: 'bold' }}>统一编号规范（一份源头对一份）</Text>
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#B91C1C', marginTop: 4, fontWeight: 'bold' }}>
+                            为什么可控：手动对齐 9 次未出错，是因为人脑在弥补
+                        </Text>
+                    </Box>
+                </Box>
+
+                {/* 差距 2 */}
+                <Box style={{
+                    flex: 1,
+                    padding: '12px 16px',
+                    background: '#FFF7ED',
+                    borderRadius: 10,
+                    borderLeft: '5px solid #F97316',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                }}>
+                    <Box style={{
+                        width: 48, height: 48, borderRadius: 8,
+                        background: '#F97316',
+                        alignItems: 'center', justifyContent: 'center',
+                        marginRight: 14,
+                    }}>
+                        <Text style={{ color: '#FFFFFF', fontSize: 22, fontWeight: 'bold', fontFamily: 'JetBrains Mono, monospace' }}>
+                            G2
+                        </Text>
+                    </Box>
+                    <Box style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A' }}>
+                            字段定义还在两种说法
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 5, lineHeight: 1.5 }}>
+                            设计文档叫"目标功率/上限/下限"；实际代码叫"期望功率/上限/下限"。要么把设计改过来、要么把代码改过去，<Text style={{ fontWeight: 'bold' }}>二选一保持一致</Text>
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#9A3412', marginTop: 4, fontWeight: 'bold' }}>
+                            为什么可控：语义一致，仅名字不同——选一个改完即可
+                        </Text>
+                    </Box>
+                </Box>
+
+                {/* 差距 3 */}
+                <Box style={{
+                    flex: 1,
+                    padding: '12px 16px',
+                    background: '#FEF3C7',
+                    borderRadius: 10,
+                    borderLeft: '5px solid #F59E0B',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                }}>
+                    <Box style={{
+                        width: 48, height: 48, borderRadius: 8,
+                        background: '#F59E0B',
+                        alignItems: 'center', justifyContent: 'center',
+                        marginRight: 14,
+                    }}>
+                        <Text style={{ color: '#FFFFFF', fontSize: 22, fontWeight: 'bold', fontFamily: 'JetBrains Mono, monospace' }}>
+                            G3
+                        </Text>
+                    </Box>
+                    <Box style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#1A1A1A' }}>
+                            T07 测试场景与设计意图不一致
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 5, lineHeight: 1.5 }}>
+                            设计说"PCS 上限 200 度"作为限制源，测试用"PCS=200"模拟——意图是测变压器过载，实际压在了 PCS。下个迭代修测试场景
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#92400E', marginTop: 4, fontWeight: 'bold' }}>
+                            为什么可控：测试逻辑没错，只是测的不是设计本意
+                        </Text>
+                    </Box>
+                </Box>
+
+            </Box>
+
+        </Box>
+
+        {/* C 区 */}
+        <Box style={{
+            padding: '0 60px 12px',
+            height: 46,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTop: '1px solid #E2E8F0',
+        }}>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>
+                3 处差距已在审计文档中标出，下一阶段（状态机）启动前补齐
+            </Text>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>09 / 11</Text>
+        </Box>
+
+    </Box>
+</Slide>

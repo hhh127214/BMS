@@ -31,6 +31,10 @@ public:
     // IDeviceIO 实现
     // -----------------------------------------------------------------
     bool read_snapshot(Timestamp now, RealtimeSnapshot& out) override {
+        // 关口功率（p_grid_kw）在仿真里由 PlantModel **内部的电表模型**给出
+        // （`PlantModel::meter_p_grid()`），不是本适配器算的 —— 与 RtDbDeviceIO /
+        // MemoryDeviceIO 读 `MEAS.P_GRID` 是同一件事：**算法只消费电表读数，
+        // 不自己推算**（缺口 A2，2026-09-19）。
         out = plant_.sample(now);
         return plant_.config().data_valid;
     }

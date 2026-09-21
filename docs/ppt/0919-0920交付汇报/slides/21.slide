@@ -1,0 +1,26 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            24h 仿真：关口峰值从 450 kW 压到 400 kW
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            86400 拍控制、日志每 10 拍落一行共 8640 行；青色阴影 = 储能顶上去的那部分功率
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+        <Image src="assets/sim_power.png" style={{ width: 940, height: 508 }} />
+    </Box>
+    <Box style={{ height: 40, display: 'flex', flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+        <Text style={{ fontSize: 15, color: '#EF4444', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            越限 0 次
+        </Text>
+        <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            灰色基准线不是随手画的水平线，而是按真实公式「负荷 − 光伏」重算出来的 ——
+            图里每一条曲线都能追到仿真产物。
+        </Text>
+    </Box>
+    <Box style={{ height: 34, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>21 / 24</Text>
+    </Box>
+</Slide>

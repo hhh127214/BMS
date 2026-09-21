@@ -1,0 +1,23 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: 'linear-gradient(135deg, #EFF6FF 0%, #FFFFFF 52%, #ECFEFF 100%)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+    <Text style={{ fontSize: 128, fontWeight: 'bold', color: '#DBEAFE', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+        04
+    </Text>
+    <Text style={{ fontSize: 72, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.2, marginTop: -18 }}>
+        实测与仿真证据
+    </Text>
+    <Text style={{ fontSize: 22, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.7, marginTop: 18 }}>
+        不是模拟调用：五个真实进程 + 一块真实共享内存跑 600 拍，
+        再加上一次真实 24h 跑批。
+    </Text>
+    <Box style={{ display: 'flex', flexDirection: 'row', gap: 34, marginTop: 26 }}>
+        <Text style={{ fontSize: 17, color: '#06B6D4', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            五进程闭环 600 拍
+        </Text>
+        <Text style={{ fontSize: 17, color: '#06B6D4', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            24h 仿真 8640 拍
+        </Text>
+        <Text style={{ fontSize: 17, color: '#06B6D4', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            验收 55 / 55
+        </Text>
+    </Box>
+</Slide>

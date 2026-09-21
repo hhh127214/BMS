@@ -27,9 +27,9 @@ echo === 编译成功 ===
 echo   build\test_arbiter.exe
 echo   build\strategy_demo.exe
 echo.
-echo 运行单元测试：
+echo 运行单元测试： 
 echo   build\test_arbiter.exe
 echo.
-echo 运行演示程序：
+echo 运行演示程序： 
 echo   build\strategy_demo.exe
 endlocal

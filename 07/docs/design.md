@@ -33,10 +33,11 @@ P_grid ≤ g_max  →  P_bat ≥ (P_load − P_pv) − g_max      （下界）
 电表实时数据 → EMS 算法计算 → 策略仲裁 → 安全约束 → PCS 执行 → 实际功率反馈 → EMS 迭代修正
 ```
 
-`EmsRuntime::step()` 的 11 步实现：
+`EmsRuntime::step()` 的 11 步实现（+ **⓪ 前置限值刷新**，2026-09-19 补）：
 
 | 步 | 动作 |
 | --- | --- |
+| **⓪** | **设备限值刷新**（`refresh_limits_each_step` 为真时）：必须在①之前 —— 本拍的仲裁/安全要用**本拍的**限值。开启条件跟着适配器能力走（`io_->limits_are_live()`），见 `docs/README.md` §8.6 |
 | ① | 采集：`plant_.sample(t_)` 产出**冻结**的 `RealtimeSnapshot`（接口规范 §5 强约束） |
 | ② | 故障检测：`detect_faults()` |
 | ③ | 安全评估：`safety_.evaluate()` → `SafetyVerdict` |

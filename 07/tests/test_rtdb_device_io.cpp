@@ -131,6 +131,12 @@ static void configure_runtime(EmsRuntime& rt) {
     rt.config().dt_s = 0.1;
     rt.config().enable_realtime_correction = true;
     rt.config().l2_correction_max_kw = 100.0;
+    // 关掉运行期限值刷新：本测试比的是**介质等价性**，限值必须是一个固定的
+    // 夹具值。若不关，rt_b（RtDbDeviceIO 是 live 适配器）会每拍从段里刷
+    // CFG.TRANSFORMER_KVA（250），而 rt_a 用下面注入的 800 —— 两路比的
+    // 就不是介质差异了。注意顺序：attach_device() 会按适配器能力自动打开
+    // 刷新，所以这一行必须在它之后。
+    rt.config().refresh_limits_each_step = false;
     // 安全参数必须在 apply_configs() 之前 —— 它内部会把 safety_params_ 推给引擎
     rt.safety_params().grid_p_min_kw = -1e9;   // 隔离并网倒送约束（本测试不测它）
     rt.safety_params().ramp_kw_per_s = 1e9;    // 隔离变化率限制
@@ -161,7 +167,7 @@ static void test_25_point_table_contract(RtdbEnv& env) {
 
     RtDbDeviceIO io(&env.handle);
     EXPECT(io.is_open());
-    EXPECT(io.self_check() == 0);   // 30 点的点名 / 单位 / 索引全部对得上
+    EXPECT(io.self_check() == 0);   // 全点表的点名 / 单位 / 索引全部对得上
 
     // ---- 点名 → 索引：适配器（共享内存）与设备侧（进程内）必须得到同一个索引
     RtDbPointWriter w(&env.handle);
@@ -183,15 +189,37 @@ static void test_25_point_table_contract(RtdbEnv& env) {
     w.write(EMS_P_BAT,   55.0);
     w.write(EMS_SOC,      0.42);
     w.write(EMS_T_C,     31.5);
+    // 关口电表读数 —— **故意写成与三路推算不一致的值**（缺口 A2，2026-09-19）。
+    //
+    // 为什么必须"故意不一致"：改前 read_snapshot() 用 `P_load − P_pv − P_bat` 推算，
+    // 而设备侧发布的 MEAS.P_GRID 恰好等于同一个式子 —— 两个口径**逐位相同**，
+    // 于是"到底读没读电表"在夹具上**不可区分**，断言杀不死旧写法。
+    // 让电表读数偏离推算值，才让这条契约有区分度：
+    //   真读电表 → snap.p_grid_kw == 137（电表口径）
+    //   继续推算 → snap.p_grid_kw == 157（把误差凭空造出来）
+    const double kBalance = 321.0 + 2.0 - 111.0 - 55.0;   // = 157（三路推算，含站用电 2 kW）
+    const double kMeter   = 137.0;                        // 电表读数
+    w.write(EMS_P_GRID, kMeter);
 
     RealtimeSnapshot snap;
     EXPECT(io.read_snapshot(0.0, snap));
     EXPECT_NEAR(snap.p_bat_actual_kw, 55.0, 1e-9);
     EXPECT_NEAR(snap.p_load_kw, 321.0 + 2.0, 1e-9);                 // 站用电 2kW 计入负荷侧
-    EXPECT_NEAR(snap.p_grid_kw, 321.0 + 2.0 - 111.0 - 55.0, 1e-9);  // P_grid = P_load − P_pv − P_bat
+    // 反向守卫：先证明这个夹具**真的**有区分度（两源不同）
+    EXPECT(std::fabs(kBalance - kMeter) > 1e-6);
+    // 关口功率 = **电表读数**（不是 p_load − p_pv − p_bat）
+    EXPECT_NEAR(snap.p_grid_kw, kMeter, 1e-9);
     EXPECT_NEAR(snap.soc, 0.42, 1e-9);
     EXPECT_NEAR(snap.temperature_c, 31.5, 1e-9);
     EXPECT(io.stale_reads() == 0);
+
+    // ---- 同一路数据**只有一个口径**：算法路径（①快照）与记录路径（④actuals）必须相等
+    // 改前这两条路一条走推算、一条读电表 → 报表与动作对不上，现场无法解释。
+    {
+        const DeviceActuals act = io.read_actuals();
+        EXPECT_NEAR(act.p_grid_kw, kMeter, 1e-9);
+        EXPECT_NEAR(act.p_grid_kw, snap.p_grid_kw, 1e-9);
+    }
 
     // ---- EMS 侧下发（CMD）→ 设备侧读指令（跨内存边界，EMS→设备）
     PowerCommand cmd;
@@ -227,8 +255,41 @@ static void test_25_point_table_contract(RtdbEnv& env) {
     EXPECT_NEAR(lim.bms_dis_limit_kw, 140.0, 1e-9);
     EXPECT_NEAR(lim.transformer_capacity_kw, 630.0, 1e-9);
     EXPECT_NEAR(lim.d_target_kw, 500.0, 1e-9);
+    // 默认必须是"允许"：若把点表默认值设成 1（禁止），设备侧尚未上线时
+    // 会直接锁死 [0,0]（冷启动不可用）。这条断言守的是**失效方向**。
     EXPECT(!lim.bms_chg_forbidden && !lim.bms_dis_forbidden);
     EXPECT_NEAR(io.battery_capacity_kwh(), 1000.0, 1e-9);   // CFG.BAT_CAP_KWH 默认值
+
+    // ---- BMS 禁充放位：设备侧写点 → EMS 侧 read_limits()（2026-09-19 补）
+    //
+    // 这两个 bool 是 04/S01(kBmsForbid, **L0 最底层**) 与 05/check_bms_forbid()
+    // 的唯一输入。此前本适配器把它们硬写成 false —— 等于"BMS 永远允许充放"，
+    // 而这条路上"写了也不生效"**没有任何断言守着**（仿真场景直接注入
+    // DeviceLimits，绕开点表，所以三层测试全绿）。
+    // 下面把四个方向都钉住：置位生效 / 两位置互不串扰 / 归零可恢复。
+    w.write(EMS_STA_BMS_DIS_FORBID, 1.0);
+    EXPECT(io.read_limits(lim));
+    EXPECT(lim.bms_dis_forbidden);            // 置 1 → 必须看到
+    EXPECT(!lim.bms_chg_forbidden);           // 只置了禁放，禁充不得被连带
+    w.write(EMS_STA_BMS_DIS_FORBID, 0.0);
+    EXPECT(io.read_limits(lim));
+    EXPECT(!lim.bms_dis_forbidden);           // 归零 → 必须恢复（动态、可恢复）
+
+    w.write(EMS_STA_BMS_CHG_FORBID, 1.0);
+    EXPECT(io.read_limits(lim));
+    EXPECT(lim.bms_chg_forbidden);
+    EXPECT(!lim.bms_dis_forbidden);           // 反向同样不得串扰
+    w.write(EMS_STA_BMS_CHG_FORBID, 0.0);
+    EXPECT(io.read_limits(lim));
+    EXPECT(!lim.bms_chg_forbidden);
+
+    // 两位同时置位（BMS 极端保护：既不充也不放）
+    w.write(EMS_STA_BMS_CHG_FORBID, 1.0);
+    w.write(EMS_STA_BMS_DIS_FORBID, 1.0);
+    EXPECT(io.read_limits(lim));
+    EXPECT(lim.bms_chg_forbidden && lim.bms_dis_forbidden);
+    w.write(EMS_STA_BMS_CHG_FORBID, 0.0);
+    w.write(EMS_STA_BMS_DIS_FORBID, 0.0);
 
     // ---- 质量位：BAD 品质 → 该量测点判为不可信（data_valid=false）
     w.write(EMS_P_PV, 88.0, static_cast<long>(QUALITY_BAD));
@@ -479,6 +540,83 @@ static void test_28_fault_over_shared_memory(RtdbEnv& env) {
 }
 
 // =====================================================================
+// T29 关口功率口径统一（缺口 A2，2026-09-19）
+//
+// 契约：**关口功率只有一个来源 —— 电表读数**。
+//   · 点表类适配器（RtDbDeviceIO / MemoryDeviceIO）→ 读 `MEAS.P_GRID`
+//   · 仿真适配器（SimDeviceIO）→ 由 `PlantModel::meter_p_grid()` 这个电表模型给
+// 算法层（策略 / 安全约束）只**消费**它，**绝不**用 `P_load − P_pv − P_bat`
+// 自己推算 —— 三路相减会把各自的误差**叠加**，而防逆流（S05）与变压器过载
+// 正是拿 p_grid 当命门。
+//
+// 为什么这条要单独测、且夹具必须**故意让两源不一致**：
+//   改前三个适配器都在 read_snapshot() 里推算，而设备侧发布的 MEAS.P_GRID
+//   **恰好等于同一个式子** → 两个口径逐位相同 → "到底读没读电表"不可区分，
+//   断言恒真（测不到东西）。所以夹具里电表读数被刻意写成 ≠ 平衡值。
+//   T25 已覆盖 RtDbDeviceIO；本用例补 MemoryDeviceIO 与 SimDeviceIO。
+// =====================================================================
+static void test_29_grid_single_source() {
+    std::cerr << "[T29] 关口功率单一数据源：电表读数（不是三路推算）...\n";
+    const double kLoad = 300.0, kPv = 100.0;
+    const double kBalance = kLoad - kPv;            // = 200（三路推算）
+    const double kBias    = 40.0;                   // 电表系统偏差
+    const double kMeter   = kBalance + kBias;       // = 240（电表读数）
+
+    // ---- (a) MemoryDeviceIO 作为 EMS 侧适配器：读点表里的电表读数 ----
+    {
+        MemoryDeviceIO io;
+        io.set(mem_point::kPLoad,    kLoad);
+        io.set(mem_point::kPPv,      kPv);
+        io.set(mem_point::kStandby,  0.0);
+        io.set(mem_point::kSoc,      0.5);
+        io.set(mem_point::kSocMin,   0.05);
+        io.set(mem_point::kSocMax,   0.95);
+        io.set(mem_point::kCapKwh,   1000.0);
+        io.set(mem_point::kMaxChg,   200.0);
+        io.set(mem_point::kMaxDis,   200.0);
+        io.set(mem_point::kRampKwS,  300.0);
+        io.set(mem_point::kTauS,     0.5);
+        io.set_meter_bias_kw(kBias);
+
+        io.execute(0.0, 0.1);   // 设备侧推进一拍 → update_grid() 写 MEAS.P_GRID
+        EXPECT_NEAR(io.get(mem_point::kPGrid), kMeter, 1e-9);
+
+        RealtimeSnapshot rt;
+        EXPECT(io.read_snapshot(0.0, rt));
+        EXPECT(std::fabs(kBalance - kMeter) > 1e-6);   // 反向守卫：两源真的不同
+        EXPECT_NEAR(rt.p_grid_kw, kMeter, 1e-9);       // 跟电表，不跟推算
+        EXPECT_NEAR(io.read_actuals().p_grid_kw, rt.p_grid_kw, 1e-9);  // 两路径同口径
+    }
+
+    // ---- (b) SimDeviceIO：电表模型在 PlantModel 内部，p_grid 同样来自电表 ----
+    {
+        PlantConfig pc;
+        pc.pcs_standby_kw = 0.0;
+        pc.noise_kw       = 0.0;
+        pc.soc_init       = 0.5;
+        pc.meter_bias_kw  = kBias;      // 电表系统偏差（默认 0 → 逐位不变）
+
+        SimDeviceIO io(pc);
+        io.set_environment(kLoad, kPv);
+        io.execute(0.0, 0.1);
+
+        RealtimeSnapshot rt;
+        EXPECT(io.read_snapshot(0.0, rt));
+        EXPECT_NEAR(rt.p_grid_kw, kMeter, 1e-9);
+        // 量测路径（①）与真值路径（④）必须同口径
+        EXPECT_NEAR(io.read_actuals().p_grid_kw, rt.p_grid_kw, 1e-9);
+        // 反向守卫：把偏差归零后，读数应恰好回到平衡值（证明上面那 40 是真的走通了）
+        pc.meter_bias_kw = 0.0;
+        SimDeviceIO io0(pc);
+        io0.set_environment(kLoad, kPv);
+        io0.execute(0.0, 0.1);
+        RealtimeSnapshot rt0;
+        EXPECT(io0.read_snapshot(0.0, rt0));
+        EXPECT_NEAR(rt0.p_grid_kw, kBalance, 1e-9);
+    }
+}
+
+// =====================================================================
 int main() {
     std::cerr << "=========================================\n"
               << " 07/ RT_DB 接入：共享内存实时库适配器 单元测试\n"
@@ -495,6 +633,7 @@ int main() {
     test_26_cross_memory_closed_loop(env);
     test_27_two_connections_same_segment(env);
     test_28_fault_over_shared_memory(env);
+    test_29_grid_single_source();
 
     std::cerr << "=========================================\n"
               << " PASS=" << g_pass << "  FAIL=" << g_fail << "\n"

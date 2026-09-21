@@ -27,6 +27,7 @@
 
 #include "data_models.h"
 #include "strategy_base.h"
+#include "ext_setpoints.h"   // A3.2：外部设定（调度遥调）的快照类型 + 收窄函数
 
 #include <algorithm>
 #include <cmath>
@@ -163,6 +164,7 @@ struct SafetyVerdict {
     bool   emergency = false;      // 需要紧急停机
     bool   ramp_active = false;    // 本拍变化率限速生效
     double ramp_limit_kw = 0.0;    // 本拍允许的最大变化幅度（kW）
+    bool   ext_active = false;     // 本拍外部设定（调度遥调）实际收紧了区间（含停机/闭锁粘住）
     std::vector<ConstraintResult> items;   // 全部 9 条约束的评估结果
     std::vector<std::string> binding;      // 真正收紧区间的约束名
     std::string reason;                    // 汇总原因
@@ -210,6 +212,7 @@ public:
     static constexpr const char* kRamp          = "ramp_rate";
     static constexpr const char* kGridConnect   = "grid_connect";
     static constexpr const char* kGridQuality   = "grid_quality";
+    static constexpr const char* kExtSetpoint   = "ext_setpoint";
 
     // -----------------------------------------------------------------
     // 主入口：评估全部约束并收敛区间
@@ -219,12 +222,14 @@ public:
     // grid         电网质量（频率/电压）
     // p_last_cmd   上一拍实际下发的 P_bat（用于变化率约束）
     // dt_s         控制周期
+    // ext          外部设定（调度遥调）。默认空 = 无外部设定（仿真口径，行为与历史逐位一致）
     // -----------------------------------------------------------------
     SafetyVerdict evaluate(const RealtimeSnapshot& rt,
                            const DeviceLimits& dev,
                            const GridQuality& grid,
                            double p_last_cmd_kw,
-                           double dt_s) {
+                           double dt_s,
+                           const ExtSetpoints& ext = ExtSetpoints{}) {
         SafetyVerdict v;
         v.items.reserve(9);
         last_p_cmd_ = p_last_cmd_kw;
@@ -258,6 +263,22 @@ public:
             bool binds_lower = (it.p_lower > -1e17) && (std::fabs(it.p_lower - v.p_lower) < eps);
             bool binds_upper = (it.p_upper <  1e17) && (std::fabs(it.p_upper - v.p_upper) < eps);
             if (binds_lower || binds_upper) v.binding.push_back(it.name);
+        }
+
+        // ---- 第 10 条约束：外部设定（调度遥调），相对已收敛区间**只收紧、不放宽** ----
+        // 放在 9 条本地约束收敛之后、矛盾检查之前：
+        //   ① 它只能 min/max，收紧后可能制造区间矛盾（如调度限放 50 kW 而本地
+        //      防逆流要求放电 ≥100 kW），矛盾必须由下面的矛盾兜底统一处理
+        //      （矛盾 = DERATED，不是 EMERGENCY —— 本项目纪律）；
+        //   ② 它**不**推进 items / l0 / derate / emergency 标志 —— 调度停机/限功率
+        //      是"监督层命令"，不是"设备降额 / 硬安全动作"。trace 里用 binding 标记。
+        {
+            const double lo0 = v.p_lower, hi0 = v.p_upper;
+            narrow_interval_by_ext(ext, &v.p_lower, &v.p_upper);
+            if (v.p_lower > lo0 + 1e-12 || v.p_upper < hi0 - 1e-12) {
+                v.ext_active = true;
+                v.binding.push_back(kExtSetpoint);
+            }
         }
 
         // ---- L0 动作 / 降额 / 紧急 ----

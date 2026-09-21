@@ -452,6 +452,106 @@ static void test_06_grid_measurement_filter() {
 
 
 // =====================================================================
+// T07: 第 10 条约束 —— 外部设定（调度遥调）：方向感知单侧收紧 + 停机/闭锁粘住
+// =====================================================================
+static void test_07_ext_setpoint_constraint() {
+    std::cerr << "[T07] 外部设定（第 10 条约束）...\n";
+    SafetyParams p;
+    p.ramp_kw_per_s = 1e9;   // 关变化率，避免后置限速干扰区间断言
+
+    DeviceLimits dev = dev_basic();
+    GridQuality grid;
+
+    auto mk_ext = [](double setpoint, double us, double ls,
+                     bool onoff = true, bool enable = true,
+                     bool stale = false) {
+        ExtSetpoints e;
+        e.present = true; e.consistent = true; e.finite = true; e.band_ok = (ls <= us);
+        e.p_setpoint = setpoint; e.p_upper_set = us; e.p_lower_set = ls;
+        e.pcs_onoff = onoff; e.ems_enable = enable;
+        e.stale = stale;
+        return e;
+    };
+
+    // ① 无外部设定（默认参数）→ 区间 = 设备上下限，ext_active=false
+    {
+        SafetyEngine eng(p);
+        auto v = eng.evaluate(rt_basic(), dev, grid, 0.0, 0.1);
+        EXPECT_NEAR(v.p_lower, -200.0, 1e-6);
+        EXPECT_NEAR(v.p_upper,  200.0, 1e-6);
+        EXPECT(!v.ext_active);
+    }
+
+    // ② 新鲜停机（5001）→ [0,0]，ext_active，binding 含 ext_setpoint，但**不** derated
+    {
+        SafetyEngine eng(p);
+        auto v = eng.evaluate(rt_basic(), dev, grid, 0.0, 0.1,
+                              mk_ext(0.0, 1e9, -1e9, /*onoff=*/false));
+        EXPECT_NEAR(v.p_lower, 0.0, 1e-9);
+        EXPECT_NEAR(v.p_upper, 0.0, 1e-9);
+        EXPECT(v.ext_active);
+        EXPECT(has_binding(v, "ext_setpoint"));
+        EXPECT(!v.derated);          // 监督停机 ≠ 设备降额
+        EXPECT(!v.emergency);
+    }
+
+    // ③ 新鲜闭锁（5002）→ [0,0]
+    {
+        SafetyEngine eng(p);
+        auto v = eng.evaluate(rt_basic(), dev, grid, 0.0, 0.1,
+                              mk_ext(0.0, 1e9, -1e9, true, /*enable=*/false));
+        EXPECT_NEAR(v.p_lower, 0.0, 1e-9);
+        EXPECT_NEAR(v.p_upper, 0.0, 1e-9);
+        EXPECT(v.ext_active);
+    }
+
+    // ④ 新鲜功率上限（6003）→ 只压上界，下界逐位不动
+    {
+        SafetyEngine eng(p);
+        auto v = eng.evaluate(rt_basic(), dev, grid, 0.0, 0.1,
+                              mk_ext(0.0, 50.0, -1e9));
+        EXPECT_NEAR(v.p_upper, 50.0, 1e-6);
+        EXPECT_NEAR(v.p_lower, -200.0, 1e-6);
+        EXPECT(v.ext_active);
+    }
+
+    // ⑤ ★ stale 停机 → 仍粘住 [0,0]（"调度最后说停"不因超时而自动复机）
+    {
+        SafetyEngine eng(p);
+        auto v = eng.evaluate(rt_basic(), dev, grid, 0.0, 0.1,
+                              mk_ext(0.0, 1e9, -1e9, false, true, /*stale=*/true));
+        EXPECT_NEAR(v.p_lower, 0.0, 1e-9);
+        EXPECT_NEAR(v.p_upper, 0.0, 1e-9);
+        EXPECT(v.ext_active);
+    }
+
+    // ⑥ stale 功率设定（无停机）→ 不施加，区间逐位不动
+    {
+        SafetyEngine eng(p);
+        auto v = eng.evaluate(rt_basic(), dev, grid, 0.0, 0.1,
+                              mk_ext(0.0, 50.0, -1e9, true, true, /*stale=*/true));
+        EXPECT_NEAR(v.p_upper, 200.0, 1e-6);
+        EXPECT_NEAR(v.p_lower, -200.0, 1e-6);
+        EXPECT(!v.ext_active);
+    }
+
+    // ⑦ ★ EXT 收紧制造区间矛盾 → DERATED（不是 EMERGENCY），区间 [0,0]
+    {
+        SafetyParams pc = p;
+        pc.grid_p_max_kw = 50.0;   // 本地要求放电 ≥150 kW（关口不超 50）
+        SafetyEngine eng(pc);
+        auto v = eng.evaluate(rt_basic(), dev, grid, 0.0, 0.1,
+                              mk_ext(0.0, 100.0, -1e9));  // 调度限放 100 → 与 150 冲突
+        EXPECT(v.contradiction);
+        EXPECT(v.derated);
+        EXPECT(!v.emergency);
+        EXPECT_NEAR(v.p_lower, 0.0, 1e-9);
+        EXPECT_NEAR(v.p_upper, 0.0, 1e-9);
+    }
+}
+
+
+// =====================================================================
 int main() {
     std::cerr << "=========================================\n"
               << " 05/ 周期 5 安全约束引擎 单元测试\n"
@@ -463,6 +563,7 @@ int main() {
     test_04_ramp_is_slew_not_interval();
     test_05_grid_interval_derivation();
     test_06_grid_measurement_filter();
+    test_07_ext_setpoint_constraint();
 
     std::cerr << "=========================================\n"
               << " PASS=" << g_pass << "  FAIL=" << g_fail << "\n"

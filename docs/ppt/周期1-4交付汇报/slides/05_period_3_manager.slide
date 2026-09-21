@@ -1,0 +1,236 @@
+<Slide padding={0}>
+
+    <Box style={{
+        width: '100%',
+        height: '100%',
+        background: '#FFFFFF',
+        flexDirection: 'column',
+        padding: 0,
+    }}>
+
+        {/* A 区 */}
+        <Box style={{ padding: '10px 60px 0', height: 56 }}>
+            <Box style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <Box>
+                    <Text style={{ fontSize: 16, color: '#06B6D4', fontWeight: 'bold', letterSpacing: 2 }}>
+                        周期 2 · COMMON LANGUAGE
+                    </Text>
+                    <Text style={{ fontSize: 26, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>
+                        让 9 个不同意志能用一句话说完自己
+                    </Text>
+                </Box>
+                <Text style={{ fontSize: 14, color: '#94A3B8' }}>P05 / 11</Text>
+            </Box>
+        </Box>
+
+        {/* B 区：左 — 9 个不能比较的样态；右 — 共同语言 */}
+        <Box style={{
+            flex: 1,
+            padding: '4px 60px 0',
+            flexDirection: 'row',
+            gap: 24,
+        }}>
+
+            {/* 左半：混乱状态 */}
+            <Box style={{ flex: 45, flexDirection: 'column' }}>
+                <Box style={{
+                    padding: '12px 16px',
+                    background: '#FEF2F2',
+                    borderRadius: 8,
+                    borderLeft: '4px solid #EF4444',
+                    marginBottom: 10,
+                }}>
+                    <Text style={{ fontSize: 13, color: '#EF4444', fontWeight: 'bold', letterSpacing: 1.5 }}>
+                        没有共同语言之前
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1A1A1A', marginTop: 6, lineHeight: 1.5 }}>
+                        9 个策略各说各话，仲裁器看不懂——"到底能不能放 100 千瓦"，根本无从下手
+                    </Text>
+                </Box>
+
+                <Box style={{ padding: '0 4px' }}>
+                    {/* 9 个乱状 */}
+                    {[
+                        { id: '策略 1', says: '"电量 28%，禁放"', color: '#EF4444' },
+                        { id: '策略 2', says: '"降一降功率，限到 80kW"', color: '#F97316' },
+                        { id: '策略 3', says: '"变压器 250kW 上限"', color: '#F97316' },
+                        { id: '策略 4', says: '"本月还剩 60kW 余度"', color: '#06B6D4' },
+                        { id: '策略 5', says: '"当前不能向电网送电"', color: '#06B6D4' },
+                        { id: '策略 6', says: '"光伏波动大，消纳为重"', color: '#06B6D4' },
+                        { id: '策略 7', says: '"现在是峰时，必须放"', color: '#3B82F6' },
+                        { id: '策略 8', says: '"预测下一时谷，建议放缓"', color: '#3B82F6' },
+                        { id: '策略 9', says: '"电网下达削峰 50kW 指令"', color: '#3B82F6' },
+                    ].map((row, idx) => (
+                        <Box key={idx} style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            padding: '6px 0',
+                            borderBottom: '1px dashed #E2E8F0',
+                        }}>
+                            <Box style={{
+                                width: 40, padding: '3px 0',
+                                background: row.color, borderRadius: 4,
+                                alignItems: 'center',
+                            }}>
+                                <Text style={{
+                                    color: '#FFFFFF', fontSize: 12,
+                                    fontWeight: 'bold', textAlign: 'center',
+                                }}>{row.id}</Text>
+                            </Box>
+                            <Text style={{ fontSize: 13, color: '#1A1A1A', marginLeft: 12 }}>
+                                {row.says}
+                            </Text>
+                        </Box>
+                    ))}
+                </Box>
+
+                <Box style={{
+                    marginTop: 10,
+                    padding: '10px 14px',
+                    background: '#F8FAFC',
+                    borderRadius: 6,
+                    border: '1px dashed #CBD5E1',
+                }}>
+                    <Text style={{ fontSize: 12, color: '#64748B', lineHeight: 1.5, fontWeight: 'bold' }}>
+                        问题：9 条话术之间没有公约数，没法做"交集/并集"
+                    </Text>
+                </Box>
+            </Box>
+
+            {/* 中间分隔 — 箭头 */}
+            <Box style={{
+                width: 40, flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center',
+            }}>
+                <svg width='100%' height='80' viewBox='0 0 40 80'>
+                    <line x1='6' y1='40' x2='30' y2='40' stroke='#06B6D4' strokeWidth='3' />
+                    <polygon points='26,34 26,46 38,40' fill='#06B6D4' />
+                    <text x='20' y='22' textAnchor='middle' fill='#06B6D4' fontSize='11' fontFamily='Source Han Sans SC' fontWeight='bold'>
+                        P2 翻译
+                    </text>
+                </svg>
+            </Box>
+
+            {/* 右半：共同语言 */}
+            <Box style={{ flex: 50, flexDirection: 'column' }}>
+                <Box style={{
+                    padding: '12px 16px',
+                    background: '#ECFEFF',
+                    borderRadius: 8,
+                    borderLeft: '4px solid #06B6D4',
+                    marginBottom: 10,
+                }}>
+                    <Text style={{ fontSize: 13, color: '#06B6D4', fontWeight: 'bold', letterSpacing: 1.5 }}>
+                        共同语言：功率区间
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1A1A1A', marginTop: 6, lineHeight: 1.5 }}>
+                        规定每人都只能这样回答仲裁器——<Text style={{ fontWeight: 'bold', color: '#0E7490' }}>我能接受的功率区间 + 我的最佳点 + 我的权重</Text>
+                    </Text>
+                </Box>
+
+                {/* 区间表示 */}
+                <Box style={{
+                    padding: 14,
+                    background: '#F0F9FF',
+                    borderRadius: 8,
+                    border: '1px solid #BFDBFE',
+                }}>
+                    <Text style={{ fontSize: 13, color: '#0E7490', fontWeight: 'bold', marginBottom: 10 }}>
+                        每个策略的发言模板
+                    </Text>
+
+                    <Box style={{
+                        padding: '10px 14px',
+                        background: '#FFFFFF',
+                        borderRadius: 8,
+                        border: '2px solid #06B6D4',
+                        marginBottom: 12,
+                    }}>
+                        <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#0E7490', fontFamily: 'JetBrains Mono, monospace' }}>
+                            Region(p_lower, p_upper, p_desired, weight)
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 6, lineHeight: 1.5 }}>
+                            p_lower ≤ P_bat ≤ p_upper；最佳点 p_desired；权重 weight
+                        </Text>
+                    </Box>
+
+                    {/* 9 个翻译后 */}
+                    <Text style={{ fontSize: 13, color: '#0E7490', fontWeight: 'bold', marginBottom: 6 }}>
+                        翻 译 后
+                    </Text>
+                    {[
+                        { id: '策略 1', color: '#EF4444', region: '[-∞, 0] ∪ [0, 0]', mean: '"只能 0"', w: 'W=10' },
+                        { id: '策略 2', color: '#F97316', region: '[-80, +80]', mean: '"正负 80"', w: 'W=8' },
+                        { id: '策略 3', color: '#F97316', region: '[-200, +200]', mean: '"正负 200"', w: 'W=10' },
+                        { id: '策略 4', color: '#06B6D4', region: '[-60, +60]', mean: '"留 60 度"', w: 'W=6' },
+                        { id: '策略 5', color: '#06B6D4', region: '[-∞, 0]', mean: '"只能吸收"', w: 'W=8' },
+                        { id: '策略 6', color: '#06B6D4', region: '[-100, +100]', mean: '"余电消纳"', w: 'W=4' },
+                        { id: '策略 7', color: '#3B82F6', region: '[+120, +300]', mean: '"峰时放"', w: 'W=5' },
+                        { id: '策略 8', color: '#3B82F6', region: '[+50, +200]', mean: '"预测建议"', w: 'W=3' },
+                        { id: '策略 9', color: '#3B82F6', region: '[-150, 0]', mean: '"削 50"', w: 'W=7' },
+                    ].map((row, idx) => (
+                        <Box key={idx} style={{
+                            flexDirection: 'row', alignItems: 'center',
+                            padding: '5px 0',
+                            borderBottom: '1px solid #BAE6FD',
+                        }}>
+                            <Box style={{
+                                width: 36, padding: '3px 0',
+                                background: row.color, borderRadius: 4,
+                                alignItems: 'center',
+                            }}>
+                                <Text style={{
+                                    color: '#FFFFFF', fontSize: 12,
+                                    fontWeight: 'bold', textAlign: 'center',
+                                }}>{row.id}</Text>
+                            </Box>
+                            <Text style={{
+                                fontSize: 12, color: '#0E7490',
+                                fontFamily: 'JetBrains Mono, monospace',
+                                marginLeft: 10, width: 180,
+                            }}>{row.region}</Text>
+                            <Text style={{ fontSize: 12, color: '#475569', marginLeft: 10, width: 100 }}>
+                                {row.mean}
+                            </Text>
+                            <Text style={{ fontSize: 12, color: '#94A3B8', marginLeft: 10, fontWeight: 'bold' }}>
+                                {row.w}
+                            </Text>
+                        </Box>
+                    ))}
+                </Box>
+
+                <Box style={{
+                    marginTop: 10,
+                    padding: '10px 14px',
+                    background: '#FEF3C7',
+                    borderRadius: 6,
+                    borderLeft: '3px solid #F59E0B',
+                }}>
+                    <Text style={{ fontSize: 13, color: '#92400E', lineHeight: 1.5, fontWeight: 'bold' }}>
+                        关键原理：区间表示 ≠ 单点
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#92400E', lineHeight: 1.5, marginTop: 4 }}>
+                        即便口吻是"应该放 300"，更严格的策略说"最多 200"，结果会被夹到 200。"交集式妥协"才是这层语言的本意——单点只能"选"，区间才能"让"
+                    </Text>
+                </Box>
+            </Box>
+
+        </Box>
+
+        {/* C 区 */}
+        <Box style={{
+            padding: '0 60px 6px',
+            height: 30,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTop: '1px solid #E2E8F0',
+        }}>
+            <Text style={{ fontSize: 13, color: '#94A3B8' }}>
+                周期 2 交付 = "区间语言"，这是上层推理的最小元
+            </Text>
+            <Text style={{ fontSize: 13, color: '#94A3B8' }}>05 / 11</Text>
+        </Box>
+
+    </Box>
+</Slide>

@@ -1,0 +1,56 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            这两天沉淀下来的四条测试纪律
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            每条后面都挂着一个具体事件 —— 没有出处的方法论不算沉淀
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, justifyContent: 'center' }}>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 16, padding: '12px 16px', background: '#FEF2F2', borderRadius: 10, borderLeft: '5px solid #EF4444' }}>
+            <Text style={{ width: 58, fontSize: 34, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Consolas', lineHeight: 1.1 }}>01</Text>
+            <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>静默失败是头号敌人</Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    心跳永远 0 秒、跳过了却印"全部通过"、同名点表两套内容 —— 共同点是不报错、退出码还是 0。
+                    → 允许跳过，就必须显式宣布自己跳过了，而且这个信号要一路传到最外层的结论行。
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 16, padding: '12px 16px', background: '#EFF6FF', borderRadius: 10, borderLeft: '5px solid #3B82F6' }}>
+            <Text style={{ width: 58, fontSize: 34, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas', lineHeight: 1.1 }}>02</Text>
+            <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>只有跨边界才照得出来</Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    跨进程、跨内存段、跨语言。补通路前先自问：这条路上有几步是测试夹具替我做的？
+                    → 跨内存边界 + 夹具注入 = 测试盲区，所以必须有一个走真段、不注入任何东西的测试。
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 16, padding: '12px 16px', background: '#EFF6FF', borderRadius: 10, borderLeft: '5px solid #3B82F6' }}>
+            <Text style={{ width: 58, fontSize: 34, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas', lineHeight: 1.1 }}>03</Text>
+            <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>判据本身会错，而且错得很安静</Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    判据测错对象、并发用例空跑、断言适用范围写错 —— 三条都是"绿着的错误"。
+                    → 新增判据必须当场反证；覆盖型用例必须自带覆盖率守卫。
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', gap: 16, padding: '12px 16px', background: '#F1F5F9', borderRadius: 10, borderLeft: '5px solid #64748B' }}>
+            <Text style={{ width: 58, fontSize: 34, fontWeight: 'bold', color: '#64748B', fontFamily: 'Consolas', lineHeight: 1.1 }}>04</Text>
+            <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Text style={{ fontSize: 19, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>声称的行为必须与代码一致</Text>
+                <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    报告标题说 32、证据说 40；注释说只跳某一段、代码连另一段一起写了。
+                    → 会进产物的数字从真相源派生；注释里的数字干脆去掉；每次交付后回看一遍各模块的"未做"清单。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>18 / 24</Text>
+    </Box>
+</Slide>

@@ -1,0 +1,161 @@
+<Slide padding={0}>
+
+    <Box style={{
+        width: '100%',
+        height: '100%',
+        background: '#FFFFFF',
+        flexDirection: 'column',
+        padding: 0,
+    }}>
+
+        {/* A 区 */}
+        <Box style={{ padding: '24px 60px 0', height: 80 }}>
+            <Box style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <Box>
+                    <Text style={{ fontSize: 16, color: '#22C55E', fontWeight: 'bold', letterSpacing: 2 }}>
+                        周期 3 · SCHEDULING
+                    </Text>
+                    <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#1A1A1A', marginTop: 6 }}>
+                        一张调度台：让 9 个能在每个 tick 同时被叫到
+                    </Text>
+                </Box>
+                <Text style={{ fontSize: 14, color: '#94A3B8' }}>P06 / 11</Text>
+            </Box>
+        </Box>
+
+        {/* B 区：上：调度问题 → 下：调度台设计 */}
+        <Box style={{
+            flex: 1,
+            padding: '12px 60px 0',
+            flexDirection: 'column',
+            gap: 12,
+        }}>
+
+            {/* 顶部：痛点 */}
+            <Box style={{
+                padding: '12px 18px',
+                background: '#FFF7ED',
+                borderRadius: 8,
+                borderLeft: '4px solid #F97316',
+            }}>
+                <Text style={{ fontSize: 13, color: '#9A3412', fontWeight: 'bold', letterSpacing: 1.5 }}>
+                    痛 点
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', marginTop: 6, lineHeight: 1.5 }}>
+                    系统每分钟要问 9 个策略"你意见是什么？"，但有些今天没用上（DR 不发时段，套利不跑周末）、今天有新增的策略。挨个调用既慢又错——必须有"议事厅"统管
+                </Text>
+            </Box>
+
+            {/* 中部：调度台内部 — 4 个小框 */}
+            <Box style={{
+                flex: 1,
+                background: '#F8FAFC',
+                borderRadius: 10,
+                border: '1px solid #E2E8F0',
+                padding: 16,
+                flexDirection: 'row',
+                gap: 14,
+            }}>
+
+                {/* 4 件事 */}
+                {[
+                    {
+                        tag: '①',
+                        title: '登记名册',
+                        desc: '"今天席上有这些诉求"',
+                        detail: '9 条诉求登记一次，调度台只认编号，不关心实现细节。新增/下线诉求不需要改仲裁代码',
+                        color: '#3B82F6',
+                    },
+                    {
+                        tag: '②',
+                        title: '启停表',
+                        desc: '"今天这些诉求在线"',
+                        detail: '支持按诉求编号启停——只勾"今天在场"，未启用的诉求权重自动归零，下游自动跳过',
+                        color: '#06B6D4',
+                    },
+                    {
+                        tag: '③',
+                        title: '调度入口',
+                        desc: '"开一次会"',
+                        detail: '上层只调一次"开会(数据)" —— 调度台内部按表并行调用所有启用诉求，9 个调用变成 1 个调用',
+                        color: '#22C55E',
+                    },
+                    {
+                        tag: '④',
+                        title: '结果快照',
+                        desc: '"上次的会议纪要"',
+                        detail: '把 9 条意见缓存为 9 段区间，下游仲裁"看到"的是稳定快照，不存在反复问导致结果飘移',
+                        color: '#F59E0B',
+                    },
+                ].map((box, idx) => (
+                    <Box key={idx} style={{
+                        flex: 1,
+                        padding: 14,
+                        background: '#FFFFFF',
+                        borderRadius: 8,
+                        borderTop: '3px solid ' + box.color,
+                    }}>
+                        <Box style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text style={{
+                                fontSize: 22, fontWeight: 'bold', color: box.color,
+                                fontFamily: 'JetBrains Mono, monospace',
+                            }}>
+                                {box.tag}
+                            </Text>
+                            <Text style={{
+                                fontSize: 16, fontWeight: 'bold', color: '#1A1A1A',
+                                marginLeft: 8,
+                            }}>
+                                {box.title}
+                            </Text>
+                        </Box>
+                        <Text style={{ fontSize: 13, color: box.color, fontWeight: 'bold', marginTop: 6 }}>
+                            {box.desc}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 6, lineHeight: 1.5 }}>
+                            {box.detail}
+                        </Text>
+                    </Box>
+                ))}
+            </Box>
+
+            {/* 底部：上层用什么 */}
+            <Box style={{
+                padding: '14px 18px',
+                background: '#EFF6FF',
+                borderRadius: 8,
+                borderLeft: '4px solid #3B82F6',
+            }}>
+                <Text style={{ fontSize: 13, color: '#3B82F6', fontWeight: 'bold', letterSpacing: 1.5 }}>
+                    它的位置（上下接口）
+                </Text>
+                    <Text style={{ fontSize: 13, color: '#1A1A1A', marginTop: 6, lineHeight: 1.5 }}>
+                    上游：第三层实时控制器（任何模块）发一次"开会(数据)" → 拿到 9 段意见区间
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#1A1A1A', marginTop: 4, lineHeight: 1.5 }}>
+                    下游：把这 9 段区间交给仲裁器（第 4 周），拿到最终 1 个功率指令，下发 4 个实际控制器
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#1E40AF', marginTop: 8, lineHeight: 1.5, fontWeight: 'bold' }}>
+                        原理："开会"这个接口是单一的——这让"9 条诉求存在与否"对上层完全透明，将来增减诉求上层零改动
+                    </Text>
+            </Box>
+
+        </Box>
+
+        {/* C 区 */}
+        <Box style={{
+            padding: '0 60px 12px',
+            height: 46,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTop: '1px solid #E2E8F0',
+        }}>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>
+                周期 3 交付 = 调度容器，让上层不必认识每个策略的具体含义
+            </Text>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>06 / 11</Text>
+        </Box>
+
+    </Box>
+</Slide>

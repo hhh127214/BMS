@@ -10,14 +10,14 @@ cd /d "%~dp0\.."
 if not exist build mkdir build
 
 echo === 编译 06/ 单元测试 ===
-g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src tests\test_state_machine.cpp -o build\test_state_machine.exe
+g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\07\src\rtdb tests\test_state_machine.cpp -o build\test_state_machine.exe
 if errorlevel 1 (
     echo [FAIL] test_state_machine.exe 编译失败
     exit /b 1
 )
 
 echo === 编译 06/ 演示程序 ===
-g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src src\main.cpp -o build\fsm_demo.exe
+g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\07\src\rtdb src\main.cpp -o build\fsm_demo.exe
 if errorlevel 1 (
     echo [FAIL] fsm_demo.exe 编译失败
     exit /b 1

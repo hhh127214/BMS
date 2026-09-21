@@ -190,13 +190,22 @@ static void test_22_point_mapping() {
     io.set_environment(300.0, 80.0);
     io.set(mem_point::kPBat, -50.0);
     io.force_soc(0.62);
+    // 关口电表读数 —— **刻意与三路推算不一致**（缺口 A2，2026-09-19）。
+    // 改前本行断言的是 `302 − 80 − (−50) = 272`（推算式）：那种写法在
+    // "设备侧从没写过电表点"时也照样通过 —— 正是缺口本身：
+    // 算法用推算值、记录用电表值，两个口径，报表与动作对不上。
+    // 现在夹具让电表读数 ≠ 推算值，只有真读电表才能过。
+    const double kMeter = 250.0;
+    io.set(mem_point::kPGrid, kMeter);
     RealtimeSnapshot rt;
     EXPECT(io.read_snapshot(12.5, rt));
     EXPECT_NEAR(rt.timestamp,       12.5,   1e-9);
     EXPECT_NEAR(rt.p_bat_actual_kw, -50.0,  1e-9);
     EXPECT_NEAR(rt.p_pv_kw,          80.0,  1e-9);
     EXPECT_NEAR(rt.p_load_kw,       302.0,  1e-9);   // 300 + 站用电 2
-    EXPECT_NEAR(rt.p_grid_kw,       272.0,  1e-9);   // 302 - 80 - (-50)
+    EXPECT(std::fabs((302.0 - 80.0 + 50.0) - kMeter) > 1e-6);  // 反向守卫：两源确实不同
+    EXPECT_NEAR(rt.p_grid_kw,       kMeter, 1e-9);   // 跟电表，不跟 302−80−(−50)=272
+    EXPECT_NEAR(io.read_actuals().p_grid_kw, rt.p_grid_kw, 1e-9);  // 两路径同口径
     EXPECT_NEAR(rt.soc,              0.62,  1e-9);
     EXPECT(rt.meters_alive["BMS"]);
     EXPECT(rt.meters_alive["METER"]);

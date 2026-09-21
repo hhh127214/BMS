@@ -9,7 +9,7 @@ cd /d "%~dp0\.."
 if not exist build mkdir build
 
 echo === 编译并运行 09/ 多策略组合测试 ===
-g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\07\src -I ..\08\src tests\test_multi_strategy.cpp -o build\test_multi_strategy.exe
+g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\07\src -I ..\08\src -I ..\07\src\rtdb tests\test_multi_strategy.cpp -o build\test_multi_strategy.exe
 if errorlevel 1 (
     echo [FAIL] 编译失败
     exit /b 1

@@ -5,7 +5,7 @@
 //       IDeviceIO 读写设备；本文件把「共享内存实时库 RT_DB」接进这个接口。
 //
 // 与 MemoryDeviceIO（P0.5 进程内点表）的关系：
-//   · **同一份点表** —— src/rtdb/ems_point_table.h（30 点），点名与
+//   · **同一份点表** —— src/rtdb/ems_point_table.h（全点表），点名与
 //     memory_device_io.h 的 mem_point:: 逐字相同；
 //   · 唯一区别是存储介质：MemoryDeviceIO 是进程内 unordered_map，
 //     本适配器是**跨进程共享内存**（Windows: CreateFileMapping /
@@ -25,7 +25,7 @@
 //
 // 谁负责建点表：RT_DB 没有「注册点表」的公开 API（其 build_index_map 里
 //   `(void)config_path` 把配置参数丢弃了），点表必须由调用方写进共享内存。
-//   → src/rtdb/ems_rt_db_setup.c 负责装配阶段建段 + 注册 30 点；
+//   → src/rtdb/ems_rt_db_setup.c 负责装配阶段建段 + 注册全点表（EMS_POINT_COUNT）；
 //   → 本适配器只做**读写**，并在 self_check() 里校验索引/点名/单位。
 //
 // 编译（见 07/scripts/build_test_rtdb.bat）：
@@ -49,6 +49,7 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <thread>
 #include <utility>
 
 namespace ems {
@@ -181,9 +182,17 @@ public:
         return bad;
     }
 
-    // 读点失败/质量位异常的次数。点表未初始化、共享内存未建立时会持续增长
-    // —— 现场自检应把它当告警，而不是当成"读到 0.0"。
+    // 读点**降级**次数：重试预算耗尽 → 保留上一次有效值 + 标 quality_ok=false。
+    // 语义是"这一拍这个点没拿到新数据"，**不是**"读逻辑坏了"。
+    // 点表未初始化/共享内存未建立时会持续增长 —— 那种情形才是告警。
     int stale_reads() const { return stale_reads_; }
+    // 读点**碰撞**次数：seqlock 首次尝试即失败（读到写者中间），需要重试的事件数。
+    // 恒有 stale_reads() <= collisions()（除了 handle 为空这类早退）。
+    // 它存在的意义是当**反向守卫**：断言"重试吸收率"时必须先证明"真的撞上了"
+    // —— 否则 collisions==0 与 stale==0 同时成立，assertEquals 两边都是 0 也能骗过。
+    int collisions() const { return collisions_; }
+    // 被重试吸收的碰撞次数（没有降级、也没让主流程看见的那部分）
+    int absorbed() const { return collisions_ - stale_reads_; }
     // 成功写进实时库的点数（下发指令都算）
     int writes() const { return writes_; }
     // 本地缓存里的点值（诊断用；与共享内存同源，但不是实时值）
@@ -212,7 +221,23 @@ public:
         out.p_bat_actual_kw = p_bat;
         out.p_pv_kw         = p_pv;
         out.p_load_kw       = p_load;
-        out.p_grid_kw       = p_load - p_pv - p_bat;
+        // 关口功率：读**电表点**，不再用三路量测相减推算。
+        //
+        // 2026-09-19（缺口 A2，安全相关）。改前这里是 `p_load - p_pv - p_bat`，
+        // 而 read_actuals() 读的是 `MEAS.P_GRID` —— **同一路数据两个口径**：
+        // 算法拿推算值、记录拿电表值，现场没人能解释"报表里 100 kW、
+        // 防逆流却按 137 kW 动作"。
+        //
+        // 为什么必须读电表：真实系统里关口电表是**唯一权威计量点**。负荷、光伏、
+        // 电池三路各有自己的误差与不同时延（CT/PT 精度、滤波、通信周期都不同），
+        // 相减会把误差**叠加**而不是抵消。而拿 p_grid 当命门的正是：
+        //   · 防逆流策略 S05（`surplus = p_grid_min - rt.p_grid_kw`）
+        //   · 变压器过载约束（`|p_grid| + 0.1·p_load`）
+        // 推算偏差在这里直接变成**误动作或漏判倒送**。
+        //
+        // 现场接入要求：设备侧（BMS 网关 / 电表采集）必须每拍写 `MEAS.P_GRID`。
+        // 读失效时本函数用 cached_value()，即"保留最近一次有效值" —— 与其它点同策略。
+        out.p_grid_kw       = cached_value(EMS_P_GRID);
         out.soc             = clamp01(cached_value(EMS_SOC));
         out.temperature_c   = cached_value(EMS_T_C);
         out.soh             = cached_value(EMS_SOH);
@@ -247,10 +272,23 @@ public:
         out.bms_dis_limit_kw        = cached_value(EMS_CFG_BMS_DIS_LIM);
         out.transformer_capacity_kw = cached_value(EMS_CFG_TR_KVA);
         out.d_target_kw             = cached_value(EMS_CFG_D_TARGET);
-        // 禁充/禁放位：当前点表未建模（与 MemoryDeviceIO 对齐）。
-        // 现场若需按 BMS 禁充放硬封锁，在点表里加点后在此处映射即可。
-        out.bms_chg_forbidden = false;
-        out.bms_dis_forbidden = false;
+        // 禁充/禁放位：从点表读（2026-09-19 前这里是硬写 false）。
+        //
+        // 为什么这行是安全相关的：这两个 bool 是 04/ S01(kBmsForbid, **L0 最底层**)
+        // 与 05/ check_bms_forbid() 的唯一输入。硬写 false 等于断言"BMS 永远
+        // 允许充放"，BMS 上报的禁充放被静默吞掉，而三层测试全绿 —— 因为仿真
+        // 场景下 DeviceLimits 由调用方（SimDeviceIO / 测试）直接注入，这条
+        // **跨内存边界**的路一次都没被走过。
+        //
+        // 读失效时的方向：本函数用 cached_value()，即"保留最近一次有效值"。
+        //   · 上次读到 1（禁止）→ 保留 1 → 偏保守 ✓
+        //   · 上次读到 0（允许）→ 保留 0 → 偏开放
+        // 后者不靠本函数兜底：BMS 通信丢失时 05/ 的 check_bms_forbid() 会
+        // **独立**收紧到 [0,0]（判据是本快照的 meters_alive["BMS"]，来自
+        // STA.BMS_COMM_OK）。也就是说 fail-safe 的责任在 BMS 网关自己
+        // 把通信位置 0，而不是让 EMS 去猜一个坏点该读成什么。
+        out.bms_chg_forbidden = cached_value(EMS_STA_BMS_CHG_FORBID) > 0.5;
+        out.bms_dis_forbidden = cached_value(EMS_STA_BMS_DIS_FORBID) > 0.5;
         return true;
     }
 
@@ -330,10 +368,26 @@ public:
 
     const char* name() const override { return "RtDbDeviceIO(SharedMemory)"; }
 
+    // 限值是"活的"：设备侧进程随时可能改 CFG.* / STA.BMS_*_FORBID / 变压器容量。
+    // 打开它 → EmsRuntime 每拍刷新 dev_（见 LoopConfig::refresh_limits_each_step）。
+    // 不打开的话，BMS 动态降功率与禁充放位只在装配期被读一次 —— 等于常量，
+    // 而 04/IDeviceIO 的契约写的是"每个控制周期刷新"。
+    bool limits_are_live() const override { return true; }
+
 private:
     static double clamp01(double v) {
         return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
     }
+
+    // seqlock 读的重试上限（见 refresh() 的说明）。
+    // 取 64：单次碰撞概率与"读窗口叠在写窗口里"同阶（~1%），连撞 64 次的概率
+    // 在工程上可忽略；单点最坏耗时仍在 64 次内存比较 + 64 次 yield 的量级。
+    //
+    // **这不是硬保证**（勿把"stale==0"写成硬判据）：写者的临界区含
+    // update_timestamp()，若写者恰在此刻被 OS 抢走（Windows 上一个时间片
+    // 15.6 ms），yield 是立刻返回的，64 次会在微秒级烧完 —— 此时读者必然
+    // 耗尽预算。所以正确判据是"降级远少于碰撞"（重试吸收率），不是"降级恒 0"。
+    static constexpr int kReadRetries = 64;
 
     // 缓存初值 = 点表默认值（点表默认已与 DeviceLimits / PlantConfig 对齐）。
     // 未采集前不瞎猜：现场"连不上却报 0"比"报默认值"更危险。
@@ -354,14 +408,29 @@ private:
         }
         double v = 0.0;
         long q   = rtdb_quality::kBad;
-        if (!rt_db_get_value(h, index, &v, &q, nullptr)) {
-            ++stale_reads_;
-            quality_ok_[index] = false;
-            return false;
+        // seqlock 碰撞**不是采集失败**。
+        // RT_DB 的 rt_db_get_value() 是 seqlock 读：写者先把 sequence 置奇 →
+        // 写值 → 置偶；读者若正好嵌在写者中间，seq_before != seq_after 就返回
+        // false。这是"请重试"信号，不是"数据不可信"。单进程测试里设备泵在
+        // EmsRuntime::step() 内部**顺序**执行，永远撞不上；真·多进程（11/ 的
+        // 三进程联调）下设备进程每拍写全点表，碰撞是必然事件 —— 实测 600 拍里
+        // 51 次，全部是假告警。正确做法：有限重试，重试仍失败才计 stale 并
+        // 保留上一次有效值（接口契约 ①）。
+        for (int attempt = 0; attempt < kReadRetries; ++attempt) {
+            if (rt_db_get_value(h, index, &v, &q, nullptr)) {
+                cache_[index]      = v;
+                quality_ok_[index] = (q == rtdb_quality::kGood);
+                return true;
+            }
+            if (attempt == 0) ++collisions_;   // 首次即失败 = 真·碰撞（需重试）
+            // 写者的临界区包含 update_timestamp()（Windows 下一次系统调用），
+            // 可能比"连读 64 次"还长 —— 光忙等会 64 次全撞上。让出 CPU 让写者
+            // 把 sequence 置回偶数，重试才有意义。
+            if (attempt + 1 < kReadRetries) std::this_thread::yield();
         }
-        cache_[index]      = v;
-        quality_ok_[index] = (q == rtdb_quality::kGood);
-        return true;
+        ++stale_reads_;
+        quality_ok_[index] = false;
+        return false;
     }
     void refresh_all() const {
         for (std::size_t i = 0; i < EMS_POINT_COUNT; ++i) refresh(i);
@@ -399,6 +468,7 @@ private:
     mutable double cache_[EMS_POINT_COUNT]      = {};
     mutable bool   quality_ok_[EMS_POINT_COUNT] = {};
     mutable int    stale_reads_ = 0;
+    mutable int    collisions_  = 0;
     int            writes_      = 0;
 
     PowerCommand last_cmd_{};

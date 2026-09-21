@@ -1,0 +1,37 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 26 }}>
+    <Text style={{ fontSize: 16, color: '#3B82F6', fontFamily: 'Microsoft YaHei', letterSpacing: 3, textAlign: 'center' }}>
+        两天工作汇报 · 2026-09-19 ~ 09-20
+    </Text>
+    <Text style={{ fontSize: 40, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.4, textAlign: 'center' }}>
+        让 EMS 从「自己能算」，<br />变成「能被调度、能被设备接入，每一步都有证据」
+    </Text>
+    <Box style={{ display: 'flex', flexDirection: 'row', gap: 56, marginTop: 18 }}>
+        <Box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <Text style={{ fontSize: 96, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                9304
+            </Text>
+            <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+                断言基线（默认口径）
+            </Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <Text style={{ fontSize: 96, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                55/55
+            </Text>
+            <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+                交付门禁通过
+            </Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <Text style={{ fontSize: 96, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                0
+            </Text>
+            <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+                失败断言
+            </Text>
+        </Box>
+    </Box>
+    <Text style={{ fontSize: 14, color: '#94A3B8', fontFamily: 'Microsoft YaHei', marginTop: 14, textAlign: 'center' }}>
+        数字口径以 README.md 基线块为准（默认 9304 ／装 pymodbus 后 9382）· 证据索引见 CHANGES.md §25~§33
+    </Text>
+</Slide>

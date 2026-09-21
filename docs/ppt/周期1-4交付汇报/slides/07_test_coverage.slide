@@ -1,0 +1,200 @@
+<Slide padding={0}>
+
+    <Box style={{
+        width: '100%',
+        height: '100%',
+        background: '#FFFFFF',
+        flexDirection: 'column',
+        padding: 0,
+    }}>
+
+        {/* A 区 */}
+        <Box style={{ padding: '20px 60px 0', height: 80 }}>
+            <Box style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                <Box>
+                    <Text style={{ fontSize: 16, color: '#EF4444', fontWeight: 'bold', letterSpacing: 2 }}>
+                        周期 4 · ARBITRATION
+                    </Text>
+                    <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#1A1A1A', marginTop: 6 }}>
+                        9 个意见必然冲突，仲裁定"听谁的"
+                    </Text>
+                </Box>
+                <Text style={{ fontSize: 14, color: '#94A3B8' }}>P07 / 11</Text>
+            </Box>
+        </Box>
+
+        {/* B 区：5 步流程 — 讲业务，不是代码 */}
+        <Box style={{
+            flex: 1,
+            padding: '8px 60px 0',
+            flexDirection: 'column',
+            gap: 12,
+        }}>
+
+            {/* 痛点：为什么必须有仲裁 */}
+            <Box style={{
+                padding: '10px 16px',
+                background: '#FEF2F2',
+                borderRadius: 8,
+                borderLeft: '4px solid #EF4444',
+                flexDirection: 'row',
+                alignItems: 'center',
+            }}>
+                <Text style={{ fontSize: 13, color: '#EF4444', fontWeight: 'bold', letterSpacing: 1.5, marginRight: 14 }}>
+                    必 然 冲 突
+                </Text>
+                <Text style={{ fontSize: 13, color: '#1A1A1A', lineHeight: 1.5, flex: 1 }}>
+                    同 1 分钟内：策略 3 说"可放 200 度"、策略 1 说"必须 0 度"、策略 7 说"峰时一定要放"——3 个直接打架
+                    <Text style={{ fontWeight: 'bold', color: '#B91C1C' }}>  。不是"听错"，是它们的诉求本就不一样</Text>
+                </Text>
+            </Box>
+
+            {/* 5 步流程 — 大色块 + 业务解释 + 原理 */}
+            <Box style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
+
+                {/* 步骤 1 */}
+                <Box style={{ flex: 1, flexDirection: 'column' }}>
+                    <Box style={{
+                        flex: 1,
+                        background: '#FEF2F2',
+                        borderRadius: 8,
+                        padding: 12,
+                        borderTop: '3px solid #EF4444',
+                    }}>
+                        <Text style={{ fontSize: 13, color: '#EF4444', fontWeight: 'bold', letterSpacing: 1.5 }}>STEP 1</Text>
+                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>逐层收紧</Text>
+                        <Text style={{ fontSize: 12, color: '#B91C1C', fontWeight: 'bold', marginTop: 4 }}>优先级层胜出</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 6, lineHeight: 1.45 }}>
+                            从最高优先级开始，所有启用策略的"上界取最小，下界取最大"，求出交集——没有交集就拒执行本 tick
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#B91C1C', marginTop: 5, lineHeight: 1.4, fontWeight: 'bold' }}>
+                            原理：交集保证"所有相关方都接受"
+                        </Text>
+                    </Box>
+                </Box>
+
+                {/* 步骤 2 */}
+                <Box style={{ flex: 1, flexDirection: 'column' }}>
+                    <Box style={{
+                        flex: 1,
+                        background: '#FFF7ED',
+                        borderRadius: 8,
+                        padding: 12,
+                        borderTop: '3px solid #F97316',
+                    }}>
+                        <Text style={{ fontSize: 13, color: '#F97316', fontWeight: 'bold', letterSpacing: 1.5 }}>STEP 2</Text>
+                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>同层求中</Text>
+                        <Text style={{ fontSize: 12, color: '#9A3412', fontWeight: 'bold', marginTop: 4 }}>加权平均</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 6, lineHeight: 1.45 }}>
+                            同一优先级层里、把几条诉求的最佳点按权重平均。策略 1 / 策略 2 都喊 80 度，按 10:8 加权 = 79
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#9A3412', marginTop: 5, lineHeight: 1.4, fontWeight: 'bold' }}>
+                            原理：势均力敌时按权重民主
+                        </Text>
+                    </Box>
+                </Box>
+
+                {/* 步骤 3 */}
+                <Box style={{ flex: 1, flexDirection: 'column' }}>
+                    <Box style={{
+                        flex: 1,
+                        background: '#ECFEFF',
+                        borderRadius: 8,
+                        padding: 12,
+                        borderTop: '3px solid #06B6D4',
+                    }}>
+                        <Text style={{ fontSize: 13, color: '#06B6D4', fontWeight: 'bold', letterSpacing: 1.5 }}>STEP 3</Text>
+                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>跨层不均</Text>
+                        <Text style={{ fontSize: 12, color: '#0E7490', fontWeight: 'bold', marginTop: 4 }}>绝不混层</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 6, lineHeight: 1.45 }}>
+                            救命级和套利级的数字永远不参与平均——救命级一票否决，套利级仅作为"愿意被采纳的方向"
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#0E7490', marginTop: 5, lineHeight: 1.4, fontWeight: 'bold' }}>
+                            原理：安全 vs 利益必须分别量
+                        </Text>
+                    </Box>
+                </Box>
+
+                {/* 步骤 4 */}
+                <Box style={{ flex: 1, flexDirection: 'column' }}>
+                    <Box style={{
+                        flex: 1,
+                        background: '#FEF3C7',
+                        borderRadius: 8,
+                        padding: 12,
+                        borderTop: '3px solid #F59E0B',
+                    }}>
+                        <Text style={{ fontSize: 13, color: '#F59E0B', fontWeight: 'bold', letterSpacing: 1.5 }}>STEP 4</Text>
+                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>夹到区间</Text>
+                        <Text style={{ fontSize: 12, color: '#92400E', fontWeight: 'bold', marginTop: 4 }}>保 护 边 界</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 6, lineHeight: 1.45 }}>
+                            平均结果一旦越过区间（上限/下限），硬夹到边界——哪怕"经济上更划算"也不行
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#92400E', marginTop: 5, lineHeight: 1.4, fontWeight: 'bold' }}>
+                            原理：硬件不被经济贪心冲爆
+                        </Text>
+                    </Box>
+                </Box>
+
+                {/* 步骤 5 */}
+                <Box style={{ flex: 1, flexDirection: 'column' }}>
+                    <Box style={{
+                        flex: 1,
+                        background: '#EFF6FF',
+                        borderRadius: 8,
+                        padding: 12,
+                        borderTop: '3px solid #3B82F6',
+                    }}>
+                        <Text style={{ fontSize: 13, color: '#3B82F6', fontWeight: 'bold', letterSpacing: 1.5 }}>STEP 5</Text>
+                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1A1A1A', marginTop: 4 }}>死区去抖</Text>
+                        <Text style={{ fontSize: 12, color: '#1E40AF', fontWeight: 'bold', marginTop: 4 }}>不乱发命令</Text>
+                        <Text style={{ fontSize: 12, color: '#475569', marginTop: 6, lineHeight: 1.45 }}>
+                            |Δ| &lt; 5kW 不下发；指令变化有 ±2kW 滞回窗口，避免 PCS 频繁启停
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#1E40AF', marginTop: 5, lineHeight: 1.4, fontWeight: 'bold' }}>
+                            原理：少折腾硬件 = 少故障
+                        </Text>
+                    </Box>
+                </Box>
+
+            </Box>
+
+            {/* 底部 — 一个示例，避免假大空 */}
+            <Box style={{
+                padding: '12px 18px',
+                background: '#F8FAFC',
+                borderRadius: 8,
+                border: '1px solid #E2E8F0',
+                flexDirection: 'row',
+            }}>
+                <Box style={{ width: 4, height: 32, background: '#3B82F6', marginRight: 14 }} />
+                <Box style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 12, color: '#1E40AF', fontWeight: 'bold' }}>
+                        一个真实冲突的仲裁样本
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.5 }}>
+                        时段 18:30（峰时）：策略 1=禁放、策略 2=正负 80、策略 3=正负 200、策略 7=必须放到 120。
+                        经逐层→策略 1 强制收紧到 0；同层局部经济平均 60；套利层加权给到 80；最终夹到 [0, 80] 内，与峰时目标一致，安全与套利兼顾
+                    </Text>
+                </Box>
+            </Box>
+
+        </Box>
+
+        {/* C 区 */}
+        <Box style={{
+            padding: '0 60px 12px',
+            height: 46,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTop: '1px solid #E2E8F0',
+        }}>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>
+                周期 4 交付 = 5 步仲裁，把 9 个意见合成 1 个功率指令
+            </Text>
+            <Text style={{ fontSize: 14, color: '#94A3B8' }}>07 / 11</Text>
+        </Box>
+
+    </Box>
+</Slide>

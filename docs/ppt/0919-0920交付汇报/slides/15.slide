@@ -1,0 +1,72 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            测试工作量：这两天改写了哪些测试
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            9 个测试文件被新建或改写；另外 9 个文件逐位不变（「新增量不改旧行为」也是要被证明的）
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '8px 14px', background: '#F1F5F9', borderRadius: 6 }}>
+            <Text style={{ width: 396, fontSize: 14, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei' }}>测试文件</Text>
+            <Text style={{ width: 170, fontSize: 14, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei' }}>断言变化</Text>
+            <Text style={{ flex: 1, fontSize: 14, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei' }}>新增 / 改写的关键内容</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '9px 14px' }}>
+            <Text style={{ width: 396, fontSize: 15, color: '#1A1A1A', fontFamily: 'Consolas' }}>05/tests/test_safety_engine.cpp</Text>
+            <Text style={{ width: 170, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>68 → 94</Text>
+            <Text style={{ flex: 1, fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>外部设定第 10 条约束（含停机粘住 / 功率不生效）</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '9px 14px', background: '#F8FAFC' }}>
+            <Text style={{ width: 396, fontSize: 15, color: '#1A1A1A', fontFamily: 'Consolas' }}>07/tests/test_rtdb_device_io.cpp</Text>
+            <Text style={{ width: 170, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>546 → 554</Text>
+            <Text style={{ flex: 1, fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>逐点循环随点表扩容自动多跑 8 次（32 → 40 点）</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '9px 14px' }}>
+            <Text style={{ width: 396, fontSize: 15, color: '#1A1A1A', fontFamily: 'Consolas' }}>11/tests/test_system_integration.cpp</Text>
+            <Text style={{ width: 170, fontSize: 15, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>新建 → 152</Text>
+            <Text style={{ flex: 1, fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>跨进程量测 / 指令 / 角色边界；并发四层判据</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '9px 14px', background: '#F8FAFC' }}>
+            <Text style={{ width: 396, fontSize: 15, color: '#1A1A1A', fontFamily: 'Consolas' }}>12/tests/test_acceptance.cpp</Text>
+            <Text style={{ width: 170, fontSize: 15, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>新建 → 114</Text>
+            <Text style={{ flex: 1, fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>验收器自测：七维度检查项、报告生成、结论 55/55</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '9px 14px' }}>
+            <Text style={{ width: 396, fontSize: 15, color: '#1A1A1A', fontFamily: 'Consolas' }}>P3/tests/test_iec104.cpp</Text>
+            <Text style={{ width: 170, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>165 → 408</Text>
+            <Text style={{ flex: 1, fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>协议层 + EXT 点区契约 + 六个下发口穷举 + 转发表 CSV</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '9px 14px', background: '#F8FAFC' }}>
+            <Text style={{ width: 396, fontSize: 15, color: '#1A1A1A', fontFamily: 'Consolas' }}>P3/tests/test_ext_rtdb.cpp</Text>
+            <Text style={{ width: 170, fontSize: 15, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>新建 → 121</Text>
+            <Text style={{ flex: 1, fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>跨共享内存边界、不注入任何东西（走真段那一组）</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '9px 14px' }}>
+            <Text style={{ width: 396, fontSize: 15, color: '#1A1A1A', fontFamily: 'Consolas' }}>13/tests/test_modbus_tcp.cpp</Text>
+            <Text style={{ width: 170, fontSize: 15, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>新建 → 223</Text>
+            <Text style={{ flex: 1, fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>功能码 / 异常码 / 分块 / 边界 / 串包自愈</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '9px 14px', background: '#F8FAFC' }}>
+            <Text style={{ width: 396, fontSize: 15, color: '#1A1A1A', fontFamily: 'Consolas' }}>13/tests/test_modbus_device_io.cpp</Text>
+            <Text style={{ width: 170, fontSize: 15, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>新建 → 133</Text>
+            <Text style={{ flex: 1, fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>三次请求语义、超时 ≠ 暂时无数据、超范围钳位</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '9px 14px' }}>
+            <Text style={{ width: 396, fontSize: 15, color: '#1A1A1A', fontFamily: 'Consolas' }}>13/tests/test_modbus_bridge.cpp</Text>
+            <Text style={{ width: 170, fontSize: 15, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>新建 → 83</Text>
+            <Text style={{ flex: 1, fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>跨语言对账：模型跟踪指令、从站不可达快速失败</Text>
+        </Box>
+        <Box style={{ marginTop: 12, padding: '11px 14px', background: '#F1F5F9', borderRadius: 8 }}>
+            <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                其余 9 个测试文件逐位不变：04=65 / 06=34 / 07 P0=81 / 07 loop=6050 / 08=444 / 09=77 / 10=144 / P1=171 / P2=434 ——
+                9 改写 + 9 不变 = 18 个带断言计数的目标，再加 12/ 验收（55/55）共 19 个。
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>15 / 24</Text>
+    </Box>
+</Slide>

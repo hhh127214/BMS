@@ -1,0 +1,81 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            做了什么：两天 11 项交付改动
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            一条主线：让 EMS 从「自己能算」变成「能被调度、能被设备接入，每一步都有证据」
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', background: '#F1F5F9', borderRadius: 6 }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei' }}>日期</Text>
+            <Text style={{ width: 320, fontSize: 14, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei' }}>交付项</Text>
+            <Text style={{ flex: 1, fontSize: 14, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei' }}>一句话说明</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>09-19</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>新建 跨进程系统级联调</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>起真进程、跨进程读写同一块共享内存，「模块内自洽」升级成「装到一起还对不对」</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', background: '#F8FAFC', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>09-19</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>新建 最终验收（交付门禁）</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>七维度 55 项检查，产出正式验收报告（md/json/html），可引用可归档</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>09-19</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>修 主循环三处真实缺陷</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>联调才暴露的问题：单模块自己测永远测不出来</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', background: '#F8FAFC', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>09-19</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>修 并发判据缺陷</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>原断言测的是「机器闲不闲」不是「代码对不对」，改成四层判据</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>09-19</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>新建 调度网关（IEC 104 从站）</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>对上接调度：真实 TCP、真实报文、真实遥控遥调时序</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', background: '#F8FAFC', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas' }}>09-19</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>修 两个安全缺口</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>BMS 禁充/禁放位接进安全链；关口功率统一为只读电表</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>09-20</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>新建 设备接入（Modbus TCP）</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>对下接 BMS/PCS/电表：三层测试 + 跨语言对账</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', background: '#F8FAFC', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>09-20</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>外部设定落点</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>点表 32 → 40 点，调度遥调第一次「落得到地方」</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>09-20</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>落点接进安全链</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>外部设定成第 10 条约束；停机/闭锁失联后粘住</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', background: '#F8FAFC', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>09-20</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>转发表外置</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>CA/IOA 映射改成数据文件，现场改 IOA 不用重编 C++</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', padding: '6px 14px', alignItems: 'center' }}>
+            <Text style={{ width: 76, fontSize: 14, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>09-20</Text>
+            <Text style={{ width: 320, fontSize: 15, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>文案/遗留清单清扫三遍</Text>
+            <Text style={{ flex: 1, fontSize: 14.5, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>扫掉会印进正式产物的过期数字与已关闭的缺口</Text>
+        </Box>
+        <Box style={{ marginTop: 8, padding: '9px 14px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+            <Text style={{ fontSize: 13.5, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                为什么「清扫文案」也算交付：断言错了会变红，<Text style={{ fontSize: 13.5, fontWeight: 600, color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>产物里的数字错了永远是绿的</Text>——这种错会跟着交付物到客户手里。
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 两天工作全量讲解</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>03 / 16</Text>
+    </Box>
+</Slide>

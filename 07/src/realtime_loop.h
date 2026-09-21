@@ -18,8 +18,15 @@
 //   ⑦ 仲裁层   arbiter.arbitrate()        ← L0→L3 区间收敛 + desired 加权 + 死区滞环
 //   ⑧ 纠偏叠加 L2 实时控制器修正量叠加到 L3 目标（防逆流 > 需量 > 平抑）
 //   ⑨ 安全兜底 safety.apply()             ← 指令压回安全区间（安全层兜底）
-//   ⑩ 执行层   io_->execute()            ← PCS 执行（死区 + 惯性 + 变化率）
+//   ⑩ 执行层   io_->write_command()       ← 先把「指令 + 权限区间」发布出去
+//              io_->execute()              ← 再驱动 PCS（死区 + 惯性 + 变化率）
 //   ⑪ 反馈     实际功率回灌下一拍 ①
+//
+// 注：⑩ 的两步不能合并。权限区间 (p_lower, p_upper) 是 EMS 对设备/SCADA 的
+//   **公开声明**，设备侧要按它做交叉校核（"EMS 下发的指令是否落在它自己声明的
+//   区间内"是联调期的硬契约）。IDeviceIO::execute() 只带 p_cmd 一个参数，
+//   无法携带区间 —— 区间必须由 write_command() 单独发布，否则落地方（07/ 的
+//   RtDbDeviceIO）永远看不到它，设备侧只能读到 (0,0)。
 //
 // 编译：纯头文件，实现全部 inline。
 // =====================================================================
@@ -37,6 +44,7 @@
 #include "strategy_manager.h"
 #include "strategies_9.h"
 #include "strategy_arbiter.h"
+#include "ext_setpoints.h"   // A3.2：外部设定（调度遥调）读取 + 收窄
 
 #include <algorithm>
 #include <chrono>
@@ -135,6 +143,19 @@ struct LoopConfig {
     int    output_switch_delay = 3;
     int    log_every = 1;                 // 每 N 拍记一条日志（长时仿真降采样用）
     bool   enable_log = true;
+
+    // 每拍是否从 IDeviceIO 刷新设备限值（dev_）。
+    //
+    // 为什么这是个**开关**而不是无条件刷新：dev_ 有两个写入者 ——
+    //   ① IDeviceIO::read_limits()（设备侧说了算：BMS 动态降功率、禁充放位）
+    //   ② 装配层注入（rt.device_limits() = cfg.limits，仿真/测试的夹具手法）
+    // 无条件每拍刷新会让 ② 被 ① 覆盖，现有多处仿真注入（09/10/P1/P2）即刻失效。
+    //
+    // 缺省策略：**跟随适配器能力** —— attach_device() 时若
+    // io->limits_are_live() 为真则自动打开（见 attach_device 的说明）。
+    // 真实设备 / 共享内存适配器 = live，仿真适配器 = 不 live（限值来自配置，
+    // 不存在"脚下会变"的问题），所以现场装配不需要记得手动打开。
+    bool   refresh_limits_each_step = false;
 };
 
 // =====================================================================
@@ -450,12 +471,39 @@ public:
         // 立刻按新设备的限制刷新一次，并把设备参数同步给优化协同层。
         // 否则优化层仍在用旧设备的额定/容量做 96 点规划，与实时层不一致。
         refresh_device_limits();
+        // 限值的**运行期刷新**跟随适配器能力（见 LoopConfig 的说明）。
+        // 只打开、不关闭：调用方若已显式设 false（仿真夹具要固定注入），
+        // 这里不能悄悄改回去。
+        if (io_->limits_are_live()) cfg_.refresh_limits_each_step = true;
         coord_.set_device_params(safety_params_.soc_min, safety_params_.soc_max,
                                  io_->battery_capacity_kwh(),
                                  dev_.pcs_rated_chg_kw, dev_.pcs_rated_dis_kw);
     }
     IDeviceIO* device() { return io_; }
     const IDeviceIO* device() const { return io_; }
+
+    // -----------------------------------------------------------------
+    // 外部设定源（A3.2）：调度经网关写 EXT 区，这里只注入"怎么读"。
+    //
+    // read      按点索引读一个 double，返回该点当前是否可读（与 ext_setpoints.h
+    //           的 ReadFn 同形：bool(int, double&)）。由装配层用 RT_DB 句柄构造。
+    // stale_s   超时秒；<=0 表示"禁用外部设定"（见 ext_setpoints.h）。
+    // now_fn    墙钟秒（判定陈旧用）。默认 system_clock；测试可注入假时钟。
+    //
+    // 不设置（read 为空）→ 本拍无外部设定，行为与历史逐位一致（仿真默认）。
+    // -----------------------------------------------------------------
+    void set_ext_source(std::function<bool(int, double&)> read, double stale_s,
+                        std::function<double()> now_fn = nullptr) {
+        ext_read_    = std::move(read);
+        ext_stale_s_ = stale_s;
+        ext_now_fn_  = now_fn ? std::move(now_fn)
+                              : std::function<double()>([]() {
+                                    using namespace std::chrono;
+                                    return duration<double>(
+                                        system_clock::now().time_since_epoch()).count();
+                                });
+    }
+    bool has_ext_source() const { return static_cast<bool>(ext_read_); }
 
     // -----------------------------------------------------------------
     // 一拍闭环
@@ -465,6 +513,11 @@ public:
         auto t0 = std::chrono::steady_clock::now();
 
         t_ += dt_s;
+
+        // ---------- ⓪ 设备限值刷新 ----------
+        // 必须在①之前：本拍的仲裁/安全用的是**本拍的**限值。
+        // 关闭时（仿真/测试的夹具注入场景）行为与历史逐位一致。
+        if (cfg_.refresh_limits_each_step) refresh_device_limits();
 
         // ---------- ① 采集层：冻结快照 ----------
         // 经 IDeviceIO 读量测 —— 算法不知道底层是 PlantModel / RT_DB / Modbus。
@@ -485,7 +538,8 @@ public:
         SafetyVerdict verdict;
         if (cfg_.enable_safety_engine) {
             verdict = safety_.evaluate(rt, dev_, grid_,
-                                       last_cmd_.p_bat_cmd_kw, dt_s);
+                                       last_cmd_.p_bat_cmd_kw, dt_s,
+                                       ext_of_tick());
         } else {
             verdict.p_lower = -dev_.pcs_rated_chg_kw;
             verdict.p_upper =  dev_.pcs_rated_dis_kw;
@@ -584,8 +638,11 @@ public:
         last_cmd_ = cmd;
 
         // ---------- ⑩ 执行层：PCS 执行 ----------
+        // 先发布「指令 + 权限区间」（SCADA / 设备进程从这里取；设备侧要按 EMS
+        // 声明的区间做交叉校核），再驱动执行机构。
         // 经 IDeviceIO 下发。返回值在仿真下即本拍实际功率；真实适配器下只是
         // "尽力反馈"，**闭环不依赖它** —— 闭环走下一拍的 ① 量测（p_bat_actual_kw）。
+        io_->write_command(cmd);
         double p_actual = io_->execute(cmd.p_bat_cmd_kw, dt_s);
 
         // ---------- ⑪ 反馈 + 记录 ----------
@@ -744,7 +801,15 @@ public:
 
 private:
     // 设备限制刷新：唯一入口是 IDeviceIO::read_limits()。
-    // 现场 BMS 动态降功率就是通过这个入口每拍刷进 dev_ 的。
+    //
+    // ★ 2026-09-19 修正：此前这里写着"现场 BMS 动态降功率就是通过这个入口
+    //   每拍刷进 dev_ 的"，但 step() 里**根本没有调用** —— dev_ 只在
+    //   init / reset / configure_plant / attach_device 里刷新，也就是运行期
+    //   **冻结**。后果远不止"注释不准"：BMS 动态降功率、BMS 禁充放位、
+    //   PCS 额定、变压器容量、契约需量全部退化成**装配期常量**。
+    //   修法见 LoopConfig::refresh_limits_each_step（由 attach_device 按
+    //   适配器能力自动打开）。教训与本项目前几次完全一致：
+    //   **注释声称的行为必须与代码实际的行为一致**，否则它会掩盖真实缺口。
     void refresh_device_limits() {
         if (io_ == nullptr) return;
         io_->read_limits(dev_);
@@ -825,6 +890,13 @@ private:
         return 0.0;
     }
 
+    // 本拍外部设定快照。无源 → 默认空（usable()=false → 区间逐位不动）。
+    ExtSetpoints ext_of_tick() const {
+        if (!ext_read_) return ExtSetpoints{};
+        const double now = ext_now_fn_ ? ext_now_fn_() : 0.0;
+        return load_ext_setpoints(ext_read_, now, ext_stale_s_);
+    }
+
     LoopConfig        cfg_{};
     SafetyParams      safety_params_{};
     CoordinatorConfig coord_cfg_{};
@@ -844,6 +916,11 @@ private:
     DispatchCoordinator coord_{};
     HeuristicOptimizer  optimizer_{};
     std::shared_ptr<PlanTrackingStrategy> plan_tracker_{};
+
+    // 外部设定源（A3.2）。ext_read_ 为空 = 仿真默认（无外部设定）。
+    std::function<bool(int, double&)> ext_read_{};
+    double                    ext_stale_s_ = 0.0;
+    std::function<double()>   ext_now_fn_{};
 
     DeviceLimits      dev_{};
     GridQuality       grid_{};

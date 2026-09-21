@@ -1,0 +1,23 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: 'linear-gradient(135deg, #EFF6FF 0%, #FFFFFF 52%, #F0FDFA 100%)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+    <Text style={{ fontSize: 128, fontWeight: 'bold', color: '#DBEAFE', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+        01
+    </Text>
+    <Text style={{ fontSize: 72, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.2, marginTop: -18 }}>
+        09-19 · 补齐设计方案缺口
+    </Text>
+    <Text style={{ fontSize: 22, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.7, marginTop: 18 }}>
+        设计方案里的「周期 11 / 周期 12」原本没有对应模块 ——
+        把该有的补上，顺带把两个"通路上不生效"的缺口修掉。
+    </Text>
+    <Box style={{ display: 'flex', flexDirection: 'row', gap: 40, marginTop: 26 }}>
+        <Text style={{ fontSize: 17, color: '#3B82F6', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            新建 11/ 12/ P3/
+        </Text>
+        <Text style={{ fontSize: 17, color: '#3B82F6', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            修缺口 A1 / A2
+        </Text>
+        <Text style={{ fontSize: 17, color: '#3B82F6', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+            判据修正 T47
+        </Text>
+    </Box>
+</Slide>

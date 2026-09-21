@@ -1,0 +1,49 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 20 }}>
+    <Text style={{ fontSize: 16, color: '#3B82F6', fontFamily: 'Microsoft YaHei', letterSpacing: 3 }}>
+        工商业储能 EMS · 储能协调控制器
+    </Text>
+    <Text style={{ fontSize: 64, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.2 }}>
+        两天工作汇报
+    </Text>
+    <Text style={{ fontSize: 24, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+        2026-09-19 ~ 09-20 · 交付 11 项改动，测试基线 8085 → 9304，全部逐项实测复核
+    </Text>
+    <Box style={{ display: 'flex', flexDirection: 'row', gap: 28, marginTop: 24 }}>
+        <Box style={{ flex: 1, padding: '22px 24px', background: '#EFF6FF', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <Text style={{ fontSize: 92, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                +1219
+            </Text>
+            <Text style={{ fontSize: 17, color: '#1A1A1A', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+                新增测试断言
+            </Text>
+            <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+                8085 → 9304，0 失败
+            </Text>
+        </Box>
+        <Box style={{ flex: 1, padding: '22px 24px', background: '#EFF6FF', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <Text style={{ fontSize: 92, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                19/19
+            </Text>
+            <Text style={{ fontSize: 17, color: '#1A1A1A', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+                逐项复核一致
+            </Text>
+            <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+                每个测试目标本地实跑，与基线逐位一致
+            </Text>
+        </Box>
+        <Box style={{ flex: 1, padding: '22px 24px', background: '#F1F5F9', borderRadius: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <Text style={{ fontSize: 92, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                55/55
+            </Text>
+            <Text style={{ fontSize: 17, color: '#1A1A1A', fontWeight: 600, fontFamily: 'Microsoft YaHei' }}>
+                交付门禁通过
+            </Text>
+            <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+                七维度验收，退出码 0
+            </Text>
+        </Box>
+    </Box>
+    <Text style={{ fontSize: 14, color: '#94A3B8', fontFamily: 'Microsoft YaHei', marginTop: 6 }}>
+        基线口径：本机默认 9304（无 pymodbus，跨语言层 SKIP 7 条）／装后 9382 · 构建 31 步全过
+    </Text>
+</Slide>

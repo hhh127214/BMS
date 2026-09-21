@@ -1,0 +1,65 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            遗留与风险
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            唯一的交付阻塞项是 GPL-3.0 授权；与「能用」距离最大的是 9 策略还没接真实算法
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 9, justifyContent: 'center' }}>
+        <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 14, padding: '10px 16px', background: '#FEF2F2', borderRadius: 8 }}>
+            <Box style={{ width: 62, padding: '4px 0', background: '#EF4444', borderRadius: 6, display: 'flex', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#FFFFFF', fontFamily: 'Microsoft YaHei' }}>阻塞</Text>
+            </Box>
+            <Text style={{ width: 252, fontSize: 16, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>依赖库 GPL-3.0 授权</Text>
+            <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>交付前必须处理（替换或取得授权）——唯一的交付阻塞项</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 14, padding: '10px 16px', background: '#F8FAFC', borderRadius: 8 }}>
+            <Box style={{ width: 62, padding: '4px 0', background: '#F1F5F9', borderRadius: 6, display: 'flex', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>高</Text>
+            </Box>
+            <Text style={{ width: 252, fontSize: 16, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>9 策略仍是演示实现</Text>
+            <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>真实算法（LP/MILP、安全约束、防逆流/需量/平滑）都做了，但没接进调度链——与「能用」距离最大的一项</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 14, padding: '10px 16px', background: '#F8FAFC', borderRadius: 8 }}>
+            <Box style={{ width: 62, padding: '4px 0', background: '#F1F5F9', borderRadius: 6, display: 'flex', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>高</Text>
+            </Box>
+            <Text style={{ width: 252, fontSize: 16, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>现场化参数与数据源</Text>
+            <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>stale_s 硬编码 30s，要按现场网关心跳定；BMS 充放限值无真实来源；电表缺漂移与时延；累计电量（BCR）未做</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 14, padding: '10px 16px', background: '#F8FAFC', borderRadius: 8 }}>
+            <Box style={{ width: 62, padding: '4px 0', background: '#F1F5F9', borderRadius: 6, display: 'flex', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>高</Text>
+            </Box>
+            <Text style={{ width: 252, fontSize: 16, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>刷新根目录构建日志</Text>
+            <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>本机跑不了 .bat（安全策略），日志停在 09-20 旧口径——需在能跑 scripts\build_all.bat 的环境重跑一次，把 9304/9382 官方日志补齐</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 14, padding: '10px 16px', background: '#F8FAFC', borderRadius: 8 }}>
+            <Box style={{ width: 62, padding: '4px 0', background: '#F1F5F9', borderRadius: 6, display: 'flex', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>中</Text>
+            </Box>
+            <Text style={{ width: 252, fontSize: 16, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>设备全点表（B2）</Text>
+            <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>段里目前只有 EMS 抽象表，现场设备完整点表未建模——下一项按优先级要做的</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 14, padding: '10px 16px', background: '#F8FAFC', borderRadius: 8 }}>
+            <Box style={{ width: 62, padding: '4px 0', background: '#F1F5F9', borderRadius: 6, display: 'flex', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>中</Text>
+            </Box>
+            <Text style={{ width: 252, fontSize: 16, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>云侧 / 主站 / 环形队列</Text>
+            <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>B6/B7/B8：机制骨架在，真实链路未接</Text>
+        </Box>
+        <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 14, padding: '10px 16px', background: '#F8FAFC', borderRadius: 8 }}>
+            <Box style={{ width: 62, padding: '4px 0', background: '#F1F5F9', borderRadius: 6, display: 'flex', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei' }}>低</Text>
+            </Box>
+            <Text style={{ width: 252, fontSize: 16, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>07/ L2 需量 1 拍极限环</Text>
+            <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>刻意不修：修它动 7500+ 断言，当前行为可接受——「不修」也是一个决定，已留证据与建议修法</Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 工作汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>09 / 10</Text>
+    </Box>
+</Slide>

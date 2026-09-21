@@ -6,7 +6,7 @@
 //       它唯一的兜底是"若一个点都没有，就注入 8 个 demo 点"
 //       （BMS_01.SOC / PCS_01.Power / SCADA.* 等），这显然不能用于生产。
 //
-// 本文件补上这一步：创建（或打开）共享内存 → 写入 EMS 的 30 个点 → 收工。
+// 本文件补上这一步：创建（或打开）共享内存 → 写入 EMS 的 32 个点 → 收工。
 // 与官方 `src/tools/init_rt_db.c` 的区别：
 //   · 官方版是**常驻进程**（跑 monitor 循环，Ctrl+C 才退出），无法用于自动化测试；
 //     本版**写完即退出**，可被测试直接调用。
@@ -118,7 +118,7 @@ static void initialize_segment(SharedMemorySegment* seg) {
         strcpy(seg->data_points[i].units, "");
     }
 
-    // 注册 EMS 的 30 个点（索引 0..29，与枚举顺序一致）
+    // 注册 EMS 的 32 个点（索引 0..31，与枚举顺序一致）
     for (size_t i = 0; i < EMS_POINT_COUNT; ++i) {
         strncpy(seg->data_points[i].point_id, EMS_POINT_NAMES[i], MAX_POINT_ID_LEN - 1);
         seg->data_points[i].point_id[MAX_POINT_ID_LEN - 1] = '\0';

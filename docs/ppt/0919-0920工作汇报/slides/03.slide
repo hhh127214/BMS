@@ -1,0 +1,49 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            怎么设置的 ①：测试从一层变五层
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            每一层专门补上一层照不到的地方——这是这两天最重要的结构性变化
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 28, alignItems: 'center' }}>
+        <Box style={{ width: 620, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+            <Image src="assets/test_pyramid.png" style={{ width: 620, height: 270 }} />
+            <Text style={{ fontSize: 13, color: '#94A3B8', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                数字 = 各层断言条数（默认口径）
+            </Text>
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 9 }}>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Text style={{ width: 88, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>① 单元</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>~7900 条：每个模块自己的逻辑，秒级出结果</Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Text style={{ width: 88, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>② 跨进程</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>152 条：起真进程读写同一块共享内存——夹具替不了的那段</Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Text style={{ width: 88, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>③ 跨内存</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>121 条：不注入任何东西，写走真写者、读走真 API</Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Text style={{ width: 88, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>④ 跨语言</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>83 条：C++ 对第三方 pymodbus 真对端——自己写两端，双方同时理解错也能「对得上」</Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <Text style={{ width: 88, fontSize: 15, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>⑤ 端到端</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>55/55：五进程闭环实测 + 七维度交付门禁</Text>
+            </Box>
+            <Box style={{ marginTop: 6, padding: '11px 14px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    为什么 ③ 必须「不注入任何东西」：跨内存边界 + 夹具注入 = 测试盲区——断言全绿，真实链路却是断的。这个亏吃过，所以专设一层。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 工作汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>03 / 10</Text>
+    </Box>
+</Slide>

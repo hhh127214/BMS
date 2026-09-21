@@ -1,0 +1,46 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 92, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            原理 · 一组量必须「要么全旧、要么全新」
+        </Text>
+        <Text style={{ fontSize: 17, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            共享内存的单点写入不会撕裂，但一组量会 —— 而撕裂出来的中间态看起来是合法的
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 26, alignItems: 'center' }}>
+        <Box style={{ width: 620 }}>
+            <Image src="assets/ext_protocol.png" style={{ width: 620, height: 314 }} />
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 13 }}>
+            <Box style={{ padding: '13px 15px', background: '#EFF6FF', borderRadius: 10, borderLeft: '4px solid #3B82F6' }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>
+                    写者：序号前后各递增一次
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    写之前先递增（变成奇数 = 正在写），写完再递增（变成偶数 = 已完成）。
+                </Text>
+            </Box>
+            <Box style={{ padding: '13px 15px', background: '#EFF6FF', borderRadius: 10, borderLeft: '4px solid #3B82F6' }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Microsoft YaHei' }}>
+                    读者：读前后序号必须相等且为偶数
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    「相等」挡快写者（读完之后才变）；「偶数」挡慢写者（读的过程中一直在变）。缺一不可。
+                </Text>
+            </Box>
+            <Box style={{ padding: '13px 15px', background: '#FEF2F2', borderRadius: 10, borderLeft: '4px solid #EF4444' }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei' }}>
+                    这是这两天抓到的一个真缺陷
+                </Text>
+                <Text style={{ fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 3 }}>
+                    原来只有"写完之后递增"。一次写 6 个点的清空操作，会读到「新的上界 + 旧的下界」——
+                    中间态可能比两端都宽。单点 setter 看不出，只有整组写才暴露。
+                </Text>
+            </Box>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>10 / 24</Text>
+    </Box>
+</Slide>

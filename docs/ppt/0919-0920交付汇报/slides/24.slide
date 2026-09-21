@@ -1,0 +1,72 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            遗留与风险
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            未做完的部分和做完的部分一样要交代清楚 —— 否则下一个读文档的人会把它当成现状
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 26 }}>
+        <Box style={{ flex: 1.35, display: 'flex', flexDirection: 'column', gap: 11, justifyContent: 'center' }}>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 12, padding: '11px 14px', background: '#FEF2F2', borderRadius: 10, borderLeft: '5px solid #EF4444' }}>
+                <Text style={{ width: 52, fontSize: 15, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>阻塞</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    依赖库的 GPL-3.0 授权：交付前必须处理（替换或取得授权），这是唯一的交付阻塞项。
+                </Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 12, padding: '11px 14px', background: '#F1F5F9', borderRadius: 10, borderLeft: '5px solid #64748B' }}>
+                <Text style={{ width: 52, fontSize: 15, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>高</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    9 个策略目前仍是演示实现：真实算法都做了，但还没有接进调度链。这是与"现场能用"距离最大的一项。
+                </Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 12, padding: '11px 14px', background: '#F1F5F9', borderRadius: 10, borderLeft: '5px solid #64748B' }}>
+                <Text style={{ width: 52, fontSize: 15, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>高</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    现场化参数与数据源：外部设定的失效阈值需要现场取值；BMS 充放限值目前没有真实来源；
+                    电表只有常量偏差，缺漂移与一阶时延；累计电量编码未做。
+                </Text>
+            </Box>
+            <Box style={{ display: 'flex', flexDirection: 'row', gap: 12, padding: '11px 14px', background: '#F1F5F9', borderRadius: 10, borderLeft: '5px solid #64748B' }}>
+                <Text style={{ width: 52, fontSize: 15, fontWeight: 'bold', color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>高</Text>
+                <Text style={{ flex: 1, fontSize: 14, color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    刷新根目录的构建日志：本机的命令行被安全策略禁用，跑不了官方构建脚本，
+                    需要在能执行脚本的环境重跑一次，把最新的全量口径补进日志。
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, justifyContent: 'center', padding: '20px 22px', background: '#EFF6FF', borderRadius: 12 }}>
+            <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                这两天做完的事，可以用三个数字记住
+            </Text>
+            <Box style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 4 }}>
+                <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'baseline', gap: 12 }}>
+                    <Text style={{ fontSize: 62, fontWeight: 'bold', color: '#3B82F6', fontFamily: 'Consolas', lineHeight: 1.0 }}>9304</Text>
+                    <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                        条断言，0 失败<br />（两天净增 1219）
+                    </Text>
+                </Box>
+                <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'baseline', gap: 12 }}>
+                    <Text style={{ fontSize: 62, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas', lineHeight: 1.0 }}>55/55</Text>
+                    <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                        七维度交付门禁<br />全部通过
+                    </Text>
+                </Box>
+                <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'baseline', gap: 12 }}>
+                    <Text style={{ fontSize: 62, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Consolas', lineHeight: 1.0 }}>734</Text>
+                    <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.5 }}>
+                        元／日 综合成本下降<br />（越限 0 次）
+                    </Text>
+                </Box>
+            </Box>
+            <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei', lineHeight: 1.6, marginTop: 4 }}>
+                更重要的是：这些数字背后每一条都有可复核的判据与产物。
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 34, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 两天交付汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>24 / 24</Text>
+    </Box>
+</Slide>

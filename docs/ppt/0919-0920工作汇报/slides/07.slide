@@ -1,0 +1,39 @@
+<Slide style={{ width: 1280, height: 720, padding: '20px 64px', background: '#FFFFFF', display: 'flex', flexDirection: 'column' }}>
+    <Box style={{ height: 84, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+        <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#1A1A1A', fontFamily: 'Microsoft YaHei' }}>
+            结果 ①：断言基线 8085 → 9304，0 失败
+        </Text>
+        <Text style={{ fontSize: 16, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>
+            两天净增 +1219 条——演进链上每一跳都能指到一项具体工作
+        </Text>
+    </Box>
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: 30, alignItems: 'center' }}>
+        <Box style={{ width: 330, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>全量断言（本机默认口径）</Text>
+            <Text style={{ fontSize: 118, fontWeight: 'bold', color: '#EF4444', fontFamily: 'Consolas', lineHeight: 1.0 }}>
+                9304
+            </Text>
+            <Box style={{ display: 'flex', flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                <Text style={{ fontSize: 34, fontWeight: 'bold', color: '#06B6D4', fontFamily: 'Consolas' }}>+1219</Text>
+                <Text style={{ fontSize: 15, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>较 09-19 起点 8085</Text>
+            </Box>
+            <Box style={{ marginTop: 8, padding: '12px 14px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6' }}>
+                <Text style={{ fontSize: 15, color: '#1A1A1A', fontWeight: 600, fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                    数字涨不是目的——<br />
+                    「能被自动验证的行为变多」才是。
+                </Text>
+            </Box>
+        </Box>
+        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+            <Image src="assets/test_baseline.png" style={{ width: 760, height: 325 }} />
+            <Text style={{ fontSize: 13, color: '#94A3B8', fontFamily: 'Microsoft YaHei', lineHeight: 1.6 }}>
+                演进链：8085 → 8331（+11/+12）→ 8498（T47）→ 8523/8547（A1/A2）→ 8906/8984（13/）→ 9245/9323（A3.1）→ 9276/9354（A3.2）→ 9304/9382（转发表 CSV）。
+                左值 = 默认口径（SKIPPED=7），右值 = 装 pymodbus 后（SKIPPED=0）。
+            </Text>
+        </Box>
+    </Box>
+    <Box style={{ height: 36, display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Microsoft YaHei' }}>工商业储能 EMS · 0919-0920 工作汇报</Text>
+        <Text style={{ fontSize: 14, color: '#64748B', fontFamily: 'Consolas' }}>07 / 10</Text>
+    </Box>
+</Slide>
