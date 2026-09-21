@@ -9,6 +9,7 @@
 //   T05: 跨层绝不平均（L3 desired 被压扁到 L0/L1 区间）
 //   T06: desired_clip（desired 在区间外）
 //   T07: 典型场景（5 策略）：峰谷500/需量400/需求响应300/BMS250/变压器200 → 200
+//        （a）上界来自 PCS 额定 200；（b）上界来自 transformer_capacity_kw=200 过载
 //   T08: 死区 + 滞环
 //   T09: L3 独占模式（RunMode）
 //   T10: 优先级分桶（tick 输出顺序）
@@ -21,6 +22,7 @@
 //   T15: 动态优化 + 需量管理
 //   T16: 需求响应 + 峰谷套利 + BMS限制
 //   T17: 9 策略全量同时启用（设计方案 §7 场景 7）
+//   T18: 设备维度视图 BatteryState / GridState（设计方案 §7 周期 2）
 //
 // 编译：g++ -std=c++17 -I src tests/test_arbiter.cpp -o build/test_arbiter.exe
 // =====================================================================
@@ -316,39 +318,99 @@ static void test_06_desired_clip(Fixture& f) {
 
 // ---------------------------------------------------------------------
 // T07: 典型场景 — 峰谷500/需量400/需求响应300/BMS250/变压器200 → 200
+//
+// 分两个子场景，分别覆盖"上界 200 从哪来"的两种路径（design §7 经典例）：
+//   (a) PCS 额定上界：pcs_rated_dis_kw = 200 → 变压器不动作，上界来自 PCS
+//   (b) 变压器过载上界：transformer_capacity_kw = 200 且变压器确实过载
+//                       → 上界由 TransformerLimitStrategy 收紧到 200
+// 只测 (a) 会漏掉"变压器这道防线到底有没有接进仲裁"。
 // ---------------------------------------------------------------------
 static void test_07_typical_scenario(Fixture& f) {
     std::cerr << "[T07] 典型多策略场景 ..." << std::endl;
     register_all_9_strategies(f.mgr);
     f.mgr.start_all();
 
-    auto rt = f.rt_with();
-    rt.pricing.cur_tou_type = TouType::kPeak;
+    // =================================================================
+    // (a) 上界 200 来自 PCS 额定（变压器不动作）
+    // =================================================================
+    {
+        auto rt = f.rt_with();
+        rt.pricing.cur_tou_type = TouType::kPeak;
 
-    // PeakValley +500
-    f.mgr.set_param(strategy_id::kPeakValley, "P_discharge", 500.0);
-    // 让所有 L3 都活跃，验证加权平均 → 然后被压扁到 200
-    f.mgr.set_param(strategy_id::kPeakValley,     "__weight__", 1.0);
-    f.mgr.set_param(strategy_id::kForecastOpt,    "__weight__", 1.0);
-    f.mgr.set_param(strategy_id::kDemandResponse, "__weight__", 1.0);
+        // PeakValley +500
+        f.mgr.set_param(strategy_id::kPeakValley, "P_discharge", 500.0);
+        // 让所有 L3 都活跃，验证加权平均 → 然后被压扁到 200
+        f.mgr.set_param(strategy_id::kPeakValley,     "__weight__", 1.0);
+        f.mgr.set_param(strategy_id::kForecastOpt,    "__weight__", 1.0);
+        f.mgr.set_param(strategy_id::kDemandResponse, "__weight__", 1.0);
 
-    // DemandResponse 期望 +300（直接通过 set_event 不便，改用 rt 数据驱动）
-    // 这里简化：让 ForecastOpt 输出 ~+450（load=650, target=250）
-    rt.p_load_kw = 650.0;
+        // DemandResponse 期望 +300（直接通过 set_event 不便，改用 rt 数据驱动）
+        // 这里简化：让 ForecastOpt 输出 ~+450（load=650, target=250）
+        rt.p_load_kw = 650.0;
 
-    // BMS 上限 250
-    f.dev.bms_dis_limit_kw = 250.0;
-    // PCS 上限 = 200
-    f.dev.pcs_rated_dis_kw = 200.0;
+        // BMS 上限 250
+        f.dev.bms_dis_limit_kw = 250.0;
+        // PCS 上限 = 200
+        f.dev.pcs_rated_dis_kw = 200.0;
 
-    auto results = f.mgr.tick(rt, f.dev);
-    auto cmd = f.arb.arbitrate(results, rt.timestamp);
+        auto results = f.mgr.tick(rt, f.dev);
+        auto cmd = f.arb.arbitrate(results, rt.timestamp);
 
-    // 期望：上界 200（min of BMS 250, PCS 200），下发 ≤ 200
-    EXPECT_NEAR(cmd.p_upper, 200.0, 1e-6);
-    EXPECT(cmd.p_bat_cmd_kw <= 200.0 + 1e-6);
-    EXPECT(cmd.p_bat_cmd_kw >  0.0);  // 还在放电方向
-    EXPECT(cmd.clamped);
+        // 期望：上界 200（min of BMS 250, PCS 200），下发 ≤ 200
+        EXPECT_NEAR(cmd.p_upper, 200.0, 1e-6);
+        EXPECT(cmd.p_bat_cmd_kw <= 200.0 + 1e-6);
+        EXPECT(cmd.p_bat_cmd_kw >  0.0);  // 还在放电方向
+        EXPECT(cmd.clamped);
+    }
+
+    // =================================================================
+    // (b) 上界 200 来自变压器过载（design §7 经典例的那条路径）
+    //
+    // 让 PCS/BMS 都放到 200 以上，逼出"只有变压器能压到 200"的现场：
+    //   容量 200 kVA；负载估算 tr_load = |P_grid| + 0.1·P_load（与 05/ 同口径）
+    //   P_grid = 105, P_load = 950 → tr_load = 105 + 95 = 200 → ratio = 1.00
+    //   判据 0.95 < ratio ≤ 1.10 → 轻度过载，reason = "tr_overload"
+    //   可行带 half = 0.95×200 − 0.1×950 = 95
+    //   base = P_grid + P_bat = 105  →  [lo, hi] = [10, 200]
+    //   于是 p_upper = min(PCS 300, 200) = 200，p_lower = max(−100, 10) = 10
+    // =================================================================
+    {
+        auto rt = f.rt_with(/*p_grid=*/105.0, /*p_pv=*/0.0, /*p_load=*/950.0);
+        rt.p_bat_actual_kw = 0.0;
+        rt.pricing.cur_tou_type = TouType::kPeak;
+        rt.demand_window.p_avg_past_kw = 105.0;
+
+        f.mgr.set_param(strategy_id::kPeakValley, "P_discharge", 500.0);
+        f.mgr.set_param(strategy_id::kPeakValley,     "__weight__", 1.0);
+        f.mgr.set_param(strategy_id::kForecastOpt,    "__weight__", 1.0);
+        f.mgr.set_param(strategy_id::kDemandResponse, "__weight__", 1.0);
+
+        // PCS / BMS 都开到 250 以上 —— 上界不再可能由它们给出
+        f.dev.transformer_capacity_kw = 200.0;
+        f.dev.pcs_rated_dis_kw        = 300.0;
+        f.dev.bms_dis_limit_kw        = 260.0;
+
+        auto results = f.mgr.tick(rt, f.dev);
+
+        // 定位变压器策略自己的输出：证明"是它把上界压到 200 的"
+        const StrategyResult* tr = nullptr;
+        for (const StrategyResult& r : results) {
+            if (r.strategy_id == strategy_id::kTransformerLim) tr = &r;
+        }
+        EXPECT(tr != nullptr);
+        if (tr != nullptr) {
+            EXPECT_EQ(tr->reason, std::string("tr_overload"));
+            EXPECT_NEAR(tr->p_upper, 200.0, 1e-6);
+            EXPECT_NEAR(tr->p_lower,  10.0, 1e-6);
+            EXPECT(tr->active);
+        }
+
+        auto cmd = f.arb.arbitrate(results, rt.timestamp);
+        EXPECT_NEAR(cmd.p_upper, 200.0, 1e-6);          // 变压器给出的上界
+        EXPECT_NEAR(cmd.p_lower,  10.0, 1e-6);          // 变压器给出的下界
+        EXPECT(cmd.p_bat_cmd_kw <= 200.0 + 1e-6);
+        EXPECT(cmd.clamped);                            // desired 500 被压到 200
+    }
 
     std::cerr << "  PASS  T07\n";
 }
@@ -728,6 +790,67 @@ static void test_17_all_nine_simultaneously(Fixture& f) {
 }
 
 // ---------------------------------------------------------------------
+// T18: 设备维度视图 BatteryState / GridState（设计方案 §7 周期 2）
+//
+// 这两个视图是"同一份真相的另一个视角"，所以测试的重点不是算得对不对，
+// 而是**映射是否忠实 + 不产生第二份真相**：
+//   1. 每个视图字段都必须等于其来源字段（逐一核对，不是抽样）；
+//   2. 修改视图不得影响源结构（只读视角）。
+// ---------------------------------------------------------------------
+static void test_18_device_views(Fixture& f) {
+    std::cerr << "[T18] BatteryState / GridState 视图 ..." << std::endl;
+
+    auto rt = f.rt_with(/*p_grid=*/123.0, /*p_pv=*/45.0, /*p_load=*/300.0, /*soc=*/0.42);
+    rt.temperature_c    = 31.5;
+    rt.soh              = 0.97;
+    rt.p_bat_actual_kw  = -18.0;
+    rt.meters_alive["BMS"]   = true;
+    rt.meters_alive["METER"] = true;
+
+    f.dev.pcs_rated_chg_kw        = 110.0;
+    f.dev.pcs_rated_dis_kw        = 120.0;
+    f.dev.bms_chg_limit_kw        = 80.0;
+    f.dev.bms_dis_limit_kw        = 90.0;
+    f.dev.bms_chg_forbidden       = true;
+    f.dev.bms_dis_forbidden       = false;
+    f.dev.transformer_capacity_kw = 315.0;
+    f.dev.d_target_kw             = 275.0;
+
+    const BatteryState bs = battery_state_of(rt, f.dev);
+    EXPECT_NEAR(bs.soc,           rt.soc,               1e-12);
+    EXPECT_NEAR(bs.soh,           rt.soh,               1e-12);
+    EXPECT_NEAR(bs.temperature_c, rt.temperature_c,     1e-12);
+    EXPECT_NEAR(bs.p_bat_kw,      rt.p_bat_actual_kw,   1e-12);
+    EXPECT_NEAR(bs.rated_chg_kw,  f.dev.pcs_rated_chg_kw, 1e-12);
+    EXPECT_NEAR(bs.rated_dis_kw,  f.dev.pcs_rated_dis_kw, 1e-12);
+    EXPECT_NEAR(bs.chg_limit_kw,  f.dev.bms_chg_limit_kw, 1e-12);
+    EXPECT_NEAR(bs.dis_limit_kw,  f.dev.bms_dis_limit_kw, 1e-12);
+    EXPECT_EQ(bs.chg_forbidden, f.dev.bms_chg_forbidden);
+    EXPECT_EQ(bs.dis_forbidden, f.dev.bms_dis_forbidden);
+    EXPECT(bs.comm_ok);
+
+    const GridState gs = grid_state_of(rt, f.dev);
+    EXPECT_NEAR(gs.p_grid_kw,               rt.p_grid_kw,    1e-12);
+    EXPECT_NEAR(gs.p_load_kw,               rt.p_load_kw,    1e-12);
+    EXPECT_NEAR(gs.p_pv_kw,                 rt.p_pv_kw,      1e-12);
+    EXPECT_NEAR(gs.transformer_capacity_kw, f.dev.transformer_capacity_kw, 1e-12);
+    EXPECT_NEAR(gs.d_target_kw,             f.dev.d_target_kw, 1e-12);
+    EXPECT(gs.meter_ok);
+
+    // 只读视角：改视图不能回写源结构（防止"第二份真相"）
+    BatteryState bs2 = bs;
+    bs2.soc = 0.99;
+    EXPECT_NEAR(bs2.soc, 0.99, 1e-12);   // 副本确实改了
+    EXPECT_NEAR(rt.soc,  0.42, 1e-12);   // 源结构没动
+
+    // BMS 通信丢失要能被视图表达出来
+    rt.meters_alive["BMS"] = false;
+    EXPECT(!battery_state_of(rt, f.dev).comm_ok);
+
+    std::cerr << "  PASS  T18\n";
+}
+
+// ---------------------------------------------------------------------
 // 主入口
 // ---------------------------------------------------------------------
 int main() {
@@ -802,6 +925,10 @@ int main() {
     {
         Fixture f;
         test_17_all_nine_simultaneously(f);
+    }
+    {
+        Fixture f;
+        test_18_device_views(f);
     }
 
     std::cerr << "=========================================\n"

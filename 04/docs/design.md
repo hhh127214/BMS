@@ -206,6 +206,13 @@ struct StrategyStatus {
 
 `get_all_status()` 返回所有策略状态，用于 UI/告警/历史记录。
 
+> **`strategy_id` 的取值**：就是 `namespace strategy_id`（`04/src/data_models.h`）
+> 里的常量，形如 `S01_BMS_FORBID` … `S09_DEMAND_RESPONSE`。**本文档与代码是
+> 唯一真相源**；接口规范 `docs/接口规范/EMS策略接口规范.md` 用的是英文短名
+> 别名（`bms_protection` / `peak_valley_arbitrage` 等），两套写法的权威映射表
+> 见该规范 **§4.10.1**。新增策略先在本文件对应的 `namespace strategy_id` 登记
+> 常量，再回写映射表。
+
 ### 3.4 L3 独占模式
 
 ```cpp

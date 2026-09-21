@@ -6,8 +6,9 @@
 //   **不依赖**任何具体实现：
 //     · SimDeviceIO    —— 仿真适配器（周期 7 的 PlantModel）
 //     · MemoryDeviceIO —— 进程内点表适配器（P0.5，验证接口真的可换）
-//     · RtDbDeviceIO   —— 共享内存实时库适配器（P3 之后接入 RT_DB）
-//     · ModbusDeviceIO —— 现场设备适配器（P3，PCS/BMS/电表）
+//     · RtDbDeviceIO   —— 共享内存实时库适配器（已接入：07/src/rtdb/rtdb_device_io.h）
+//     · ModbusDeviceIO —— 现场设备适配器，EMS 为主站（已交付：P3/src/modbus_device_io.h）
+//     · Iec104DeviceIO —— 调度通信适配器，EMS 为受控站（已交付：P3/src/iec104_device_io.h）
 //
 // 为什么必须做这一步（不做会怎样）：
 //   现状 EmsRuntime 直接持有 PlantModel，算法与仿真对象编译期绑死。后果：

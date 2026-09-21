@@ -167,6 +167,81 @@ struct RealtimeSnapshot {
 };
 
 // =====================================================================
+// 2.5 BatteryState / GridState —— 设备类型维度的显式视图
+//
+// 设计方案（§7 周期 2）的字面契约要求把设备状态按**设备类型**分体建模
+// （BatteryState / GridState），而不是把 SOC、并网点功率都摊在同一个
+// "实时快照"里。04/ 的做法是：**不替换** RealtimeSnapshot / DeviceLimits
+// 的既有字段 —— 它们已是全项目的公共契约，改动会波及 05/06/07/08/09/10
+// 与 P1/P2/P3 —— 而是把同源字段**显式成体**为只读视图。
+//
+// 为什么要成体（而不是继续摊平）：
+//   1. **扩展性**：现场一旦出现"多并网点 / 多储能柜"，摊平字段会退化成
+//      p_grid1_kw / p_grid2_kw … 的命名灾难；成体后按对象聚合即可。
+//   2. **可读性**：`battery_state_of(...).soc` 比 `rt.soc` 更能自证
+//      "这是电池的状态"；`p_grid_kw` 归到 GridState 后语义边界也清楚了。
+//   3. **可测性**：单测可直接构造一个 BatteryState 做边界测试，
+//      不必凑齐整个 RealtimeSnapshot。
+//
+// 纪律：**这里不产生第二份真相**。视图字段一律由 RealtimeSnapshot /
+// DeviceLimits 单向映射而来；写入设备状态仍然只走原来那两个结构。
+// 故障 / 离线标志由 `DeviceStatus`（P0 设备抽象，见 device_io.h）承载，
+// 此处不重复建模，避免"同一事实两处不同步"。
+// =====================================================================
+struct BatteryState {
+    double soc           = 0.5;    // [0,1]
+    double soh           = 1.0;    // [0,1]
+    double temperature_c = 25.0;
+    double p_bat_kw      = 0.0;    // 实测（放电为正，与 P_bat 约定一致）
+    double rated_chg_kw  = 0.0;    // PCS 额定充电幅度
+    double rated_dis_kw  = 0.0;    // PCS 额定放电幅度
+    double chg_limit_kw  = 0.0;    // BMS 允许最大充电功率（动态降额后的值）
+    double dis_limit_kw  = 0.0;    // BMS 允许最大放电功率
+    bool   chg_forbidden = false;  // BMS 禁止充电（硬安全）
+    bool   dis_forbidden = false;  // BMS 禁止放电（硬安全）
+    bool   comm_ok       = false;  // BMS 通信是否正常
+};
+
+struct GridState {
+    double p_grid_kw               = 0.0;   // 并网点功率（>0 进口, <0 馈网）
+    double p_load_kw               = 0.0;   // 本地负荷
+    double p_pv_kw                 = 0.0;   // 光伏出力
+    double transformer_capacity_kw = 0.0;   // 变压器物理容量
+    double d_target_kw             = 0.0;   // 契约需量上限
+    bool   meter_ok                = true;  // 关口表通信是否正常
+};
+
+// 视图构造：逐字段单向映射，不做任何计算与钳位
+inline BatteryState battery_state_of(const RealtimeSnapshot& rt, const DeviceLimits& dev) {
+    BatteryState bs;
+    bs.soc           = rt.soc;
+    bs.soh           = rt.soh;
+    bs.temperature_c = rt.temperature_c;
+    bs.p_bat_kw      = rt.p_bat_actual_kw;
+    bs.rated_chg_kw  = dev.pcs_rated_chg_kw;
+    bs.rated_dis_kw  = dev.pcs_rated_dis_kw;
+    bs.chg_limit_kw  = dev.bms_chg_limit_kw;
+    bs.dis_limit_kw  = dev.bms_dis_limit_kw;
+    bs.chg_forbidden = dev.bms_chg_forbidden;
+    bs.dis_forbidden = dev.bms_dis_forbidden;
+    const auto it = rt.meters_alive.find("BMS");
+    bs.comm_ok = (it != rt.meters_alive.end()) && it->second;
+    return bs;
+}
+
+inline GridState grid_state_of(const RealtimeSnapshot& rt, const DeviceLimits& dev) {
+    GridState gs;
+    gs.p_grid_kw               = rt.p_grid_kw;
+    gs.p_load_kw               = rt.p_load_kw;
+    gs.p_pv_kw                 = rt.p_pv_kw;
+    gs.transformer_capacity_kw = dev.transformer_capacity_kw;
+    gs.d_target_kw             = dev.d_target_kw;
+    const auto it = rt.meters_alive.find("METER");
+    gs.meter_ok = (it == rt.meters_alive.end()) || it->second;
+    return gs;
+}
+
+// =====================================================================
 // 3. StrategyResult（策略输出 + 状态）
 // =====================================================================
 
