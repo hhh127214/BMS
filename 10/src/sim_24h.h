@@ -33,7 +33,7 @@ namespace ems {
 // =====================================================================
 struct AlarmEntry {
     Timestamp   t = 0.0;
-    std::string level;    // INFO / WARN / ALARM / FAULT
+    std::string level;    // INFO / WARNING / DERATED / FAULT / EMERGENCY（对齐 14/schema.sql）
     std::string source;   // FSM / SAFETY / SOC / GRID / TRANSFORMER / COMM / TEMP
     std::string message;
 
@@ -198,7 +198,7 @@ inline void collect_alarms(EmsRuntime& rt,
         a.t = e.ts;
         a.source = "FSM";
         a.level = (e.to == EmsState::kFault || e.to == EmsState::kEmergency) ? "FAULT"
-                : (e.to == EmsState::kDerated) ? "WARN" : "INFO";
+                : (e.to == EmsState::kDerated) ? "DERATED" : "INFO";
         a.message = std::string("状态迁移 ") + state_name(e.from) + " → " + state_name(e.to)
                   + (e.reason.empty() ? "" : (" (" + e.reason + ")"));
         out.push_back(a);
@@ -217,7 +217,7 @@ inline void collect_alarms(EmsRuntime& rt,
         if (cfg.grid_min_required > -1e17 && cfg.grid_min_required > -1e8) {
             const bool bad = s.p_grid < cfg.grid_min_required - 1.0;
             if (bad && !in_reverse) {
-                out.push_back({t, "ALARM", "GRID",
+                out.push_back({t, "WARNING", "GRID",
                     "关口倒送/越下限 P_grid=" + std::to_string((long long)s.p_grid) + " kW"});
                 in_reverse = true;
             } else if (!bad && in_reverse) {
@@ -232,7 +232,7 @@ inline void collect_alarms(EmsRuntime& rt,
             const double lim = cfg.safety.tr_overload_th * cfg.tr_check_cap_kw;
             const bool bad = tr > lim * cfg.tr_check_tol;
             if (bad && !in_tr_over) {
-                out.push_back({t, "ALARM", "TRANSFORMER",
+                out.push_back({t, "WARNING", "TRANSFORMER",
                     "变压器过载 tr_load=" + std::to_string((long long)tr) + " kW > "
                     + std::to_string((long long)lim) + " kW"});
                 in_tr_over = true;
@@ -245,7 +245,7 @@ inline void collect_alarms(EmsRuntime& rt,
         // SOC 越限（预留 1% 量测容差）
         if (s.soc >= cfg.safety.soc_max - 0.005) {
             if (!in_soc_hi) {
-                out.push_back({t, "WARN", "SOC", "SOC 接近/触及上限 " + std::to_string(s.soc)});
+                out.push_back({t, "WARNING", "SOC", "SOC 接近/触及上限 " + std::to_string(s.soc)});
                 in_soc_hi = true;
             }
         } else if (s.soc < cfg.safety.soc_max - 0.02) {
@@ -253,7 +253,7 @@ inline void collect_alarms(EmsRuntime& rt,
         }
         if (s.soc <= cfg.safety.soc_min + 0.005) {
             if (!in_soc_lo) {
-                out.push_back({t, "WARN", "SOC", "SOC 接近/触及下限 " + std::to_string(s.soc)});
+                out.push_back({t, "WARNING", "SOC", "SOC 接近/触及下限 " + std::to_string(s.soc)});
                 in_soc_lo = true;
             }
         } else if (s.soc > cfg.safety.soc_min + 0.02) {
@@ -263,7 +263,7 @@ inline void collect_alarms(EmsRuntime& rt,
         // 安全兜底频繁动作（说明策略与安全边界长期冲突，值得关注）
         if (s.safety_clip) {
             if (!in_clip) {
-                out.push_back({t, "WARN", "SAFETY",
+                out.push_back({t, "WARNING", "SAFETY",
                     "安全层限幅生效 reason=" + s.reason});
                 in_clip = true;
             }
@@ -273,7 +273,7 @@ inline void collect_alarms(EmsRuntime& rt,
 
         // 高温
         if (s.temp >= cfg.safety.temp_warn_c) {
-            out.push_back({t, "WARN", "TEMP",
+            out.push_back({t, "WARNING", "TEMP",
                 "电池温度偏高 " + std::to_string(s.temp) + " °C"});
         }
         // 故障位
@@ -286,30 +286,61 @@ inline void collect_alarms(EmsRuntime& rt,
 }
 
 // =====================================================================
-// 运行 24h 仿真
+// 每拍环境注入（曲线相位 → 负荷 / 光伏；时间窗 → 故障）
+//
+// ★ 抽出来是**为了两条时间纪律的一致性**：批量仿真按 i*dt 取相位，
+//   实时仿真源按墙钟取相位 —— 但"取到相位之后怎么注入"必须逐字相同，
+//   否则两者会变成两个模型，而界面上看起来一模一样。
 // =====================================================================
-inline Sim24hResult run_sim_24h(const Sim24hConfig& cfg) {
-    Sim24hResult r;
-    r.dt_s     = cfg.dt_s;
-    r.rec_dt_s = cfg.dt_s * std::max(1, cfg.log_every);
+inline bool apply_step_env(EmsRuntime& rr, const ForecastSeries& fc,
+                           const Sim24hConfig& cfg, double t,
+                           int* fault_ticks = nullptr) {
+    double ld = 0.0, pv = 0.0;
+    fc.sample(t, &ld, &pv, nullptr);   // 阶梯保持采样，超一天自动回绕
+    rr.set_environment(ld, pv);
 
+    bool any_fault = false;
+    for (const auto& w : cfg.fault_windows) {
+        const bool on = w.active(t);
+        apply_fault(rr, w.kind, on);
+        if (on) any_fault = true;
+    }
+    if (any_fault && fault_ticks) ++(*fault_ticks);
+
+    // 上层运行许可：故障恢复后（无故障源且已回到 READY）重新下发启动命令。
+    // 这是"人工确认后重启"的仿真等价物 —— 用于验证恢复路径可用，
+    // 而不是让系统自动带载（后者是安全上明确禁止的）。
+    if (cfg.auto_restart_after_fault && !any_fault &&
+        rr.fsm().state() == EmsState::kReady) {
+        rr.fsm().request_run(true);
+    }
+    return any_fault;
+}
+
+// =====================================================================
+// 装配：曲线 + 运行时
+//
+// 为什么抽成函数：10/ 现在有两条时间纪律 ——
+//   · 批量（run_sim_24h）  一口气跑完 N 拍，越快越好（离线仿真）
+//   · 实时（run_sim_live） 按墙钟节拍一拍一拍跑，边跑边写实录（运行模式）
+// 两条纪律必须跑**同一套配置装配**。抽出来之后，"两者是同一个模型"
+// 这件事由 scripts/build_test.bat 的断言（同起点同拍数逐列一致）保证，
+// 而不是靠"我抄的时候很小心"。
+// =====================================================================
+inline bool assemble_runtime(const Sim24hConfig& cfg, EmsRuntime& rt,
+                             ForecastSeries& fc, std::string* err = nullptr) {
     // ---- 曲线 ----
-    ForecastSeries fc;
     if (cfg.use_csv) {
-        std::string err;
-        if (!load_day_curves_csv(cfg.curves_path, fc, cfg.typical.step_s, &err)) {
-            r.ok = false;
-            r.error = "load_day_curves_csv failed: " + err;
-            return r;
+        std::string e;
+        if (!load_day_curves_csv(cfg.curves_path, fc, cfg.typical.step_s, &e)) {
+            if (err) *err = "load_day_curves_csv failed: " + e;
+            return false;
         }
     } else {
         fc = make_typical_day_curves(cfg.typical);
     }
-    r.curves = analyze_curves(fc);
-    r.forecast = fc;
 
     // ---- 装配运行时 ----
-    EmsRuntime rt;
     rt.config().dt_s      = cfg.dt_s;
     rt.config().log_every = cfg.log_every;
     rt.config().enable_log = true;
@@ -323,6 +354,25 @@ inline Sim24hResult run_sim_24h(const Sim24hConfig& cfg) {
     rt.fsm_config()         = cfg.fsm;
     rt.set_forecast(fc);
     rt.apply_configs();
+    return true;
+}
+
+// =====================================================================
+// 运行 24h 仿真
+// =====================================================================
+inline Sim24hResult run_sim_24h(const Sim24hConfig& cfg) {
+    Sim24hResult r;
+    r.dt_s     = cfg.dt_s;
+    r.rec_dt_s = cfg.dt_s * std::max(1, cfg.log_every);
+
+    ForecastSeries fc;
+    EmsRuntime rt;
+    if (!assemble_runtime(cfg, rt, fc, &r.error)) {
+        r.ok = false;
+        return r;
+    }
+    r.curves = analyze_curves(fc);
+    r.forecast = fc;
 
     const int steps = static_cast<int>(std::lround(cfg.duration_s / cfg.dt_s));
     r.steps = steps;
@@ -334,27 +384,7 @@ inline Sim24hResult run_sim_24h(const Sim24hConfig& cfg) {
     const Sim24hConfig& ccfg = cfg;
     int fault_ticks = 0;
     rt.run(steps, cfg.dt_s, [&fc, &ccfg, &fault_ticks, dt](EmsRuntime& rr, int i) {
-        const double t = static_cast<double>(i) * dt;
-        double ld = 0.0, pv = 0.0;
-        fc.sample(t, &ld, &pv, nullptr);
-        rr.set_environment(ld, pv);
-        bool any_fault = false;
-        if (!ccfg.fault_windows.empty()) {
-            for (const auto& w : ccfg.fault_windows) {
-                const bool on = w.active(t);
-                apply_fault(rr, w.kind, on);
-                if (on) any_fault = true;
-            }
-        }
-        if (any_fault) ++fault_ticks;
-
-        // 上层运行许可：故障恢复后（无故障源且已回到 READY）重新下发启动命令。
-        // 这是"人工确认后重启"的仿真等价物 —— 用于验证恢复路径可用，
-        // 而不是让系统自动带载（后者是安全上明确禁止的）。
-        if (ccfg.auto_restart_after_fault && !any_fault &&
-            rr.fsm().state() == EmsState::kReady) {
-            rr.fsm().request_run(true);
-        }
+        apply_step_env(rr, fc, ccfg, static_cast<double>(i) * dt, &fault_ticks);
     });
     auto t1 = std::chrono::steady_clock::now();
     r.wall_s = std::chrono::duration<double>(t1 - t0).count();

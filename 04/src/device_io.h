@@ -3,12 +3,37 @@
 //
 // 目标（产品化 P0）：
 //   把「算法」与「设备数据来源」解耦。算法层（05/06/07/08）只依赖本接口，
-//   **不依赖**任何具体实现：
-//     · SimDeviceIO    —— 仿真适配器（周期 7 的 PlantModel）
-//     · MemoryDeviceIO —— 进程内点表适配器（P0.5，验证接口真的可换）
-//     · RtDbDeviceIO   —— 共享内存实时库适配器（已接入：07/src/rtdb/rtdb_device_io.h）
-//     · ModbusDeviceIO —— 现场设备适配器，EMS 为主站（已交付：P3/src/modbus_device_io.h）
-//     · Iec104DeviceIO —— 调度通信适配器，EMS 为受控站（已交付：P3/src/iec104_device_io.h）
+//   **不依赖**任何具体实现。本接口的实现者共 4 个（路径经核实）：
+//     · SimDeviceIO    07/src/sim_device_io.h     仿真适配器（周期 7 的 PlantModel）
+//     · MemoryDeviceIO 07/src/memory_device_io.h  进程内点表适配器（P0.5，验证接口真的可换）
+//     · RtDbDeviceIO   07/src/rtdb/rtdb_device_io.h 共享内存实时库适配器
+//     · ModbusDeviceIO 13/src/modbus_device_io.h  现场设备适配器，EMS 为主站
+//       13/ 的主体是**头文件**（modbus_tcp_client.h / modbus_point_map.h /
+//       modbus_device_io.h），由 07/ 装配层 include 使用；modbus_probe.exe 只是它的
+//       一个消费者（见 13/scripts/build.bat 开头）。故 Modbus 适配器不另立进程。
+//       ★ 现场装配点：07/src/main_field.cpp（`--device modbus` 时 attach 本实现，
+//         默认 sim 时 attach SimDeviceIO，见 attach_device() 传参）。
+//
+// 【更正 · 本注释早期版本的错误】原文把 ModbusDeviceIO 指到 P3/src/modbus_device_io.h、
+//   把一个 "Iec104DeviceIO" 指到 P3/src/iec104_device_io.h。核实结论：
+//     · 这两个文件都不存在；`Iec104DeviceIO` 这个类**全仓库无定义、无引用**；
+//     · IEC104 方向落成了 P3/ 的**独立网关进程**，既不实现本接口、也不 include 本头文件
+//       （P3/src/ 下无任何对 04/ 的依赖）。真实的类是：
+//         Iec104Server  调度从站（EMS 为受控站）  P3/src/iec104_server.h:149
+//       它按同样的「接口对实现解耦」思路，另立了两个更贴合协议语义的口：
+//         IDataSource   读点     iec104_server.h:92   品质是**三态**而非 bool
+//                       （kGood / kNotTopical 值可读但陈旧 / kInvalid）
+//         ICommandSink  收遥控遥调 iec104_server.h:109  返回值决定回肯定/否定确认
+//   为什么不硬塞进 IDeviceIO：本接口是按「每拍读一次快照、写一次指令」的闭环控制
+//   语义设计的，而 IEC104 是「按点上报 + 遥控确认」，粒度不同；品质也不是一个
+//   data_valid 布尔位能装下的（见上面 IDataSource 的三态说明）。
+//   强行统一只会让 execute()/read_snapshot() 退化成空壳，并把品质位的语义丢掉。
+//
+//   另一处**已知缺口**（诚实记录，勿当作已覆盖）：上述 4 个实现里，只有 Sim/Mem/RtDb
+//   三者做过数值等价比对（07/tests/test_device_io.cpp 的 T23；12/src/acceptance_runner.h
+//   的 A1-05，max|Δ| ≤ 1e-9）。ModbusDeviceIO **不在**该等价比对内，它另由
+//   13/tests/ 的适配器契约测试（T21~T30）覆盖，且 T28 断言 execute() 不做物理积分
+//   「与 RtDbDeviceIO 同契约」。
 //
 // 为什么必须做这一步（不做会怎样）：
 //   现状 EmsRuntime 直接持有 PlantModel，算法与仿真对象编译期绑死。后果：

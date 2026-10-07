@@ -1,0 +1,77 @@
+﻿# =====================================================================
+#  Modbus 现场点表模板  ——  13/ 「设备接入点表」
+#
+#  这文件干什么用的：
+#    把设备厂家《Modbus 通信协议》里的寄存器定义，翻译成这一张表。
+#    13/ 的核对工具加载它即可，**不改一行 C++、不重新编译**。
+#
+#  怎么用（现场三步）：
+#    1) 用 Excel 打开本文件，照着厂家手册改 table/address/encoding/word_order/scale 五列
+#    2) 预检（不发报文，只看表本身合不合法、要几次请求）：
+#         13\build\modbus_probe.exe --load-map 本文件.csv --plan
+#    3) 连真机核对（盯最右边的 ok 列，-- 表示该点本拍不可信）：
+#         13\build\modbus_probe.exe --host <设备IP> --port 502 --unit <从站号> --load-map 本文件.csv
+#
+#  三条硬规矩（违反会被当场拒绝，且活动点表一个字节都不会改）：
+#    1. 行序 = 点表索引。**不能删行、不能换行、不能在中间插入**，必须正好 32 行数据。
+#    2. name 列是我们这边的点名，**不要改**。要改的是它后面那五列。
+#    3. 指令点 CMD.P_BAT / CMD.P_UPPER / CMD.P_LOWER 必须落在同一张表且地址连续 ——
+#       它们靠一次 FC16 写 6 个寄存器原子下发；拆开会出现
+#       "新功率 + 旧权限区间"的中间态，那一瞬新指令可能已经越过旧区间。
+#
+#  列的含义：
+#    table       IR = 输入寄存器 (3xxxx, FC04)     HR = 保持寄存器 (4xxxx, FC03/06/16)
+#                DI = 离散输入 (1xxxx, FC02)       CO = 线圈       (0xxxx, FC01/05/15)
+#    address     十进制起始地址，**0 起算**。
+#                厂家手册常写 30001 / 40001 这种 1 起算的"寄存器号"，
+#                要减掉 30001 / 40001 再填（例：40010 → HR 地址 9）。
+#    encoding    f32 = 32 位浮点（**占 2 个寄存器**，下一列地址要 +2）
+#                u16 = 无符号 16 位 / i16 = 有符号 16 位 / bit = 1 位
+#    word_order  high = 高字在前 (ABCD)   low = 低字在前 (CDAB)   —— 只有 f32 用得上
+#    scale       物理值 = 原始值 / scale。
+#                例：SOC 原始值 5500、scale 10000 → 55.0 (%).  bit 填 0，f32 忽略此列。
+#    writable    ro = 只读   rw = 可写   —— **只有 CMD.* 三个点可以是 rw**
+#    unit,note   随便写，只给人看，程序完全不解析（现场不必为写备注去翻译我们的术语）
+#
+#  ★ word_order 是现场第一坑：写反了**不会报错**，会读出天文数字或者 NaN。
+#    厂家手册里的"高低字顺序 / 高低字节 / 大端小端 / Big-Endian Word Swap / AB CD / CD AB"
+#    说的都是这一列，拿不准就直接问厂家或两种都试一遍（对照物理量看哪个合理）。
+#    本模板里 MEAS.P_BAT 特意用了 low —— 它就是用来提醒你这一列真的会被读到。
+#
+#  ★ 本文件由 13/build/modbus_probe.exe --dump-map 导出后再加注释头，
+#    数据段与内置默认表逐字段一致，可直接加载做回归：
+#        13\build\modbus_probe.exe --load-map docs\point_map_template.csv --plan
+# =====================================================================
+name,table,address,encoding,word_order,scale,writable,unit,note
+MEAS.P_LOAD,IR,0,f32,high,0,ro,kW,有功负荷
+MEAS.P_PV,IR,2,f32,high,0,ro,kW,光伏出力
+MEAS.P_BAT,IR,4,f32,low,0,ro,kW,电池功率(正放负充) —— 低字在前
+MEAS.P_GRID,IR,6,f32,high,0,ro,kW,关口功率(电表口径)
+MEAS.SOC,IR,8,u16,high,10000,ro,%,荷电状态
+MEAS.T_C,IR,9,i16,high,10,ro,℃,电芯温度
+MEAS.SOH,IR,10,u16,high,10000,ro,%,健康度
+CMD.P_BAT,HR,0,f32,high,0,rw,kW,功率指令(正放负充)
+CMD.P_UPPER,HR,2,f32,high,0,rw,kW,充电功率上限 —— 必须与下面两点地址连续
+CMD.P_LOWER,HR,4,f32,high,0,rw,kW,放电功率上限 —— 必须与上面两点地址连续
+CFG.BAT_CAP_KWH,IR,12,f32,high,0,ro,kWh,电池额定容量
+CFG.PCS_MAX_CHG,IR,14,f32,high,0,ro,kW,PCS 最大充电功率
+CFG.PCS_MAX_DIS,IR,16,f32,high,0,ro,kW,PCS 最大放电功率
+CFG.BMS_CHG_LIM,IR,18,f32,high,0,ro,kW,BMS 允许充电功率
+CFG.BMS_DIS_LIM,IR,20,f32,high,0,ro,kW,BMS 允许放电功率
+CFG.TRANSFORMER_KVA,IR,22,f32,high,0,ro,kVA,变压器容量
+CFG.D_TARGET,IR,24,f32,high,0,ro,,需量目标
+CFG.TAU_S,IR,26,f32,high,0,ro,s,一阶惯性时间常数
+CFG.PCS_RAMP_KW_PER_S,IR,28,f32,high,0,ro,kW/s,变化率上限
+CFG.PCS_STANDBY,IR,30,f32,high,0,ro,kW,待机自耗
+CFG.ETA_CHG,IR,32,f32,high,0,ro,,充电效率
+CFG.ETA_DIS,IR,34,f32,high,0,ro,,放电效率
+CFG.SOC_PHYS_MIN,IR,36,f32,high,0,ro,,SOC 物理下限
+CFG.SOC_PHYS_MAX,IR,38,f32,high,0,ro,,SOC 物理上限
+STA.BMS_COMM_OK,DI,0,bit,high,0,ro,,BMS 通信正常
+STA.PCS_COMM_OK,DI,1,bit,high,0,ro,,PCS 通信正常
+STA.METER_COMM_OK,DI,2,bit,high,0,ro,,电表通信正常
+STA.PCS_FAULT,DI,3,bit,high,0,ro,,PCS 故障
+STA.OFFLINE,DI,4,bit,high,0,ro,,设备离线
+STA.DATA_VALID,DI,5,bit,high,0,ro,,数据有效
+STA.BMS_CHG_FORBID,DI,6,bit,high,0,ro,,BMS 禁充（安全位，必须每拍显式读）
+STA.BMS_DIS_FORBID,DI,7,bit,high,0,ro,,BMS 禁放（安全位，必须每拍显式读）

@@ -30,15 +30,16 @@ REM    建环境：python -m venv .venv
 REM            .venv\Scripts\pip install -r sim\requirements.txt
 REM
 REM  ★ 全量基线因此有**两个合法值**（必须按本次实际跑到的那个上报）： 
-REM      有 pymodbus → 13\ 贡献 439，全量 9323
-REM      无 pymodbus → 13\ 贡献 361（第三层 7 条 SKIP），全量 9245
+REM      有 pymodbus → 13\ 贡献 813，全量 15986
+REM      无 pymodbus → 13\ 贡献 735（第三层 7 条 SKIP），全量 15908
+REM    （数字以 `python scripts\baseline.py` 实测为准；本机实测 = 15986，pymodbus 可用。）
 REM    判据：本脚本末尾那行回显的**层数**，或 build\bridge_status.txt 里的 SKIPPED=。 
 REM    ★ 为什么非要把这件事喊出来：SKIP 本身是有意的（环境问题不是代码缺陷）， 
 REM      但如果构建脚本仍然印「三层测试全部通过」，那么「静默跳过」与「真的跑过」 
 REM      在最终输出上**依然不可区分** —— 这正是本项目最忌讳的一类失败。 
 REM =====================================================================
 
-setlocal
+setlocal enabledelayedexpansion
 cd /d "%~dp0\.."
 
 if not exist build mkdir build
@@ -48,9 +49,16 @@ REM  与 C++ 侧 which_python() 同一套顺序：显式变量优先，其次本
 REM  为什么加 .venv 这一级：现场/CI 常常忘了设 EMS_PYTHON， 
 REM  于是跨语言层整体 SKIP —— 看起来"跑过了"，实际这一层根本没验。 
 REM  自动捡起 .venv 能让"照文档建了环境"的人默认就跑到这一层。 
-if "%EMS_PYTHON%"=="" (
+REM
+REM  ★ 这里必须用延迟展开 !CD! / !EMS_PYTHON!，**不能**用 %CD% —— 
+REM    本仓库的实际路径可能含括号（例如 D:\wb(cn)\BMS\13）。cmd 在 
+REM    解析 "if (...)" 块时，会把 %CD% 展开结果里的 ( ) 当成子表达式
+REM    括号，块结构当场错乱，整个脚本在**执行任何一行之前**就报 
+REM    「此时不应有 \BMS\13\.venv\Scripts\python.exe。」并以 255 退出。 
+REM    延迟展开发生在解析之后，展开结果不再参与语法分析，故安全。 
+if "!EMS_PYTHON!"=="" (
     if exist ".venv\Scripts\python.exe" (
-        set EMS_PYTHON=%CD%\.venv\Scripts\python.exe
+        set "EMS_PYTHON=!CD!\.venv\Scripts\python.exe"
         echo [info] EMS_PYTHON 未设置，自动采用 .venv\Scripts\python.exe
     )
 )
@@ -73,8 +81,12 @@ echo === [1/4] test_modbus_tcp.exe (T01~T15 协议层) ===
 g++ -std=c++17 -Wall -O2 %INC% ^
     tests\test_modbus_tcp.cpp %LNK% -o build\test_modbus_tcp.exe
 if errorlevel 1 ( echo [FAIL] test_modbus_tcp compile error & exit /b 1 )
-build\test_modbus_tcp.exe
-if errorlevel 1 ( echo [FAIL] test_modbus_tcp tests did not pass & set FAIL=1 )
+REM  ★ 输出**先落文件再 type**，而且必须查汇总行 —— 理由见文件尾 :check_summary。
+build\test_modbus_tcp.exe > build\layer1.log 2>&1
+set L1_RC=%ERRORLEVEL%
+type build\layer1.log
+if not "%L1_RC%"=="0" ( echo [FAIL] test_modbus_tcp tests did not pass & set FAIL=1 )
+call :check_summary build\layer1.log test_modbus_tcp
 
 REM ---------- [2/4] 适配器契约 ----------
 echo.
@@ -82,8 +94,11 @@ echo === [2/4] test_modbus_device_io.exe (T21~T30 适配器契约) ===
 g++ -std=c++17 -Wall -O2 %INC% ^
     tests\test_modbus_device_io.cpp %LNK% -o build\test_modbus_device_io.exe
 if errorlevel 1 ( echo [FAIL] test_modbus_device_io compile error & exit /b 1 )
-build\test_modbus_device_io.exe
-if errorlevel 1 ( echo [FAIL] test_modbus_device_io tests did not pass & set FAIL=1 )
+build\test_modbus_device_io.exe > build\layer2.log 2>&1
+set L2_RC=%ERRORLEVEL%
+type build\layer2.log
+if not "%L2_RC%"=="0" ( echo [FAIL] test_modbus_device_io tests did not pass & set FAIL=1 )
+call :check_summary build\layer2.log test_modbus_device_io
 
 REM ---------- [3/4] 跨语言联调 ----------
 REM  ★ 环境缺失时本层会打印 SKIPPED=N 并以 0 退出 —— 那是**有意的**： 
@@ -91,7 +106,7 @@ REM    环境问题不是代码缺陷。但 SKIP 必须显式出现，
 REM    否则"静默跳过"与"真的跑过"在输出上不可区分。 
 echo.
 echo === [3/4] test_modbus_bridge.exe (T40~T47 跨语言联调) ===
-if "%EMS_PYTHON%"=="" (
+if "!EMS_PYTHON!"=="" (
     echo     EMS_PYTHON 未设置，将尝试 PATH 上的 python
 )
 g++ -std=c++17 -Wall -O2 %INC% ^
@@ -117,13 +132,43 @@ if "%FAIL%"=="1" (
     endlocal & exit /b 1
 )
 if "%BRIDGE_SKIPPED%"=="1" (
-    echo [SKIP] 13\ Modbus 前两层通过（223 + 133）；**跨语言层未运行** —— 缺 pymodbus
-    echo        这不是代码缺陷，但本次 13\ 只贡献 361 条：全量口径是 **9245**，不是 9323。 
+    echo [SKIP] 13\ Modbus 前两层通过（597 + 133）；**跨语言层未运行** —— 缺 pymodbus
+    echo        这不是代码缺陷，但本次 13\ 只贡献 735 条：全量口径是 **15908**，不是 15986。 
     echo        要补上第三层（83 条）： 
     echo            python -m venv .venv
     echo            .venv\Scripts\pip install -r sim\requirements.txt
     echo            set EMS_PYTHON=%%CD%%\.venv\Scripts\python.exe
     endlocal & exit /b 0
 )
-echo [OK] 13\ Modbus 三层测试全部通过（439 条：223 + 133 + 83） 
+echo [OK] 13\ Modbus 三层测试全部通过（813 条：597 + 133 + 83） 
 endlocal & exit /b 0
+
+REM =====================================================================
+REM  :check_summary <logfile> <name>
+REM
+REM  断言汇总行（PASS=n）必须存在 —— 否则按「未通过」处理，而不是静默计 0。
+REM
+REM  ★ 为什么必须要有这道闸：这两个 exe 用 std::printf 往 stdout 写，而 stdout
+REM    **一旦重定向到文件就是全缓冲的**（默认 4 KB）。实测协议层那份输出总共
+REM    只有 2408 字节，一个缓冲区装得下 —— 于是**整份输出都要等进程退出时那
+REM    一次 flush 才落盘**。只要那次 flush 没发生（异常终止 / 被外部结束），
+REM    整份输出连同 `PASS=597` 一起消失，**而退出码仍然是 0**。
+REM    实测：连续 20 次里有 1 次输出 0 字节（也出现过 3149 / 3656 这种只丢一截的）。
+REM
+REM    危害在于它是**静默**的：构建日志里的表现只是"这一步一条断言都没有"，
+REM    而 scripts/baseline.py 对 13\ 正是按「各 exe 汇总行相加」取值的 ——
+REM    于是全量基线凭空少 597，从日志上完全看不出少了什么。
+REM
+REM    两道防线：
+REM      ① exe 里 setvbuf(stdout, nullptr, _IONBF, 0) —— 写一条落一条；
+REM      ② 就是这里 —— 汇总行不存在就显式报 FAIL。
+REM    删掉这道闸，那个洞会立刻重新变成静默的。
+REM =====================================================================
+:check_summary
+findstr /B /C:"PASS=" %~1 >nul 2>nul
+if errorlevel 1 (
+    echo [FAIL] %~2 的输出里没有汇总行 PASS= —— 视为未通过
+    echo        常见原因：stdout 缓冲区没被 flush（见本文件 :check_summary 注释）。
+    set FAIL=1
+)
+goto :eof

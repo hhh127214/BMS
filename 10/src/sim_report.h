@@ -47,6 +47,24 @@ inline std::string hhmm(double t_s) {
 }
 
 // ---------------------------------------------------------------------
+// 时刻戳（多日仿真用）
+//
+//   单日（duration ≤ 24 h）：输出 "HH:MM" —— 与既有产物**逐字一致**，
+//     10/build/timeseries.csv 是被 142 条断言与下游导入器锁定的文件。
+//   多日（duration > 24 h） ：输出 "D<天> HH:MM"（D0 是第一天）。
+//     为什么必须区别对待：hhmm() 对 t≥86400 取模 24，30 天的日志会得到
+//     720 行"08:00" —— 在库里按 time_str 排序/展示时全糊在一起。
+//     ★ 刻意用**显式开关**而不是"按 t 值自动判断"：24 h 仿真的最后一行
+//       恰好是 t=86400，自动判断会把它写成 "D1 00:00"，把既有产物改掉。
+// ---------------------------------------------------------------------
+inline std::string stamp(double t_s, bool multi_day) {
+    if (!multi_day) return hhmm(t_s);
+    const int d = static_cast<int>(t_s / 86400.0);
+    const double rem = t_s - static_cast<double>(d) * 86400.0;
+    return "D" + std::to_string(d) + " " + hhmm(rem);
+}
+
+// ---------------------------------------------------------------------
 // 多序列折线图（内联 SVG）
 //   xs 单位：小时；ys[i] 与 xs 等长
 // ---------------------------------------------------------------------
@@ -157,7 +175,8 @@ inline std::string svg_chart(const std::string& title,
 // 时序 CSV
 // =====================================================================
 inline bool write_timeseries_csv(const std::string& path,
-                                 const std::vector<StepRecord>& log) {
+                                 const std::vector<StepRecord>& log,
+                                 bool multi_day = false) {
     std::ofstream f(path.c_str());
     if (!f.is_open()) return false;
     f << "t_s,time,state,P_load_kW,P_pv_kW,P_grid_kW,P_cmd_kW,P_actual_kW,"
@@ -165,7 +184,7 @@ inline bool write_timeseries_csv(const std::string& path,
          "state_gated,hold_last,fault_bits,reason\n";
     f << std::fixed << std::setprecision(3);
     for (const auto& r : log) {
-        f << r.t << "," << sim_report_detail::hhmm(r.t) << ","
+        f << r.t << "," << sim_report_detail::stamp(r.t, multi_day) << ","
           << state_name(r.state) << ","
           << r.p_load << "," << r.p_pv << "," << r.p_grid << ","
           << r.p_cmd << "," << r.p_actual << "," << r.soc << "," << r.temp << ","
@@ -182,12 +201,14 @@ inline bool write_timeseries_csv(const std::string& path,
 // 告警 CSV
 // =====================================================================
 inline bool write_alarms_csv(const std::string& path,
-                             const std::vector<AlarmEntry>& alarms) {
+                             const std::vector<AlarmEntry>& alarms,
+                             bool multi_day = false) {
     std::ofstream f(path.c_str());
     if (!f.is_open()) return false;
     f << "t_s,time,level,source,message\n";
     for (const auto& a : alarms) {
-        f << sim_report_detail::fmt(a.t, 1) << "," << sim_report_detail::hhmm(a.t) << ","
+        f << sim_report_detail::fmt(a.t, 1) << ","
+          << sim_report_detail::stamp(a.t, multi_day) << ","
           << a.level << "," << a.source << ",\"" << a.message << "\"\n";
     }
     return true;
@@ -227,7 +248,11 @@ inline bool write_summary_json(const std::string& path,
     f << "    \"peak_grid_kw\": " << e.peak_grid_kw << ", \"peak_grid_base_kw\": " << e.peak_grid_base_kw << ",\n";
     f << "    \"cost_energy_cny\": " << e.cost_energy_cny << ",\n";
     f << "    \"cost_demand_cny\": " << e.cost_demand_cny << ",\n";
+    f << "    \"revenue_feed_in_cny\": " << e.revenue_feed_in_cny << ",\n";
     f << "    \"cost_total_cny\": " << e.cost_total_cny << ",\n";
+    f << "    \"cost_energy_base_cny\": " << e.cost_energy_base_cny << ",\n";
+    f << "    \"cost_demand_base_cny\": " << e.cost_demand_base_cny << ",\n";
+    f << "    \"revenue_feed_in_base_cny\": " << e.revenue_feed_in_base_cny << ",\n";
     f << "    \"cost_total_base_cny\": " << e.cost_total_base_cny << ",\n";
     f << "    \"saving_energy_cny\": " << e.saving_energy_cny << ",\n";
     f << "    \"saving_demand_cny\": " << e.saving_demand_cny << ",\n";
@@ -298,9 +323,15 @@ inline bool write_report_html(const std::string& path,
     if (log.empty()) return false;
     const int stride = std::max(1, static_cast<int>(log.size() / 288));
 
+    // ★ 采样必须覆盖到**最后一个数据点**。原实现 for(i=0;i<log.size();i+=stride)
+    //   在 stride 不能整除时漏掉末点（如 8640 行 / stride 30 → 最后 i=8610，丢了
+    //   t=86400 那条），导致 xs.back()≈23.92 h 而非 24 h：x 轴右端被截断、24h
+    //   刻度被 continue 跳过、整条刻度标签随 x 递减漂移（越靠右越偏）。改为
+    //   "i + stride >= log.size() 时收在末点"，保证 xs 恒以 24h 收尾。
     std::vector<double> xs;
     std::vector<double> y_load, y_pv, y_grid, y_bat, y_soc, y_price, y_cmd;
     for (size_t i = 0; i < log.size(); i += stride) {
+        if (i + stride >= log.size() && i != log.size() - 1) i = log.size() - 1;
         const auto& s = log[i];
         xs.push_back(s.t / 3600.0);
         y_load.push_back(s.p_load);
@@ -520,8 +551,8 @@ inline bool write_report_html(const std::string& path,
         for (size_t i = 0; i < cap; ++i) {
             const auto& a = r.alarms[i];
             const char* cls = (a.level == "FAULT") ? "bad"
-                            : (a.level == "ALARM") ? "bad"
-                            : (a.level == "WARN")  ? "warn" : "ok";
+                            : (a.level == "EMERGENCY") ? "bad"
+                            : (a.level == "WARNING" || a.level == "DERATED") ? "warn" : "ok";
             o << "<tr><td>" << hhmm(a.t) << "</td><td><span class=\"pill " << cls << "\">"
               << a.level << "</span></td><td>" << a.source << "</td><td>"
               << a.message << "</td></tr>\n";
@@ -551,10 +582,13 @@ inline int write_all_reports(const std::string& dir,
                              const Sim24hConfig& cfg,
                              const ForecastSeries* fc = nullptr) {
     int n = 0;
-    if (write_timeseries_csv(dir + "/timeseries.csv", r.log))      ++n;
-    if (write_alarms_csv(dir + "/alarms.csv", r.alarms))           ++n;
-    if (write_summary_json(dir + "/summary.json", r, cfg))         ++n;
-    if (write_report_html(dir + "/report.html", r, cfg, fc))       ++n;
+    // 多日仿真（周/月）的 time 列必须带天号，否则 30 天的日志全叫 "08:00"。
+    // 判据按 cfg.duration_s，不用"看 t 值"——见 sim_report_detail::stamp 注释。
+    const bool multi_day = cfg.duration_s > 86400.0 + 1e-6;
+    if (write_timeseries_csv(dir + "/timeseries.csv", r.log, multi_day)) ++n;
+    if (write_alarms_csv(dir + "/alarms.csv", r.alarms, multi_day))     ++n;
+    if (write_summary_json(dir + "/summary.json", r, cfg))             ++n;
+    if (write_report_html(dir + "/report.html", r, cfg, fc))           ++n;
     return n;
 }
 

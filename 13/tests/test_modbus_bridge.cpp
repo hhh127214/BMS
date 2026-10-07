@@ -931,6 +931,11 @@ static void test_47_unreachable_fast_fail() {
 
 // =====================================================================
 int main() {
+    // ★ stdout 必须**无缓冲** —— 同 test_modbus_tcp.cpp：输出重定向到文件时
+    //   stdio 默认全缓冲，整份输出要等进程退出的那一次 flush；没 flush 就整份
+    //   消失（连同 PASS=n），而退出码仍是 0。本层的状态文件 findstr 也读不出东西。
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+
     std::printf("=== 13/ 跨语言联调（C++ 主站 ↔ Python pymodbus 从站） ===\n");
     std::printf("\n");
 

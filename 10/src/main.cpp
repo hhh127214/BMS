@@ -12,6 +12,11 @@
 //   sim_demo.exe --csv <path> --out <dir>
 //   sim_demo.exe --fast                  加速模式（dt=2s，仅演示，不用于验收）
 //   sim_demo.exe --fault                 附加故障注入场景（PCS 故障 + 通信中断）
+//   sim_demo.exe --duration-s 604800     跑一周（默认 86400 = 一天）
+//
+//   ★ --duration-s 是「日 / 周 / 月仿真」的入口（14/ 的仿真模式靠它）。
+//     曲线按 96 点**日曲线回绕**：跑一周就是同一个典型日重复七次，
+//     不是七天的真实天气序列。这一点在报告与界面上都必须如实标注。
 //
 // 产物：timeseries.csv / alarms.csv / summary.json / report.html
 // =====================================================================
@@ -176,22 +181,48 @@ int main(int argc, char** argv) {
     bool fault_mode = false;
     bool fast = false;
 
+    // ---- CLI 覆盖项：先记下来，**等场景选定后再套上去** ----
+    //
+    // 踩过的坑：早期直接在解析循环里改 cfg，而循环后面有一句
+    //   `if (fault_mode) cfg = scenario_fault();`
+    // —— 整份 cfg 被换掉，于是 `sim_demo --csv x.csv --fault` 里
+    //    `--csv` **静默失效**（退回内置典型日，还不报错）。
+    // 参数优先级现在是明确的：内置场景 < --fault < --fast < 显式 CLI 项。
+    struct Overrides {
+        bool        has_csv = false;      std::string csv_path;
+        bool        has_log = false;      int    log_every = 10;
+        bool        has_dur = false;      double duration_s = 86400.0;
+        bool        has_title = false;    std::string title;
+    } ov;
+
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--csv" && i + 1 < argc) {
-            cfg.use_csv = true;
-            cfg.curves_path = argv[++i];
+            ov.has_csv = true;
+            ov.csv_path = argv[++i];
         } else if (a == "--out" && i + 1 < argc) {
             out_dir = argv[++i];
         } else if (a == "--fast") {
             fast = true;
         } else if (a == "--log-every" && i + 1 < argc) {
-            cfg.log_every = std::atoi(argv[++i]);
+            ov.has_log = true;
+            ov.log_every = std::atoi(argv[++i]);
+        } else if (a == "--duration-s" && i + 1 < argc) {
+            // 日 / 周 / 月仿真：86400 / 604800 / 2592000
+            ov.has_dur = true;
+            ov.duration_s = std::atof(argv[++i]);
+            if (ov.duration_s <= 0.0) {
+                std::printf("[FAIL] --duration-s 需要正数（秒）\n");
+                return 2;
+            }
+        } else if (a == "--title" && i + 1 < argc) {
+            ov.has_title = true;
+            ov.title = argv[++i];
         } else if (a == "--fault") {
             fault_mode = true;
         } else if (a == "--help" || a == "-h") {
             std::printf("usage: sim_demo [--csv <path>] [--out <dir>] [--fast] "
-                        "[--log-every N] [--fault]\n");
+                        "[--log-every N] [--duration-s SEC] [--title STR] [--fault]\n");
             return 0;
         }
     }
@@ -202,6 +233,11 @@ int main(int argc, char** argv) {
         cfg.log_every = 5;      // 10 s 日志
         cfg.title += " · 加速模式";
     }
+    // ---- 显式 CLI 项最后套（优先级最高）----
+    if (ov.has_csv)   { cfg.use_csv = true; cfg.curves_path = ov.csv_path; }
+    if (ov.has_log)   cfg.log_every  = ov.log_every;
+    if (ov.has_dur)   cfg.duration_s = ov.duration_s;
+    if (ov.has_title) cfg.title      = ov.title;
     cfg.out_dir = out_dir;
 
     std::printf("=== 周期 10 · EMS 24h 离线仿真 ===\n");

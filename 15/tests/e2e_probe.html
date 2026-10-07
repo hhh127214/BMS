@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>15/ 界面端到端探针</title>
+<style>
+  body { margin: 0; font: 13px/1.5 Consolas, monospace; background: #0d1520; color: #cfe3f2; }
+  #diag { margin: 0; padding: 10px; white-space: pre-wrap; height: 42vh; overflow: auto;
+          background: #0a1018; border-bottom: 2px solid #24435c; }
+  iframe { width: 1460px; height: 56vh; border: 0; display: block; }
+</style>
+</head>
+<body>
+<pre id="diag">running…</pre>
+<iframe id="f" src="/index.html"></iframe>
+<script>
+const L = [];
+const errs = [];
+const say = s => L.push(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function waitFor(fn, tries, gap) {
+  tries = tries || 80; gap = gap || 200;
+  return (async () => {
+    for (let i = 0; i < tries; i++) {
+      let v = false;
+      try { v = fn(); } catch (e) { v = false; }
+      if (v) return true;
+      await sleep(gap);
+    }
+    return false;
+  })();
+}
+
+const f = document.getElementById('f');
+
+f.addEventListener('load', async () => {
+  const w = f.contentWindow;
+  const d = f.contentDocument;
+  w.onerror = (m, s, l, c) => errs.push('onerror: ' + m + ' @' + l + ':' + c);
+  w.addEventListener('unhandledrejection', e =>
+    errs.push('rejection: ' + ((e.reason && e.reason.message) || e.reason)));
+
+  const $ = sel => d.querySelector(sel);
+  const txt = () => (($('#content') || {}).textContent || '').replace(/\s+/g, ' ').trim();
+  const hidden = id => { const e = d.getElementById(id); return !e || e.classList.contains('hidden'); };
+
+  async function login(u, p) {
+    const form = d.getElementById('login-form');
+    d.getElementById('login-user').value = u;
+    d.getElementById('login-pass').value = p;
+    form.dispatchEvent(new w.Event('submit', { cancelable: true, bubbles: true }));
+    return waitFor(() => !hidden('app-view'), 60, 200);
+  }
+
+  async function logout() {
+    d.getElementById('logout-btn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    const ok = await waitFor(() => !hidden('login-view'), 60, 200);
+    // 等 logout() 的 fetch 真正回来：否则紧接着的 login 会与它竞态
+    await sleep(350);
+    return ok;
+  }
+
+  async function goto(id) {
+    w.location.hash = '#/' + id;
+    await waitFor(() => txt().indexOf('加载中') < 0 && txt().length > 0, 80, 200);
+    await sleep(250);
+    return {
+      title: ($('#page-title') || {}).textContent || '',
+      len: txt().length,
+      cards: $('#content').querySelectorAll('.card').length,
+      kpi: $('#content').querySelectorAll('.kpi').length,
+      svg: $('#content').querySelectorAll('svg').length,
+      tbl: $('#content').querySelectorAll('table.tbl').length,
+      rows: $('#content').querySelectorAll('table.tbl tbody tr').length,
+      fail: /加载失败|HTTP \d\d\d|undefined|NaN|\[object/.test(txt()),
+      head: txt().slice(0, 46),
+    };
+  }
+
+  try {
+    /* ---------- 1. 登录前 ---------- */
+    say('=== 1. 登录前 ===');
+    say('doc_title=' + d.title);
+    say('login_visible=' + !hidden('login-view') + '  app_hidden=' + hidden('app-view'));
+    say('health_ok=' + (await (await w.fetch('/api/health')).json()).ok);
+
+    /* ---------- 2. admin 登录 ---------- */
+    say('');
+    say('=== 2. admin 登录 ===');
+    const okAdmin = await login('admin', 'admin123');
+    say('app_visible=' + okAdmin);
+    say('nav_items=' + d.querySelectorAll('#nav button').length + ' (期望 9)');
+    say('user=' + ($('#user-name') || {}).textContent + ' / ' + ($('#user-role') || {}).textContent);
+    say('footer=' + (($('#foot-left') || {}).textContent || '').slice(0, 60));
+
+    /* ---------- 3. 逐页渲染 ---------- */
+    say('');
+    say('=== 3. 九页渲染（admin） ===');
+    const PAGES = ['overview', 'realtime', 'curves', 'alarms', 'strategies',
+      'economics', 'report', 'devices', 'users'];
+    let badPages = 0, emptyPages = 0;
+    for (const id of PAGES) {
+      const r = await goto(id);
+      if (r.fail) badPages++;
+      if (r.len < 80) emptyPages++;
+      say(`  ${id.padEnd(10)} title="${r.title}" len=${r.len} card=${r.cards} ` +
+          `kpi=${r.kpi} svg=${r.svg} tbl=${r.tbl} rows=${r.rows}` +
+          (r.fail ? '  <<< 含失败标记' : '') + `\n                "${r.head}"`);
+    }
+    say(`小计：含失败标记 ${badPages} 页，内容过短 ${emptyPages} 页`);
+
+    /* ---------- 4. 场景切换 ---------- */
+    say('');
+    say('=== 4. 场景切换（故障日） ===');
+    const seg = d.querySelectorAll('#scenario-seg button');
+    seg[1].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    await sleep(600);
+    const rf = await goto('overview');
+    say('fault: state/head="' + rf.head + '"');
+
+    /* ---------- 5. viewer 角色隔离 ---------- */
+    say('');
+    say('=== 5. viewer 角色隔离 ===');
+    w.localStorage.clear();
+    await logout();
+    const okViewer = await login('viewer', 'viewer123');
+    say('viewer_login=' + okViewer);
+    say('viewer_nav=' + d.querySelectorAll('#nav button').length + ' (期望 8，无「用户与权限」)');
+    const navIds = Array.from(d.querySelectorAll('#nav button')).map(b => b.dataset.id).join(',');
+    say('viewer_menu=' + navIds);
+    const ru = await goto('users');
+    say('viewer_强改hash到 users →  title="' + ru.title + '" fail=' + ru.fail);
+    say('  content="' + ru.head + '"');
+
+    /* ---------- 6. 登出后再点受保护页 ---------- */
+    say('');
+    say('=== 6. 会话失效处理 ===');
+    w.localStorage.clear();
+    await logout();
+    say('back_login=' + !hidden('login-view'));
+    say('err_box="' + (($('#login-err') || {}).textContent || '').slice(0, 40) + '"');
+
+    /* ---------- 7. 设备接入（点表配置）闭环 ---------- */
+    say('');
+    say('=== 7. 设备接入（点表配置） ===');
+    w.localStorage.clear();
+    await logout();
+    await login('admin', 'admin123');
+    const rd = await goto('devices');
+    say('devices 页: card=' + rd.cards + ' tbl=' + rd.tbl + ' fail=' + rd.fail);
+    if (rd.fail) say('  ★失败内容="' + txt().slice(0, 300) + '"');
+    say('点表编辑表存在=' + !!d.querySelector('.pm-tbl') +
+        '  行数=' + d.querySelectorAll('.pm-tbl tbody tr').length + '（期望 32）');
+    say('接入参数框: host=' + !!d.getElementById('pm-host') +
+        ' port=' + !!d.getElementById('pm-port') +
+        ' unit=' + !!d.getElementById('pm-unit') +
+        ' enabled=' + !!d.getElementById('pm-enabled'));
+    say('port 预填=' + (d.getElementById('pm-port') || {}).value +
+        '  从站号预填=' + (d.getElementById('pm-unit') || {}).value);
+
+    async function clickAndToast(btn) {
+      d.getElementById('toast').classList.add('hidden');
+      btn.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+      const got = await waitFor(() => !hidden('toast') &&
+        (d.getElementById('toast').textContent || '').length > 0, 60, 200);
+      return got ? d.getElementById('toast').textContent : '(无提示)';
+    }
+    const btnByText = t => Array.from(d.querySelectorAll('button'))
+      .find(b => b.textContent.trim() === t);
+
+    /* 7.1 接入参数：非法从站号必须由**后端**拒掉（前端不做范围校验，服务端才是门） */
+    const unit = d.getElementById('pm-unit');
+    const saveConnBtn = btnByText('保存接入参数');
+    say('保存接入参数按钮=' + !!saveConnBtn);
+    unit.value = '0';
+    say('从站号=0 → ' + (await clickAndToast(saveConnBtn)).slice(0, 96));
+    unit.value = '7';
+    say('从站号=7 → ' + (await clickAndToast(saveConnBtn)).slice(0, 96));
+
+    /* 7.2 点表预检：把 SOC（u16）的缩放改成 0，应当被标红并拦住保存 */
+    const rows = Array.from(d.querySelectorAll('.pm-tbl tbody tr'));
+    const socIdx = rows.findIndex(tr => tr.children[1].textContent.trim() === 'MEAS.SOC');
+    const socRow = rows[socIdx];
+    const scaleInput = socRow.querySelectorAll('input[type=number]')[1];  // [0]=地址 [1]=缩放
+    say('MEAS.SOC 位于第 ' + (socIdx + 1) + ' 行；缩放输入框=' + !!scaleInput);
+    scaleInput.value = '0';
+    scaleInput.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await sleep(150);
+    say('缩放改 0 → tr.class="' + socRow.className + '"  预检="' +
+        socRow.children[8].textContent.trim() + '"');
+
+    const savePmBtn = btnByText('保存点表');
+    say('保存点表按钮=' + !!savePmBtn);
+    say('缩放=0 时点保存 → ' + (await clickAndToast(savePmBtn)).slice(0, 110));
+
+    /* 7.3 恢复合法值并真正保存（保存"与内置默认表一致"那张，收尾状态最干净） */
+    scaleInput.value = '10000';
+    scaleInput.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await sleep(150);
+    say('缩放恢复 10000 → tr.class="' + socRow.className + '"  预检="' +
+        socRow.children[8].textContent.trim() + '"');
+    say('点保存 → ' + (await clickAndToast(savePmBtn)).slice(0, 140));
+
+    /* 7.4 保存后回读：来源 / synced / 行数 / 分块请求次数
+       ★ 设备号必须取**当前选中**那台，不能硬写 —— 编辑器默认选台账第一台 */
+    await sleep(400);
+    const curDev = d.querySelector('.pm-bar select').value;
+    say('当前选中设备 = ' + curDev);
+    const tok = w.localStorage.getItem('ems_platform_token') || '';
+    try {
+      const pmInfo = await (await w.fetch('/api/devices/' + encodeURIComponent(curDev) +
+        '/point-map?token=' + encodeURIComponent(tok))).json();
+      say('回读: source=' + pmInfo.source + ' configured=' + pmInfo.configured +
+          ' synced=' + pmInfo.synced + ' rows=' + (pmInfo.rows || []).length +
+          ' requests=' + ((pmInfo.summary || {}).requests));
+      say('      落盘 <id>.csv = ' + pmInfo.path);
+      say('      活动表 active.csv = ' + pmInfo.active_path);
+      say('      文件已存在=' + pmInfo.file_exists);
+      say('      SOC 的 scale 回读=' + ((pmInfo.rows || [])[4] || {}).scale +
+          '（期望 10000，即内置默认值）');
+    } catch (e) {
+      say('回读失败: ' + e.message);
+    }
+    say('页面路径文案含 config/point-map = ' +
+        (txt().indexOf('config') >= 0 && txt().indexOf('point-map') >= 0));
+
+    /* 7.5 viewer 只读：三个写按钮与输入框必须全部禁用 */
+    w.localStorage.clear();
+    await logout();
+    await login('viewer', 'viewer123');
+    await goto('devices');
+    const names = ['保存点表', '保存接入参数', '导入 CSV', '新增设备'];
+    say('viewer 写操作按钮: ' + names.map(n => {
+      const b = btnByText(n);
+      return b ? `${n}=disabled(${b.disabled})` : `${n}=不存在`;
+    }).join('  '));
+    const vHost = d.getElementById('pm-host');
+    say('viewer 的 host 输入框 disabled=' + (vHost ? vHost.disabled : '(不存在)'));
+
+    say('');
+    say('errors=' + JSON.stringify(errs));
+    say('DONE');
+  } catch (e) {
+    say('EXCEPTION ' + e.message + ' | ' + String(e.stack || '').split('\n')[1]);
+    say('DONE');
+  }
+});
+
+setInterval(() => { document.getElementById('diag').textContent = L.join('\n'); }, 150);
+</script>
+</body>
+</html>

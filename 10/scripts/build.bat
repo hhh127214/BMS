@@ -15,4 +15,12 @@ if errorlevel 1 (
     exit /b 1
 )
 echo [OK] build\sim_demo.exe
+
+echo === 编译 10/ 实时仿真源（运行模式的数据源）===
+g++ -std=c++17 -Wall -O2 -I src -I ..\04\src -I ..\05\src -I ..\06\src -I ..\07\src -I ..\08\src -I ..\07\src\rtdb src\main_live.cpp -o build\sim_live.exe
+if errorlevel 1 (
+    echo [FAIL] 编译失败
+    exit /b 1
+)
+echo [OK] build\sim_live.exe
 endlocal

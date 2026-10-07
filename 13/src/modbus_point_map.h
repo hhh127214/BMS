@@ -35,8 +35,10 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
+#include <string>
 
 namespace ems {
 namespace modbus {
@@ -357,19 +359,718 @@ constexpr bool blocks_disjoint() {
 static_assert(blocks_disjoint(), "分块地址区间重叠");
 
 // =====================================================================
-// 查询
+// 运行期点表 —— 现场配置那一层
+//
+// 上面那张 kBindings 是**编译期**的默认表：默认装配零成本，且有 4 条
+// static_assert 守着。但现场点表**由客户/调试工程师提供**——设备厂家给出的
+// 是自己的地址规划，不可能为了改一个寄存器地址去重编 C++（现场常常没有
+// 编译环境，改完还得重跑一遍测试）。
+//
+// 于是拆成两层，各管各的：
+//   kBindings    —— 编译期默认表。本文件所有 static_assert 只管它；
+//                   不加载任何配置时，运行期行为与它**逐位相同**。
+//   active_map() —— 运行期活动表。初值从 kBindings 拷贝，可被 CSV 覆盖。
+//
+// ★ 两条纪律（P3/docs/design.md §6 有同款设计，那边已经踩过）：
+//   ① 加载失败**必须回退**默认表，并把出错行号与原因报出来——
+//      绝不能"加载了一半就开始跑"。半个点表比没有点表更危险：
+//      它会让一部分点读到隔壁设备的寄存器，而每个值看起来都正常。
+//   ② 加载进来的每一行都要过**与 static_assert 同一套规则**的校验——
+//      编译期守卫拦不住 CSV，必须有一条等价的运行期路径。
+//
+// ★ 关于分块：kReadBlocks 是编译期常量，但它是**从地址推导出来的**
+//   （见上面的地址规划）。地址一变，固定分块就错了，而且是"读到了、但读的是
+//   隔壁寄存器"这种静默错。所以分块必须跟着活动表**重新推导**。
+// =====================================================================
+
+// 派生分块时的合并阈值：同表内两个点之间空几个寄存器，还值得并进同一次请求。
+//
+// 为什么不能是 0（"必须严格相邻才合并"）：默认表 IR 段的第 11 号是**刻意留的
+// 空位**（见上面的地址规划注释），gap = 1。若不允许合并，默认表会被拆成 4 块，
+// "读全 32 点 = 3 次请求"这条契约当场失效（T09/T22 直接断言这个数字）。
+//
+// 取 16 的取舍：超过它说明两个点在设备侧确实离得远（多半是两段不同的数据区），
+// 硬合并会把中间一堆无关寄存器一起读回来，反而拖慢一帧。
+constexpr std::uint16_t kMergeGap = 16;
+
+// 分块数上限。默认表 3 块；现场点表散一些也不会超过这个数。
+// 超上限直接判非法——与其默默拼出几十次请求，不如让配置人知道表排得太散。
+constexpr std::size_t kMaxReadBlocks = 16;
+
+// 活动表 + 活动分块 + 来源信息。
+// 来源要留着：排障时"现在跑的到底是哪张表"永远是第一个要回答的问题。
+struct PointMap {
+    PointBinding items[EMS_EXT_BEGIN]{};
+    std::size_t  count = EMS_EXT_BEGIN;   // 恒等于 EMS_EXT_BEGIN（加载时校验行数）
+    ReadBlock    blocks[kMaxReadBlocks]{};
+    std::size_t  block_count = 0;
+    bool         from_csv    = false;   // false = 内置默认表
+    char         source[260]{};         // CSV 路径（from_csv 为真时有效）
+};
+
+constexpr std::uint16_t block_limit_of(Table t) {
+    return (t == Table::kDiscreteInput || t == Table::kCoil) ? kMaxReadBits
+                                                             : kMaxReadRegs;
+}
+
+// 从点表推导读分块。
+// 规则：按表分组 → 表内按地址升序 → 贪心合并（间隙 ≤ kMergeGap 且不超该表上限）。
+// 失败（地址重叠 / 分块过散）返回 false 并写 why。
+inline bool derive_read_blocks(PointMap& m, std::string* why) {
+    m.block_count = 0;
+    // 表的处理顺序决定块序。保持"输入寄存器 → 保持寄存器 → 离散输入"与默认表
+    // kReadBlocks 一致，这样默认表推导出来的块序不会变。
+    const Table order[4] = { Table::kInputReg, Table::kHoldingReg,
+                             Table::kDiscreteInput, Table::kCoil };
+
+    for (int ti = 0; ti < 4; ++ti) {
+        const Table t = order[ti];
+
+        // 本表的点索引，按 address 升序。点数很小（≤ 40）且顺序基本已排好，
+        // 用插入排序：不做无谓的 <algorithm> 依赖，也不会成为热点。
+        std::size_t idx[EMS_EXT_BEGIN];
+        std::size_t n = 0;
+        for (std::size_t i = 0; i < m.count; ++i) {
+            if (m.items[i].table == t) idx[n++] = i;
+        }
+        for (std::size_t a = 1; a < n; ++a) {
+            const std::size_t key = idx[a];
+            std::size_t b = a;
+            while (b > 0 && m.items[idx[b - 1]].address > m.items[key].address) {
+                idx[b] = idx[b - 1];
+                --b;
+            }
+            idx[b] = key;
+        }
+
+        const std::uint32_t lim = block_limit_of(t);
+        bool      open = false;
+        ReadBlock cur{ t, 0, 0 };
+
+        for (std::size_t a = 0; a < n; ++a) {
+            const PointBinding& p = m.items[idx[a]];
+            const std::uint32_t w = (p.encoding == Encoding::kBit) ? 1u : p.reg_count();
+
+            if (!open) {
+                cur  = ReadBlock{ t, p.address, static_cast<std::uint16_t>(w) };
+                open = true;
+                continue;
+            }
+
+            const std::uint32_t end = static_cast<std::uint32_t>(cur.start) + cur.count;
+            if (p.address < end) {
+                if (why) {
+                    *why = std::string("点 ") + p.name +
+                           " 的地址落在同表前一个点的区间内（地址重叠）";
+                }
+                return false;
+            }
+            const std::uint32_t gap  = p.address - end;
+            const std::uint32_t span = end + gap + w - cur.start;
+
+            if (gap <= kMergeGap && span <= lim) {
+                cur.count = static_cast<std::uint16_t>(span);
+            } else {
+                if (m.block_count >= kMaxReadBlocks) {
+                    if (why) *why = "分块数超过上限（点表排得太散，一次快照要发太多次请求）";
+                    return false;
+                }
+                m.blocks[m.block_count++] = cur;
+                cur = ReadBlock{ t, p.address, static_cast<std::uint16_t>(w) };
+            }
+        }
+        if (open) {
+            if (m.block_count >= kMaxReadBlocks) {
+                if (why) *why = "分块数超过上限（点表排得太散，一次快照要发太多次请求）";
+                return false;
+            }
+            m.blocks[m.block_count++] = cur;
+        }
+    }
+    return true;
+}
+
+// 内置默认表：从 kBindings 拷一份并推导分块。
+// ★ 这里推导出来的块必须与 kReadBlocks **逐字段相等**。T48 直接断言这件事——
+//   它是"两层结构没有偷偷改变默认行为"的正面证据，而不是靠人眼比对。
+inline PointMap make_default_map() {
+    PointMap m;
+    m.count = EMS_EXT_BEGIN;
+    for (std::size_t i = 0; i < EMS_EXT_BEGIN; ++i) m.items[i] = kBindings[i];
+    std::string why;
+    derive_read_blocks(m, &why);
+    return m;
+}
+
+inline PointMap& active_map() {
+    static PointMap m = make_default_map();
+    return m;
+}
+
+inline const PointMap& active_point_map()  { return active_map(); }
+inline const ReadBlock* active_blocks()     { return active_map().blocks; }
+inline std::size_t      active_block_count() { return active_map().block_count; }
+inline std::size_t      active_binding_count() { return active_map().count; }
+
+// 恢复内置默认表（放弃已加载的 CSV）。
+inline void reset_point_map() { active_map() = make_default_map(); }
+
+// =====================================================================
+// 运行期校验 —— 与 static_assert 同一套规则，只是搬到了运行期
+//
+// 为什么必须有一份运行期的：CSV 加载时编译器帮不上忙。而"CSV 里少一行"、
+// "字序写成 abcd"这一类错误，表现出来都是**读到了一个看似正常的数值**，
+// 不校验就一定会静默地跑在错表上。
+// =====================================================================
+inline bool validate_map(const PointMap& m, std::string* why) {
+    auto fail = [&](const std::string& s) { if (why) *why = s; return false; };
+
+    if (m.count != static_cast<std::size_t>(EMS_EXT_BEGIN)) {
+        return fail("点数不符：应为 " + std::to_string(EMS_EXT_BEGIN) + " 行");
+    }
+
+    for (std::size_t i = 0; i < m.count; ++i) {
+        const PointBinding& b = m.items[i];
+        const char* truth = EMS_POINT_NAMES[i];
+
+        // ① 位置 == 索引，点名逐字等于点表真相源。
+        //    这不是形式主义：点位靠索引寻址，插错一行后面会全体错位。
+        if (b.index != i) {
+            return fail("第 " + std::to_string(i + 1) + " 行的索引不对（应为 " +
+                        std::to_string(i) + "）");
+        }
+        if (truth == nullptr || b.name == nullptr || std::strcmp(b.name, truth) != 0) {
+            return fail("第 " + std::to_string(i + 1) + " 行的点名应为 " +
+                        (truth ? truth : "?") + "，实际是 " + (b.name ? b.name : "(空)"));
+        }
+
+        // ② 编码与表类型必须匹配；缩放规则随编码而定
+        if (b.encoding == Encoding::kBit) {
+            if (b.table != Table::kDiscreteInput && b.table != Table::kCoil) {
+                return fail(std::string("点 ") + b.name +
+                            " 是位类型，只能落在离散输入或线圈表");
+            }
+            if (b.scale != 0.0) {
+                return fail(std::string("点 ") + b.name + " 是位类型，缩放必须为 0");
+            }
+        } else if (b.encoding == Encoding::kF32) {
+            if (b.table != Table::kInputReg && b.table != Table::kHoldingReg) {
+                return fail(std::string("点 ") + b.name +
+                            " 是浮点，只能落在输入寄存器或保持寄存器表");
+            }
+        } else {
+            if (!(b.scale > 0.0)) {
+                return fail(std::string("点 ") + b.name +
+                            " 的缩放必须大于 0（0 会在换算时除零）");
+            }
+            if (b.table != Table::kInputReg && b.table != Table::kHoldingReg) {
+                return fail(std::string("点 ") + b.name +
+                            " 是整数编码，只能落在输入寄存器或保持寄存器表");
+            }
+        }
+
+        // ③ 段的可写性由点表段决定（量测/配置/状态只读；指令可写）
+        const bool is_cmd = (i >= static_cast<std::size_t>(EMS_CMD_P_BAT) &&
+                             i <= static_cast<std::size_t>(EMS_CMD_P_LOWER));
+        if (is_cmd) {
+            if (!b.writable) return fail(std::string("指令点 ") + b.name + " 必须可写");
+            if (b.table != Table::kHoldingReg) {
+                return fail(std::string("指令点 ") + b.name + " 必须在保持寄存器表");
+            }
+        } else if (b.writable) {
+            return fail(std::string("点 ") + b.name + " 属于只读段，不能标为可写");
+        }
+    }
+
+    // ④ 指令三点必须同表且地址连续 —— 原子下发的前提（见上面的 static_assert）
+    const PointBinding& ca = m.items[EMS_CMD_P_BAT];
+    const PointBinding& cb = m.items[EMS_CMD_P_UPPER];
+    const PointBinding& cc = m.items[EMS_CMD_P_LOWER];
+    if (!(ca.table == cb.table && cb.table == cc.table && ca.table == Table::kHoldingReg &&
+          static_cast<std::uint16_t>(ca.address + 2) == cb.address &&
+          static_cast<std::uint16_t>(cb.address + 2) == cc.address)) {
+        return fail("指令点必须同表且地址连续（否则权限区间无法与指令原子下发）");
+    }
+
+    // ⑤ 分块必须覆盖到每一个点。漏一个点 = 该点恒为默认值，
+    //    而这种错在运行期完全静默（值看着就是个正常数字）。
+    for (std::size_t i = 0; i < m.count; ++i) {
+        const PointBinding& p = m.items[i];
+        const std::uint32_t w = (p.encoding == Encoding::kBit) ? 1u : p.reg_count();
+        bool covered = false;
+        for (std::size_t k = 0; k < m.block_count; ++k) {
+            if (m.blocks[k].table != p.table) continue;
+            if (p.address >= m.blocks[k].start &&
+                static_cast<std::uint32_t>(p.address) + w <=
+                    static_cast<std::uint32_t>(m.blocks[k].start) + m.blocks[k].count) {
+                covered = true;
+            }
+        }
+        if (!covered) {
+            return fail(std::string("点 ") + p.name +
+                        " 没有被任何分块覆盖（该点会恒为默认值）");
+        }
+    }
+    return true;
+}
+
+// =====================================================================
+// CSV 读写 —— 配置的交换格式
+//
+// 列：name,table,address,encoding,word_order,scale,writable,unit,note
+//   name       点名（必须与点表真相源逐字相同；行序即索引，不许乱序）
+//   table      IR / HR / DI / CO
+//   address    起始地址（十进制）
+//   encoding   f32 / u16 / i16 / bit
+//   word_order high(ABCD) / low(CDAB)——仅 f32 有意义，其它填空即可
+//   scale      u16/i16 的缩放（物理值 = raw / scale）；bit 填 0；f32 忽略
+//   writable   rw / ro
+//   unit/note  仅信息，不参与解析（方便对着厂家手册看）
+//
+// ★ 为什么是 CSV 而不是数据库：13/ 的纪律是**只依赖 WinSock**（见 build.bat
+//   的说明）。CSV 零依赖、可人工编辑（现场应急改一行不用起任何工具）、
+//   也能进版本库对比。P3 那条线已用同一套思路落地（load_point_map_csv）。
+// =====================================================================
+inline std::string trim_copy(const std::string& s) {
+    std::size_t a = 0, b = s.size();
+    while (a < b && (s[a] == ' ' || s[a] == '\t' || s[a] == '\r' || s[a] == '\n')) ++a;
+    while (b > a && (s[b - 1] == ' ' || s[b - 1] == '\t' ||
+                     s[b - 1] == '\r' || s[b - 1] == '\n')) --b;
+    return s.substr(a, b - a);
+}
+
+inline std::string upper_copy(const std::string& s) {
+    std::string u;
+    u.reserve(s.size());
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        u += (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
+    }
+    return u;
+}
+
+constexpr std::size_t kMaxCsvCols = 16;
+struct CsvRow {
+    std::string col[kMaxCsvCols];
+    std::size_t n = 0;
+};
+
+// 切一行。支持双引号包裹（note 列可能含逗号），"" 表示一个字面引号。
+inline void split_csv_line(const std::string& line, CsvRow& out) {
+    out.n = 0;
+    std::string cur;
+    bool inQuote = false;
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        const char ch = line[i];
+        if (inQuote) {
+            if (ch == '"') {
+                if (i + 1 < line.size() && line[i + 1] == '"') { cur += '"'; ++i; }
+                else inQuote = false;
+            } else {
+                cur += ch;
+            }
+        } else if (ch == '"') {
+            inQuote = true;
+        } else if (ch == ',') {
+            if (out.n < kMaxCsvCols) out.col[out.n++] = cur;
+            cur.clear();
+        } else if (ch != '\r' && ch != '\n') {
+            cur += ch;
+        }
+    }
+    if (out.n < kMaxCsvCols) out.col[out.n++] = cur;
+}
+
+// 无符号十进制解析。**不用 atoi**：atoi 对 "abc" 返回 0 且不报错，
+// 那正好是"地址字段写错却静默变成地址 0"的经典事故。
+inline bool parse_u16(const std::string& s, std::uint16_t* out) {
+    if (s.empty()) return false;
+    std::uint32_t v = 0;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        if (s[i] < '0' || s[i] > '9') return false;
+        v = v * 10u + static_cast<std::uint32_t>(s[i] - '0');
+        if (v > 65535u) return false;
+    }
+    *out = static_cast<std::uint16_t>(v);
+    return true;
+}
+
+inline bool parse_scale(const std::string& s, double* out) {
+    if (s.empty()) return false;
+    const char* p = s.c_str();
+    char* end = nullptr;
+    const double v = std::strtod(p, &end);
+    if (end == p || (end != nullptr && *end != '\0')) return false;
+    *out = v;
+    return true;
+}
+
+inline bool parse_table(const std::string& s, Table* out) {
+    const std::string u = upper_copy(s);
+    if (u == "IR" || u == "INPUT_REG" || u == "INPUTREG") { *out = Table::kInputReg;      return true; }
+    if (u == "HR" || u == "HOLDING_REG" || u == "HOLDINGREG") { *out = Table::kHoldingReg; return true; }
+    if (u == "DI" || u == "DISCRETE_INPUT")               { *out = Table::kDiscreteInput; return true; }
+    if (u == "CO" || u == "COIL")                         { *out = Table::kCoil;         return true; }
+    return false;
+}
+
+inline bool parse_encoding(const std::string& s, Encoding* out) {
+    const std::string u = upper_copy(s);
+    if (u == "F32" || u == "FLOAT")        { *out = Encoding::kF32; return true; }
+    if (u == "U16")                        { *out = Encoding::kU16; return true; }
+    if (u == "I16" || u == "S16" || u == "INT16") { *out = Encoding::kI16; return true; }
+    if (u == "BIT" || u == "BOOL")         { *out = Encoding::kBit; return true; }
+    return false;
+}
+
+inline bool parse_word_order(const std::string& s, WordOrder* out) {
+    const std::string u = upper_copy(s);
+    if (u.empty() || u == "HIGH" || u == "ABCD" || u == "BIG")    { *out = WordOrder::kHighWordFirst; return true; }
+    if (u == "LOW" || u == "CDAB" || u == "LITTLE" || u == "SWAP") { *out = WordOrder::kLowWordFirst;  return true; }
+    return false;
+}
+
+inline bool parse_writable(const std::string& s, bool* out) {
+    const std::string u = upper_copy(s);
+    if (u == "RW" || u == "1" || u == "TRUE" || u == "W")  { *out = true;  return true; }
+    if (u == "RO" || u == "0" || u == "FALSE" || u == "R") { *out = false; return true; }
+    return false;
+}
+
+// 下面三个取名 `*_code` 而不是 `*_name`：13/tests/test_modbus_bridge.cpp 里
+// 已有同名的静态辅助函数（它自己那份 CSV 对照用），而它在同一个 namespace 里。
+// 重名的代价是**编译期歧义**（两边都能匹配），所以这里用不同的名字划清界限 ——
+// 不动测试，也不靠 using 去消歧。
+inline const char* table_code(Table t) {
+    switch (t) {
+    case Table::kInputReg:      return "IR";
+    case Table::kHoldingReg:    return "HR";
+    case Table::kDiscreteInput: return "DI";
+    case Table::kCoil:          return "CO";
+    }
+    return "?";
+}
+
+inline const char* encoding_code(Encoding e) {
+    switch (e) {
+    case Encoding::kF32: return "f32";
+    case Encoding::kU16: return "u16";
+    case Encoding::kI16: return "i16";
+    case Encoding::kBit: return "bit";
+    }
+    return "?";
+}
+
+inline const char* word_order_code(WordOrder w) {
+    return (w == WordOrder::kLowWordFirst) ? "low" : "high";
+}
+
+// 导出当前表为 CSV。导出 → 人工填 → 加载回来，这条路是**双向**的，
+// 所以导出的东西可以直接当模板发给客户或调试工程师。
+inline std::string export_point_map_csv(const PointMap& m) {
+    std::string out;
+    out.reserve(4096);
+    out += "name,table,address,encoding,word_order,scale,writable,unit,note\n";
+    for (std::size_t i = 0; i < m.count; ++i) {
+        const PointBinding& b = m.items[i];
+        char sc[32];
+        if (b.encoding == Encoding::kBit) std::snprintf(sc, sizeof(sc), "0");
+        else                              std::snprintf(sc, sizeof(sc), "%g", b.scale);
+        char line[320];
+        std::snprintf(line, sizeof(line), "%s,%s,%u,%s,%s,%s,%s,,\n",
+                      b.name ? b.name : "",
+                      table_code(b.table),
+                      static_cast<unsigned>(b.address),
+                      encoding_code(b.encoding),
+                      word_order_code(b.word_order),
+                      sc,
+                      b.writable ? "rw" : "ro");
+        out += line;
+    }
+    return out;
+}
+
+// 从 CSV 加载点表。
+//
+// 失败时：活动表**一个字节都不改**（仍然跑默认表或上一次成功的表），
+// 并把出错行号与原因写进 report。返回值只表示"这次加载成不成功"。
+//
+// ★ 这里刻意不提供"部分加载"的选项。现场最怕的不是加载失败（失败会报错、
+//   会退默认表，行为可预期），而是**加载了一半**：一半的点读新地址、
+//   一半读旧地址，两边都能读出"看起来正常"的值。
+inline bool load_point_map_csv(const char* path, std::string* report) {
+    auto fail = [&](const std::string& s) { if (report) *report = s; return false; };
+
+    if (path == nullptr || path[0] == '\0') return fail("点表路径为空");
+
+    std::FILE* f = std::fopen(path, "rb");
+    if (f == nullptr) return fail(std::string("打不开点表文件：") + path);
+
+    PointMap m;
+    m.count = EMS_EXT_BEGIN;
+    // 先用默认表填底：CSV 没覆盖到的字段不会留下垃圾值。
+    // 注意这只是**局部变量**的初值，不是"部分生效"——全部校验通过后才替换活动表。
+    for (std::size_t i = 0; i < EMS_EXT_BEGIN; ++i) m.items[i] = kBindings[i];
+
+    char        buf[1024];
+    char        msg[512];
+    int         lineNo = 0;
+    std::size_t row = 0;
+    bool        headerSeen = false;
+
+    while (std::fgets(buf, sizeof(buf), f) != nullptr) {
+        ++lineNo;
+        std::string line = trim_copy(std::string(buf));
+        // Excel 另存 CSV 会带 UTF-8 BOM，剥掉它而不是跳过整行——
+        // 跳过整行会把"无表头"的表的第一行数据一起吃掉，导致少一行。
+        if (line.size() >= 3 &&
+            static_cast<unsigned char>(line[0]) == 0xEF &&
+            static_cast<unsigned char>(line[1]) == 0xBB &&
+            static_cast<unsigned char>(line[2]) == 0xBF) {
+            line = line.substr(3);
+        }
+        if (line.empty()) continue;
+        if (line[0] == '#') continue;          // 注释行
+
+        CsvRow r;
+        split_csv_line(line, r);
+        if (r.n == 0) continue;
+
+        // 表头（首列是 name/point/点名）跳过；也允许完全没有表头的表
+        if (!headerSeen) {
+            headerSeen = true;
+            const std::string c0 = upper_copy(trim_copy(r.col[0]));
+            if (c0 == "NAME" || c0 == "POINT" || r.col[0] == "点名") continue;
+        }
+
+        if (row >= static_cast<std::size_t>(EMS_EXT_BEGIN)) {
+            std::snprintf(msg, sizeof(msg),
+                          "第 %d 行：点表最多 %d 行，多出来的行会被静默丢弃 → 拒绝",
+                          lineNo, EMS_EXT_BEGIN);
+            std::fclose(f);
+            return fail(msg);
+        }
+        if (r.n < 7) {
+            std::snprintf(msg, sizeof(msg),
+                          "第 %d 行：至少要有 7 列"
+                          "（name,table,address,encoding,word_order,scale,writable），实际 %u 列",
+                          lineNo, static_cast<unsigned>(r.n));
+            std::fclose(f);
+            return fail(msg);
+        }
+
+        PointBinding& b = m.items[row];
+        b.index = row;
+
+        const std::string nm = trim_copy(r.col[0]);
+        const char* truth = EMS_POINT_NAMES[row];
+        if (truth == nullptr || nm != truth) {
+            std::snprintf(msg, sizeof(msg),
+                          "第 %d 行：点名应为 %s，实际是 %s（行序即索引，不能乱序）",
+                          lineNo, truth ? truth : "?", nm.c_str());
+            std::fclose(f);
+            return fail(msg);
+        }
+        b.name = truth;   // 指回真相源的静态字符串，生命周期无需操心
+
+        if (!parse_table(trim_copy(r.col[1]), &b.table)) {
+            std::snprintf(msg, sizeof(msg), "第 %d 行：表类型应为 IR/HR/DI/CO，实际是 %s",
+                          lineNo, trim_copy(r.col[1]).c_str());
+            std::fclose(f);
+            return fail(msg);
+        }
+        if (!parse_u16(trim_copy(r.col[2]), &b.address)) {
+            std::snprintf(msg, sizeof(msg), "第 %d 行：地址应为十进制整数 0..65535，实际是 %s",
+                          lineNo, trim_copy(r.col[2]).c_str());
+            std::fclose(f);
+            return fail(msg);
+        }
+        if (!parse_encoding(trim_copy(r.col[3]), &b.encoding)) {
+            std::snprintf(msg, sizeof(msg), "第 %d 行：编码应为 f32/u16/i16/bit，实际是 %s",
+                          lineNo, trim_copy(r.col[3]).c_str());
+            std::fclose(f);
+            return fail(msg);
+        }
+        if (!parse_word_order(trim_copy(r.col[4]), &b.word_order)) {
+            std::snprintf(msg, sizeof(msg),
+                          "第 %d 行：字序应为 high/low（或 ABCD/CDAB），实际是 %s",
+                          lineNo, trim_copy(r.col[4]).c_str());
+            std::fclose(f);
+            return fail(msg);
+        }
+        if (!parse_scale(trim_copy(r.col[5]), &b.scale)) {
+            std::snprintf(msg, sizeof(msg), "第 %d 行：缩放应为数值，实际是 %s",
+                          lineNo, trim_copy(r.col[5]).c_str());
+            std::fclose(f);
+            return fail(msg);
+        }
+        if (!parse_writable(trim_copy(r.col[6]), &b.writable)) {
+            std::snprintf(msg, sizeof(msg), "第 %d 行：可写性应为 rw/ro，实际是 %s",
+                          lineNo, trim_copy(r.col[6]).c_str());
+            std::fclose(f);
+            return fail(msg);
+        }
+
+        // 列 7/8（unit/note）只作人眼对照，不参与解析——刻意不校验，
+        // 免得现场为了写一句备注还要翻译我们的术语。
+        ++row;
+    }
+    std::fclose(f);
+
+    if (row != static_cast<std::size_t>(EMS_EXT_BEGIN)) {
+        std::snprintf(msg, sizeof(msg),
+                      "点表只有 %u 行，应为 %d 行（少一行 = 该点恒为默认值，静默）",
+                      static_cast<unsigned>(row), EMS_EXT_BEGIN);
+        return fail(msg);
+    }
+
+    std::string err;
+    if (!derive_read_blocks(m, &err)) return fail("分块推导失败：" + err);
+    if (!validate_map(m, &err))       return fail("点表校验失败：" + err);
+
+    m.from_csv = true;
+    std::snprintf(m.source, sizeof(m.source), "%s", path);
+
+    // ★ 全部通过之后才替换活动表 —— 上面任何一条失败路径都没碰过它。
+    active_map() = m;
+    if (report) *report = "ok";
+    return true;
+}
+
+// =====================================================================
+// 约定默认路径（配置通道①：约定文件路径）
+//
+// 背景：客户在 15/ 界面填完点表 → 14/ 落盘 → 13/ 启动时读它。
+//   两边靠一套**双方都能自己推算出来**的路径对齐 —— 不靠命令行传参、
+//   不靠文档交代、不靠"现场记得住"。
+//
+// 目录的取法（优先级从高到低）：
+//   1. 环境变量 EMS_POINT_MAP_DIR
+//   2. <exe 所在目录>/../../config/point-map
+//      本模块的 exe 落在 13/build/ 下，所以推算到 <项目根>/config/point-map
+//
+// 文件名固定 active.csv。为什么不按设备号取：一次装配 = 一组接入参数 +
+//   一份点表（见 14/schema.sql 里 device_conn 的注释），所以"当前启用的那一份"
+//   是确定的；将来多设备并存时，仍可用 --load-map 显式指定某台的 <设备号>.csv。
+//
+// 与 14/src/pointmap.py 的 map_dir() 必须保持一致 —— 这是两侧唯一的约定。
+// =====================================================================
+inline bool file_exists(const char* path) {
+    if (path == nullptr) return false;
+    std::FILE* f = std::fopen(path, "rb");
+    if (f == nullptr) return false;
+    std::fclose(f);
+    return true;
+}
+
+inline std::string default_point_map_dir() {
+    const char* env = std::getenv("EMS_POINT_MAP_DIR");
+    if (env != nullptr && *env != '\0') return std::string(env);
+#ifdef _WIN32
+    char buf[MAX_PATH] = {0};
+    const DWORD n = ::GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    std::string exe(buf, static_cast<std::size_t>(n));
+    const std::size_t slash = exe.find_last_of("\\/");
+    const std::string dir =
+        (slash == std::string::npos) ? std::string(".") : exe.substr(0, slash);
+    return dir + "\\..\\..\\config\\point-map";
+#else
+    return std::string("config/point-map");
+#endif
+}
+
+inline std::string path_in_dir(const std::string& dir) {
+#ifdef _WIN32
+    return dir + "\\active.csv";
+#else
+    return dir + "/active.csv";
+#endif
+}
+
+inline std::string default_point_map_path() {
+    return path_in_dir(default_point_map_dir());
+}
+
+// 加载结果的来源，供调用方如实打印（现场排障第一眼就看这行）
+enum class MapSource {
+    kBuiltin,      // 编译期内置默认表（没有现场点表时）
+    kDefaultPath,  // 从约定默认路径读到的
+    kExplicit,     // --load-map 命令行显式指定的
+};
+
+inline const char* map_source_name(MapSource s) {
+    switch (s) {
+    case MapSource::kBuiltin:     return "内置默认表";
+    case MapSource::kDefaultPath: return "约定路径";
+    case MapSource::kExplicit:    return "命令行指定";
+    }
+    return "?";
+}
+
+// 按约定加载点表。
+//
+// ★ 三种情形刻意区别对待，这是本函数唯一需要小心的地方：
+//   ① 默认路径的文件**不存在** → 不是错误。用内置默认表继续，
+//      现场还没配点表时程序必须能起来（这是"开箱可用"的底线）。
+//   ② 默认路径的文件**存在但非法** → **硬失败**。这里绝不能静默回退到内置表：
+//      那意味着"平台写错了表"和"平台没写表"在现场表现一模一样 ——
+//      而前者会让人以为配置生效了，实际跑在另一张表上。
+//   ③ --load-map 指定的文件不存在/非法 → 硬失败（调用方本来就显式要求了）。
+//
+// 拆成 _at(dir, ...) 与无参版：前者让测试能直接指定目录，
+// 不必去改环境变量、也不必在测试代码里造目录。
+inline bool load_point_map_default_at(const std::string& dir, std::string* report,
+                                      MapSource* src, std::string* used_path) {
+    const std::string p = path_in_dir(dir);
+    if (used_path) *used_path = p;
+
+    if (!file_exists(p.c_str())) {
+        if (report) {
+            *report = "约定路径下没有点表文件（" + p +
+                      "），使用内置默认表。若平台已下发点表，请检查 EMS_POINT_MAP_DIR "
+                      "与 14/ 的落盘目录是否一致。";
+        }
+        if (src) *src = MapSource::kBuiltin;
+        return true;   // ① 不是错误
+    }
+
+    std::string rep;
+    if (!load_point_map_csv(p.c_str(), &rep)) {
+        if (report) *report = "约定路径下的点表非法：" + rep;
+        // ★ 失败时**不写** *src：本次什么都没加载，活动表仍停在调用方原来的那份。
+        //   若在这里塞一个 kBuiltin，就会谎报"用的是内置表"。
+        return false;  // ② 硬失败
+    }
+    if (src) *src = MapSource::kDefaultPath;
+    if (report) *report = "ok";
+    return true;
+}
+
+inline bool load_point_map_default(std::string* report, MapSource* src,
+                                   std::string* used_path) {
+    return load_point_map_default_at(default_point_map_dir(), report, src, used_path);
+}
+
+// =====================================================================
+// 查询（全部读**活动表**，不再读编译期常量）
+//
+// 为什么不直接读 kBindings：CSV 加载之后两者就不一样了。测试代码里直接索引
+// kBindings 是安全的（默认装配下两者逐位相同），但**产品路径必须走这里**，
+// 否则加载了点表却不生效 —— 那正是本项目最忌讳的"看起来在工作"。
 // =====================================================================
 inline const PointBinding& binding_for_index(std::size_t index) {
-    return kBindings[index < kBindingCount ? index : 0];
+    const PointMap& m = active_map();
+    return m.items[index < m.count ? index : 0];
 }
 
 // 按点名查找；找不到返回 nullptr（**不要**退化成"返回默认点"——
 // 现场点名打错必须报出来，静默用默认点等于采了一个假值）
 inline const PointBinding* binding_for_name(const char* name) {
     if (name == nullptr) return nullptr;
-    for (std::size_t i = 0; i < kBindingCount; ++i) {
-        if (kBindings[i].name != nullptr && std::strcmp(kBindings[i].name, name) == 0) {
-            return &kBindings[i];
+    const PointMap& m = active_map();
+    for (std::size_t i = 0; i < m.count; ++i) {
+        if (m.items[i].name != nullptr && std::strcmp(m.items[i].name, name) == 0) {
+            return &m.items[i];
         }
     }
     return nullptr;
@@ -378,9 +1079,10 @@ inline const PointBinding* binding_for_name(const char* name) {
 // 某个分块在缓冲区里的偏移（0 = 不存在）
 inline std::size_t block_offset(Table t, std::size_t block_index) {
     (void)t;
+    const PointMap& m = active_map();
     std::size_t off = 0;
-    for (std::size_t k = 0; k < block_index && k < kReadBlockCount; ++k) {
-        off += kReadBlocks[k].count;
+    for (std::size_t k = 0; k < block_index && k < m.block_count; ++k) {
+        off += m.blocks[k].count;
     }
     return off;
 }
@@ -522,14 +1224,19 @@ inline const char* decode_error_name(DecodeError e) {
 // "本文件的点名与 ems_point_table.h 的点名逐字相同" —— 那是跨翻译单元的
 // 字符串比较，只能在运行期做。现场配错了点表就是这个函数报出来。
 // 返回不一致的点数，0 = 完全一致。
+//
+// 检查的是**活动表**而不是 kBindings：CSV 加载过之后两者不同，
+// 而"现在跑的表对不对"才是运维要问的问题。
 // =====================================================================
 inline int self_check() {
+    const PointMap& m = active_map();
     int bad = 0;
-    for (std::size_t i = 0; i < kBindingCount; ++i) {
-        const PointBinding& b = kBindings[i];
+    for (std::size_t i = 0; i < m.count; ++i) {
+        const PointBinding& b = m.items[i];
         const char* truth = EMS_POINT_NAMES[i];
         if (b.name == nullptr || truth == nullptr) { ++bad; continue; }
         if (std::strcmp(b.name, truth) != 0) { ++bad; continue; }
+        if (b.index != i) { ++bad; continue; }        // 位置必须等于索引
         // 反查必须回到同一个索引（有重复点名时这条会红）
         const PointBinding* back = binding_for_name(truth);
         if (back == nullptr || back->index != i) { ++bad; }
@@ -539,15 +1246,17 @@ inline int self_check() {
 
 // 覆盖的点数（应当等于 EMS_EXT_BEGIN —— EXT 区不经设备总线，故不绑定）
 inline std::size_t mapped_point_count() {
+    const PointMap& m = active_map();
     std::size_t n = 0;
-    for (std::size_t i = 0; i < kBindingCount; ++i) {
-        if (kBindings[i].name != nullptr) ++n;
+    for (std::size_t i = 0; i < m.count; ++i) {
+        if (m.items[i].name != nullptr) ++n;
     }
     return n;
 }
 
-// 读全全部点所需的请求次数（= 分块数）。T09 断言它 == 3。
-inline std::size_t full_scan_request_count() { return kReadBlockCount; }
+// 读全全部点所需的请求次数（= 活动分块数）。
+// 默认表是 3；加载了散一些的现场点表后会变大 —— 这正是要暴露给运维的数字。
+inline std::size_t full_scan_request_count() { return active_map().block_count; }
 
 // 人类可读的一行（日志/自检用）
 inline std::string describe_binding(const PointBinding& b) {

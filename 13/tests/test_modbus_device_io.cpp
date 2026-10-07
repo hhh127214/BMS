@@ -529,6 +529,11 @@ static void test_30_bms_forbid() {
 
 // =====================================================================
 int main() {
+    // ★ stdout 必须**无缓冲** —— 同 test_modbus_tcp.cpp：输出被重定向到文件时
+    //   stdio 默认全缓冲，整份输出要等进程退出的那一次 flush；没 flush 就整份
+    //   消失（连同 PASS=n），而退出码仍是 0。见 build_test.bat 的 :check_summary。
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+
     std::printf("=== 13/ ModbusDeviceIO 适配器契约 单元测试 ===\n\n");
 
     test_21_snapshot();

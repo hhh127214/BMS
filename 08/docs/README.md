@@ -11,7 +11,7 @@
 | 依赖 | `04/src`（`PlanTrackingStrategy` 依赖 `strategy_base.h`）；演示/端到端测试另需 `05/` `06/` `07/` |
 | 单元测试 | `tests/test_dispatch_coordinator.cpp`，**T17~T20 / 444 断言，全过** |
 | 演示 | `src/main.cpp` → 场景 D：24h 分层管控 |
-| 关键常量 | 滚动重优化 `reopt_period_s = 900 s`；实时层纠偏上限 `total_correction_max_kw = ±100 kW`；计划 96 点 × 15 min |
+| 关键常量 | 滚动重优化 `reopt_period_s = 900 s`；实时层纠偏上限 `total_correction_max_kw = ±80 kW`（代码默认值，见 `src/dispatch_coordinator.h`；回归测试里覆盖为 100 kW，故两个数字都出现过）；计划 96 点 × 15 min |
 
 ---
 

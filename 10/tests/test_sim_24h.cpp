@@ -10,6 +10,8 @@
 //   T107 故障注入：故障窗内门控为 0，恢复后重新出力
 //   T108 产物落盘：4 个文件写出且非空
 //   T109 日志降采样：不变量结论与粒度无关
+//   T112 实时源（sim_live）与离线仿真**逐列一致**
+//   T113 多日仿真：时刻戳带天号 / 时长参数生效
 //
 // 编译：g++ -std=c++17 -Wall -O2 -I src -I ../04/src -I ../05/src
 //           -I ../06/src -I ../07/src -I ../08/src
@@ -18,8 +20,11 @@
 
 #include "sim_report.h"
 #include "sim_24h.h"
+#include "sim_live.h"
+#include "record_csv.h"          // 07/ —— 实时源写出的实录格式
 
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -449,6 +454,15 @@ static void t109_decimation() {
 //   上一拍按旧（更松）上界下发的指令仍在 PCS 死区/惯性里执行 → 瞬时倒送。
 //   安全层取 min(base_now, base_next) 作上界即可消除。
 //   本用例必须用 **单拍日志**（log_every=1），否则尖峰被降采样掩盖。
+//
+// ★ 2026-09-28 修正（plan_target 毛刺修复后）：
+//   原先断言「关闭前瞻 min_grid < -5（固有穿越）」。但复盘发现，那个倒送的
+//   能量来源其实是 **08/ 计划槽边界 plan_target 毛刺**（错误放电 157 kW 级别），
+//   不是「阶梯边界穿越」本身——无毛刺时 base 突降仅 12.5 kW，而并网上界
+//   `base − grid_p_min` 本就把放电钳在净负荷内，正常不会倒送。
+//   plan_target 毛刺修复（重优化对齐槽边界）后，该错误放电消失，倒送自然归零。
+//   故本用例改为：关闭前瞻**也不得**再出现毛刺型倒送；前瞻开启不得更差、
+//   不得破坏任何不变量。前瞻机制本身仍由"开启时 min_grid ≥ 关闭时"守住。
 // =====================================================================
 static void t110_lookahead() {
     std::cerr << "[T110] 并网前瞻有效性...\n";
@@ -466,11 +480,11 @@ static void t110_lookahead() {
     Sim24hResult r_on  = run_sim_24h(on);
     EXPECT(r_off.ok && r_on.ok);
 
-    // 关闭前瞻：应出现瞬时倒送（固有穿越）
-    EXPECT(r_off.min_grid_kw < -5.0);
-    // 开启前瞻：倒送应被消除
+    // 修复后：关闭前瞻也不得再出现毛刺型倒送（原断言 < -5 是毛刺的假象）
+    EXPECT(r_off.min_grid_kw > -0.5);
     EXPECT(r_on.min_grid_kw > -0.5);
-    EXPECT(r_on.min_grid_kw > r_off.min_grid_kw + 5.0);
+    // 前瞻开启不得使最小关口功率更差（前瞻只收紧上界，不会放大倒送）
+    EXPECT(r_on.min_grid_kw >= r_off.min_grid_kw - 0.5);
 
     // 前瞻不得破坏任何不变量
     EXPECT(r_on.out_of_interval == 0);
@@ -490,6 +504,18 @@ static void t110_lookahead() {
 // 故障使当日能量轨迹改变 → 储能提前触底 → 傍晚无容量削峰 → 关口越限。
 // 这是**有效场景结论**（储能容量/能量管理问题），不是控制失效。
 // 本用例要求：硬不变量必须全过；关口越限必须 100% 可归因到 SOC 触底。
+//
+// ★ 2026-09-28 修正（plan_target 毛刺修复后）：
+//   原先断言 `grid_breach > 0`（傍晚 SOC 触底越限）。但复盘发现，那个越限的
+//   能量来源同样是 08/ 计划槽边界 plan_target 毛刺（错误放电 157 kW 级）——
+//   毛刺让储能提前放空 → 傍晚无容量 → 越限。修复重优化对齐槽边界后，滚动
+//   重优化以实测 SOC 自适应重规划，30 min PCS 故障的能量损失被后续时段自动
+//   补偿，储能不再提前触底（SOC 最低 0.11），傍晚也不再越限。
+//   故本用例改为：硬不变量全过 + SOC 不越界，且**架构不变量**（越界若发生
+//   必须 100% 归因 SOC 触底）仍被保留为条件性断言 —— 修复后越界为 0，该
+//   断言自然成立，但语义仍是"任何越界都必须可归因"，防止将来控制失效被
+//   误当成能量预算问题。原"30min 故障必越限"的场景结论已失效，需重新设计
+//   更重的能量剥夺型故障才能重新触发（另立待办，不在本次 4 项修复范围内）。
 // =====================================================================
 static void t111_fault_energy_budget() {
     std::cerr << "[T111] 故障日能量预算归因...\n";
@@ -516,12 +542,10 @@ static void t111_fault_energy_budget() {
     // 变压器在稳态窗口内不得越限
     EXPECT(r.tr_breach == 0);
 
-    // 本场景确实会出现关口越限（傍晚 SOC 触底），且必须 **100% 可归因**到
-    // SOC 触底/触顶 —— 否则就说明是控制失效而非能量预算问题。
-    EXPECT(r.grid_breach > 0);
+    // ★ 架构不变量：越界若发生，必须 100% 归因到 SOC 触底/触顶（不能是控制
+    //   失效）。plan_target 修复后本场景不再越界（能量管理自适应补偿），此
+    //   断言在 0 越界下自然成立，但语义保留，防控制失效被误判成能量预算。
     EXPECT(r.grid_breach_soc_limited == r.grid_breach);
-    // 越限发生在傍晚峰段（负荷最高、SOC 已触底）
-    EXPECT(r.max_grid_kw > c.grid_max_required);
     // SOC 在容差内不得判越界
     EXPECT(r.econ.soc_violation == 0);
 
@@ -529,6 +553,163 @@ static void t111_fault_energy_budget() {
               << "（SOC 触底归因 " << r.grid_breach_soc_limited << "）"
               << " SOC=[" << r.econ.soc_min << ", " << r.econ.soc_max << "]"
               << " max_grid=" << r.max_grid_kw << " kW\n";
+}
+
+// =====================================================================
+// T112 实时源与离线仿真逐列一致
+//
+//   这是本文件里**最要紧的一条新断言**。10/ 现在有两条时间纪律：
+//     批量 run_sim_24h —— 离线仿真，跑完看结论
+//     实时 run_sim_live —— 运行模式的数据源，按墙钟一拍一拍跑
+//   两者共用 assemble_runtime()，但"共用"是**声明**，不是事实。
+//   事实由这里锁定：同起点（相位 0）、同拍数、同 dt、同 log_every 下，
+//   实时源写出的实录与离线仿真的日志**除两列时刻外逐字节相同**。
+//
+//   为什么只比"除时刻外"：两列时刻是**故意不同**的 ——
+//     离线 t_s = 模型秒（0..86400），time = "HH:MM"
+//     实时 t_s = Unix 墙钟秒，  time = "YYYY-MM-DD HH:MM:SS"
+//   这正是 14/ 用 scenario.time_base 区分 'sim' / 'wall' 的原因。
+// =====================================================================
+static std::string strip_time_columns(const std::string& line) {
+    // 去掉前两列（t_s / time）。前两列不含引号与逗号，按前两个逗号切即可；
+    // reason 列虽然可能含逗号，但它在**最后**，不受影响。
+    const size_t p1 = line.find(',');
+    if (p1 == std::string::npos) return line;
+    const size_t p2 = line.find(',', p1 + 1);
+    if (p2 == std::string::npos) return line;
+    return line.substr(p2 + 1);
+}
+
+static std::vector<std::string> read_lines(const std::string& path) {
+    std::vector<std::string> out;
+    std::ifstream f(path.c_str());
+    std::string line;
+    while (std::getline(f, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+            line.pop_back();
+        if (!line.empty()) out.push_back(line);
+    }
+    return out;
+}
+
+static void t112_live_matches_batch() {
+    std::cerr << "[T112] 实时源与离线仿真逐列一致...\n";
+
+    const double dur = 600.0;
+    Sim24hConfig bcfg = make_default_24h_config();
+    bcfg.duration_s = dur;
+    bcfg.dt_s = 1.0;
+    bcfg.log_every = 10;
+    Sim24hResult bres = run_sim_24h(bcfg);
+    EXPECT(bres.ok);
+    EXPECT(bres.log_rows == 60);
+
+    const std::string live_csv = "build/_t112_live.csv";
+    Sim24hConfig lcfg = make_default_24h_config();
+    lcfg.duration_s = dur;
+    lcfg.dt_s = 1.0;
+    lcfg.log_every = 10;
+    SimLiveOptions lopt;
+    lopt.record_path = live_csv;
+    lopt.phase_auto = false;      // 固定相位 0 → 与离线同起点
+    lopt.phase_s = 0.0;
+    lopt.pace = false;            // 全速跑，测试不该真等 600 秒
+    lopt.log_every = 10;
+    lopt.quiet = true;
+    // ★★ 这里踩过一次真坑，务必看清两个 duration_s 是**两个不同的字段**：
+    //     Sim24hConfig::duration_s   —— 离线仿真的"跑多久"
+    //     SimLiveOptions::duration_s —— 实时源的"跑多久"，默认 0 = **一直跑到被停**
+    //   刚开始只设了 lcfg.duration_s，实时源便按 0 处理、永不停机，
+    //   一路往 build/_t112_live.csv 里写了 **1.8 GB** 才被发现（测试表现是"卡在 T112"）。
+    //   所以：时长必须设在 lopt 上；max_wall_s 是第二道防线 ——
+    //   万一以后再有人漏设，也是 60 s 后停下来（断言会失败），而不是灌满磁盘。
+    lopt.duration_s = dur;        // ← 这一行是必须的
+    lopt.max_wall_s = 60.0;       // ← 护栏
+    SimLiveResult lres = run_sim_live(lcfg, lopt);
+    EXPECT(lres.ok);
+    EXPECT(!lres.stopped_by_wall_limit);   // 被护栏截停 = 时长没设对，必须报出来
+    EXPECT(lres.rows == 60);
+    EXPECT(lres.ticks == 600);
+    EXPECT_NEAR(lres.phase0_s, 0.0, 1e-9);
+
+    std::vector<std::string> lines = read_lines(live_csv);
+    EXPECT(!lines.empty());
+    EXPECT(lines.size() == 61);   // 表头 + 60 行
+    EXPECT(strip_time_columns(lines[0]) == strip_time_columns(record::csv_header()));
+
+    int diff = 0;
+    for (size_t i = 0; i < bres.log.size() && i + 1 < lines.size(); ++i) {
+        // 批量侧用同一个序列化器生成同样的一行（时刻给个占位值）
+        const std::string want = strip_time_columns(record::csv_row(bres.log[i], 0.0));
+        const std::string got  = strip_time_columns(lines[i + 1]);
+        if (want != got) {
+            if (diff == 0) {
+                std::cerr << "        首处不同 @行" << i << "\n"
+                          << "          批量: " << want << "\n"
+                          << "          实时: " << got  << "\n";
+            }
+            ++diff;
+        }
+    }
+    EXPECT(diff == 0);
+    std::cerr << "       比对 " << bres.log_rows << " 行 × 18 列，差异 " << diff << " 处\n";
+
+    // 全速跑时 t_s 必须是**严格递增**的：入库主键是 (scenario_id, t_s)，
+    // 撞时刻会被 INSERT OR REPLACE 静默吃掉一行（曲线只是少个点，看不出来）。
+    double prev = -1e30;
+    int non_increasing = 0;
+    for (size_t i = 1; i < lines.size(); ++i) {
+        const double t = std::atof(lines[i].c_str());
+        if (t <= prev) ++non_increasing;
+        prev = t;
+    }
+    EXPECT(non_increasing == 0);
+    std::remove(live_csv.c_str());
+}
+
+// =====================================================================
+// T113 多日仿真：时刻戳与时长
+// =====================================================================
+static void t113_multi_day() {
+    std::cerr << "[T113] 多日仿真（时刻戳 / 时长）...\n";
+
+    // ---- 时刻戳：单日口径必须与既有产物逐字一致 ----
+    EXPECT(sim_report_detail::stamp(0.0, false) == "00:00");
+    EXPECT(sim_report_detail::stamp(3660.0, false) == "01:01");
+    // ★ 24 h 仿真的最后一行恰好 t=86400 —— 单日口径必须仍是 "00:00"
+    EXPECT(sim_report_detail::stamp(86400.0, false) == "00:00");
+    // ---- 多日口径：带天号，否则 30 天日志全叫 "08:00" ----
+    EXPECT(sim_report_detail::stamp(0.0, true) == "D0 00:00");
+    EXPECT(sim_report_detail::stamp(86400.0, true) == "D1 00:00");
+    EXPECT(sim_report_detail::stamp(86400.0 + 8 * 3600.0, true) == "D1 08:00");
+
+    // ---- 时长参数生效：2 天 = 172800 拍 / 17280 行（log_every=10）----
+    Sim24hConfig cfg = make_default_24h_config();
+    cfg.duration_s = 2.0 * 86400.0;
+    cfg.dt_s = 1.0;
+    cfg.log_every = 10;
+    Sim24hResult r = run_sim_24h(cfg);
+    EXPECT(r.ok);
+    EXPECT(r.steps == 172800);
+    EXPECT(r.log_rows == 17280);
+    EXPECT_NEAR(r.log.back().t, 172800.0, 1e-6);
+    // 曲线按 96 点日曲线**回绕**：第二天的同一时刻应与第一天同值
+    double l0 = 0, l1 = 0;
+    r.forecast.sample(8 * 3600.0, &l0, nullptr, nullptr);
+    r.forecast.sample(86400.0 + 8 * 3600.0, &l1, nullptr, nullptr);
+    EXPECT_NEAR(l0, l1, 1e-9);
+
+    // 电量应是单日的两倍量级（同一曲线重复两天）
+    Sim24hConfig cfg1 = make_default_24h_config();
+    cfg1.duration_s = 86400.0;
+    cfg1.dt_s = 1.0;
+    cfg1.log_every = 10;
+    Sim24hResult r1 = run_sim_24h(cfg1);
+    const double ratio = r.econ.e_import_kwh / r1.econ.e_import_kwh;
+    EXPECT(ratio > 1.9 && ratio < 2.1);
+    std::cerr << "       2 日购电 " << r.econ.e_import_kwh
+              << " kWh / 1 日 " << r1.econ.e_import_kwh
+              << " kWh，比值 " << ratio << "\n";
 }
 
 // =====================================================================
@@ -545,6 +726,8 @@ int main() {
     t109_decimation();
     t110_lookahead();
     t111_fault_energy_budget();
+    t112_live_matches_batch();
+    t113_multi_day();
 
     std::cerr << "\n----------------------------------------\n";
     std::cerr << "PASS=" << g_pass << " FAIL=" << g_fail << "\n";

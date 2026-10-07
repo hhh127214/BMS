@@ -16,12 +16,18 @@
 //   T13: 超时（从站静默）
 //   T14: 映射表自检 + 分块规划
 //   T15: 编解码往返（缩放 / 负数 / NaN / 越界）
+//   T16~T19: 运行期点表 —— 默认表分块一致 / CSV 往返 / 覆盖生效 / 非法被拒且回退
+//   T20: 随包发布的点表模板（docs/point_map_template.csv）能加载且等于默认表
+//   T31~T33: 约定默认路径（配置通道①）—— 无文件回退内置 / 有文件则生效 /
+//            非法则硬失败且不退回默认表
 //
 // 编译：见 13/scripts/build_test.bat
+// 运行：工作目录必须是 13\（T17~T20、T31~T33 都按这个相对路径读写文件）
 // =====================================================================
 
 #include "modbus_tcp_client.h"
 #include "modbus_point_map.h"
+#include "device_conn_conf.h"     // 13/  接入参数（配置通道②）
 #include "fake_modbus_slave.h"
 
 #include <cmath>
@@ -29,6 +35,17 @@
 #include <cstdio>
 #include <iostream>
 #include <string>
+
+// T31~T33 需要在 build/ 下造一个临时点表目录。用 _mkdir 而不是
+// <filesystem>：本模块只跑在 Windows（bat 构建 + WinSock2），
+// 为一行建目录去引入 <filesystem> 不划算，老 MinGW 还要额外链 libstdc++fs。
+#ifdef _WIN32
+#  include <direct.h>
+#  define EMS_TEST_MKDIR(p) ::_mkdir(p)
+#else
+#  include <sys/stat.h>
+#  define EMS_TEST_MKDIR(p) ::mkdir((p), 0755)
+#endif
 
 using namespace ems;
 using namespace ems::modbus;
@@ -635,7 +652,523 @@ static void test_15_codec_roundtrip() {
 }
 
 // =====================================================================
+// T16~T19：运行期点表（现场配置那一层）
+//
+// 这一组测的是"两层结构"本身，而不是协议：
+//   T16 默认表推导出的分块必须与编译期 kReadBlocks **逐字段相等**
+//       —— 这是"两层结构没有偷偷改变默认行为"的正面证据
+//   T17 导出 → 加载 往返一致（导出件可以直接当模板发给客户）
+//   T18 合法 CSV 的地址 / 缩放 / 字序真的生效（含解码结果，不只看表里的数字）
+//   T19 各类非法 CSV 被拒，且活动表**一个字节都没变**（回退纪律）
+// =====================================================================
+
+static bool write_text_file(const char* path, const std::string& s) {
+    std::FILE* f = std::fopen(path, "wb");
+    if (f == nullptr) return false;
+    const bool ok = std::fwrite(s.data(), 1, s.size(), f) == s.size();
+    std::fclose(f);
+    return ok;
+}
+
+// 活动表是否**逐字段**等于编译期默认表（含分块）。
+// 只看 from_csv 不够：一份"加载失败却把表重置成默认"的实现也能让 from_csv 为假。
+static bool same_as_default(const PointMap& m) {
+    if (m.from_csv) return false;
+    if (m.count != static_cast<std::size_t>(kBindingCount)) return false;
+    if (m.block_count != kReadBlockCount) return false;
+    for (std::size_t i = 0; i < kBindingCount; ++i) {
+        const PointBinding& a = m.items[i];
+        const PointBinding& b = kBindings[i];
+        if (a.index != b.index)                   return false;
+        if (a.table != b.table)                   return false;
+        if (a.address != b.address)               return false;
+        if (a.encoding != b.encoding)             return false;
+        if (a.word_order != b.word_order)         return false;
+        if (a.writable != b.writable)             return false;
+        if (std::fabs(a.scale - b.scale) > 1e-12) return false;
+    }
+    for (std::size_t k = 0; k < kReadBlockCount; ++k) {
+        if (m.blocks[k].table != kReadBlocks[k].table) return false;
+        if (m.blocks[k].start != kReadBlocks[k].start) return false;
+        if (m.blocks[k].count != kReadBlocks[k].count) return false;
+    }
+    return true;
+}
+
+static std::string replace_first(const std::string& s, const std::string& from,
+                                 const std::string& to) {
+    const std::size_t p = s.find(from);
+    if (p == std::string::npos) return s;
+    return s.substr(0, p) + to + s.substr(p + from.size());
+}
+
+static std::string first_n_lines(const std::string& s, std::size_t n) {
+    std::size_t pos = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::size_t nl = s.find('\n', pos);
+        if (nl == std::string::npos) return s;
+        pos = nl + 1;
+    }
+    return s.substr(0, pos);
+}
+
+static void test_16_default_map_blocks_match() {
+    std::printf("T16 默认表推导的分块 == 编译期 kReadBlocks\n");
+    reset_point_map();
+    EXPECT(same_as_default(active_point_map()));
+    EXPECT_EQ(self_check(), 0);
+    EXPECT_EQ(mapped_point_count(), static_cast<std::size_t>(kBindingCount));
+    // 分块数照旧是 3 —— "读全 32 点 = 3 次请求"这条契约没被动过
+    EXPECT_EQ(full_scan_request_count(), static_cast<std::size_t>(3));
+}
+
+static void test_17_csv_roundtrip() {
+    std::printf("T17 CSV 导出 → 加载 往返一致\n");
+    reset_point_map();
+    const std::string csv = export_point_map_csv(active_point_map());
+    EXPECT(csv.size() > 100);
+    const char* path = "build/_t17_roundtrip.csv";
+    EXPECT(write_text_file(path, csv));
+
+    std::string rep;
+    EXPECT(load_point_map_csv(path, &rep));
+    EXPECT(rep == "ok");
+    EXPECT(active_point_map().from_csv);
+
+    // 往返之后每一列都要与默认表相同 —— 否则"导出再导入"会静默改表
+    for (std::size_t i = 0; i < kBindingCount; ++i) {
+        const PointBinding& a = active_point_map().items[i];
+        const PointBinding& b = kBindings[i];
+        EXPECT(a.address == b.address);
+        EXPECT(a.table == b.table);
+        EXPECT(a.encoding == b.encoding);
+        EXPECT(a.word_order == b.word_order);
+        EXPECT_EQ(a.writable ? 1 : 0, b.writable ? 1 : 0);
+        EXPECT_NEAR(a.scale, b.scale, 1e-12);
+    }
+    EXPECT_EQ(self_check(), 0);
+    reset_point_map();
+}
+
+static void test_18_csv_overrides_take_effect() {
+    std::printf("T18 合法 CSV 的地址 / 缩放 / 字序真的生效\n");
+    reset_point_map();
+    std::string csv = export_point_map_csv(active_point_map());
+    csv = replace_first(csv, "MEAS.SOC,IR,8,u16,high,10000,ro",
+                             "MEAS.SOC,IR,8,u16,high,100,ro");
+    csv = replace_first(csv, "MEAS.P_PV,IR,2,f32,high",
+                             "MEAS.P_PV,IR,100,f32,high");
+    csv = replace_first(csv, "MEAS.P_BAT,IR,4,f32,low",
+                             "MEAS.P_BAT,IR,4,f32,high");
+    const char* path = "build/_t18_override.csv";
+    EXPECT(write_text_file(path, csv));
+
+    std::string rep;
+    EXPECT(load_point_map_csv(path, &rep));
+
+    EXPECT_NEAR(binding_for_index(EMS_SOC).scale, 100.0, 1e-9);
+    EXPECT_EQ(binding_for_index(EMS_P_PV).address, 100);
+    EXPECT(binding_for_index(EMS_P_BAT).word_order == WordOrder::kHighWordFirst);
+
+    // P_PV 挪到 IR[100] 之后，IR 段被拆成两块 → 总块数 4。
+    // 这条断言的意思是：**分块是跟着地址重算的**，不是继续用编译期那张常量表。
+    EXPECT_EQ(active_block_count(), static_cast<std::size_t>(4));
+    EXPECT_EQ(full_scan_request_count(), static_cast<std::size_t>(4));
+    EXPECT_EQ(self_check(), 0);
+
+    // 缩放必须体现在**解码结果**上：只看表里的 100 是测不出"生效"的
+    const std::uint16_t irsoc[9] = {0, 0, 0, 0, 0, 0, 0, 0, 5500};
+    double v = 0.0;
+    EXPECT(decode_point(binding_for_index(EMS_SOC), irsoc, 9, nullptr, 0, &v) ==
+           DecodeError::kNone);
+    EXPECT_NEAR(v, 55.0, 1e-9);          // 5500 / 100，而不是 5500 / 10000
+    reset_point_map();
+}
+
+static void test_19_invalid_csv_rejected_and_rollback() {
+    std::printf("T19 非法 CSV 被拒，且活动表一个字节都没变\n");
+
+    // 先加载一份**合法但改过**的表当基线。
+    // 为什么不拿默认表当基线：那样"加载失败却把表重置成默认"的实现也会通过 ——
+    // 基线必须与"失败后的错误状态"不同，断言才有区分度。
+    reset_point_map();
+    std::string good = export_point_map_csv(active_point_map());
+    good = replace_first(good, "MEAS.SOC,IR,8,u16,high,10000,ro",
+                               "MEAS.SOC,IR,8,u16,high,100,ro");
+    const char* goodPath = "build/_t19_good.csv";
+    EXPECT(write_text_file(goodPath, good));
+    std::string rep;
+    EXPECT(load_point_map_csv(goodPath, &rep));
+    EXPECT_NEAR(binding_for_index(EMS_SOC).scale, 100.0, 1e-9);
+
+    auto must_reject = [&](const char* label, const std::string& csv) {
+        const char* path = "build/_t19_bad.csv";
+        EXPECT(write_text_file(path, csv));
+        std::string r;
+        const bool ok = load_point_map_csv(path, &r);
+        EXPECT(!ok);
+        std::printf("     %-14s → 拒绝：%s\n", label, r.c_str());
+        // ★ 关键断言：失败之后活动表仍是 T19 开头那份**改过的**表，
+        //   而不是默认表 —— "失败即回退到上一个可用状态"。
+        EXPECT(active_point_map().from_csv);
+        EXPECT_NEAR(binding_for_index(EMS_SOC).scale, 100.0, 1e-9);
+        EXPECT_EQ(self_check(), 0);
+    };
+
+    must_reject("行数不足",   first_n_lines(good, 20));
+    must_reject("字序非法",   replace_first(good, ",f32,high,", ",f32,wiggle,"));
+    must_reject("点名写错",   replace_first(good, "MEAS.P_LOAD,IR,0", "MEAS.P_LOADS,IR,0"));
+    must_reject("地址重叠",   replace_first(good, "MEAS.P_PV,IR,2", "MEAS.P_PV,IR,0"));
+    must_reject("缩放为0",    replace_first(good, "MEAS.SOC,IR,8,u16,high,100,ro",
+                                                 "MEAS.SOC,IR,8,u16,high,0,ro"));
+    must_reject("指令不连续", replace_first(good, "CMD.P_UPPER,HR,2", "CMD.P_UPPER,HR,8"));
+    must_reject("只读标可写", replace_first(good, "MEAS.SOC,IR,8,u16,high,100,ro",
+                                                 "MEAS.SOC,IR,8,u16,high,100,rw"));
+    must_reject("编码配错表", replace_first(good, "MEAS.SOC,IR,8,u16", "MEAS.SOC,DI,8,u16"));
+    must_reject("空文件",     std::string(""));
+
+    reset_point_map();
+    EXPECT(same_as_default(active_point_map()));
+}
+
+// =====================================================================
+// T20：随包发布的点表模板（docs/point_map_template.csv）
+//
+// 为什么单独给一份**文档文件**写判据：
+//   这份模板是发给客户去改的起点。它一旦与内置默认表脱钩（默认表改了
+//   地址而模板没跟着改），客户照它填出来的表会在**加载成功**的前提下
+//   读出错误的点 —— 这正是本项目最忌讳的那类"看起来在工作"。
+//
+// ★ 与 T17 的分工：T17 验"导出再导入"这条**机制**；T20 验"我们实际
+//   交付出去的那个文件"本身。机制是对的、而发出的文件是旧的，这两件
+//   事完全可以同时成立 —— 所以必须各有一条判据。
+// =====================================================================
+
+// 忽略 from_csv 标志：模板加载成功后它必为真，而默认表为假，
+// 所以这里不能直接复用 same_as_default()。
+// 不符时打印**第一处**差异的定位信息，避免只报一句"不相等"。
+static bool template_matches_compiled_default(const PointMap& m) {
+    if (m.count != static_cast<std::size_t>(kBindingCount)) {
+        std::printf("     模板点数 %zu != 默认 %d\n",
+                    m.count, static_cast<int>(kBindingCount));
+        return false;
+    }
+    if (m.block_count != kReadBlockCount) {
+        std::printf("     模板分块数 %zu != 默认 %d\n",
+                    m.block_count, static_cast<int>(kReadBlockCount));
+        return false;
+    }
+    for (std::size_t i = 0; i < kBindingCount; ++i) {
+        const PointBinding& a = m.items[i];
+        const PointBinding& b = kBindings[i];
+        const bool same = a.index == b.index && a.table == b.table &&
+                          a.address == b.address && a.encoding == b.encoding &&
+                          a.word_order == b.word_order &&
+                          a.writable == b.writable &&
+                          std::fabs(a.scale - b.scale) <= 1e-12;
+        if (!same) {
+            std::printf("     模板第 %zu 行与默认表不符："
+                        "addr %u/%u  enc %d/%d  word %d/%d  scale %g/%g\n",
+                        i, static_cast<unsigned>(a.address),
+                        static_cast<unsigned>(b.address),
+                        static_cast<int>(a.encoding), static_cast<int>(b.encoding),
+                        static_cast<int>(a.word_order),
+                        static_cast<int>(b.word_order), a.scale, b.scale);
+            return false;
+        }
+    }
+    for (std::size_t k = 0; k < kReadBlockCount; ++k) {
+        if (m.blocks[k].table != kReadBlocks[k].table ||
+            m.blocks[k].start != kReadBlocks[k].start ||
+            m.blocks[k].count != kReadBlocks[k].count) {
+            std::printf("     模板第 %zu 个分块与默认表不符\n", k);
+            return false;
+        }
+    }
+    return true;
+}
+
+static void test_20_shipped_template_matches_default() {
+    std::printf("T20 随包点表模板可加载，且逐字段等于内置默认表\n");
+    reset_point_map();
+    const char* path = "docs/point_map_template.csv";
+    std::string rep;
+    // 注意：这条 EXPECT 同时守住"文件还在不在" —— 模板被删掉/改名
+    // 是 FAIL 而不是 SKIP，因为"发给客户的那个文件"本身就是交付物。
+    EXPECT(load_point_map_csv(path, &rep));
+    EXPECT(rep == "ok");
+    EXPECT(template_matches_compiled_default(active_point_map()));
+    // "读全 32 点 = 3 次请求"这条契约对模板同样成立
+    EXPECT_EQ(full_scan_request_count(), static_cast<std::size_t>(3));
+    EXPECT(active_point_map().from_csv);
+    reset_point_map();
+}
+
+// ---------------------------------------------------------------------
+// T31~T33: 约定默认路径（配置通道①：14/ 落盘 → 13/ 启动时读）
+//
+// 这是「客户在界面上填完点表，13/ 就能读到」的落点，所以要守住三件事：
+//   ① 目录里没有文件 → 回退内置默认表。现场还没配置是正常状态，
+//      程序必须能起来 —— 这是"开箱可用"的底线。
+//   ② 文件合法     → 用它，而且活动表**真的被替换**（不能只是"报告成功"）
+//   ③ 文件非法     → **硬失败**，且活动表一个字节都不改
+// ③ 是这段的全部意义：静默回退会让「平台写错了表」与「平台没写表」
+//   在现场表现完全一样，而前者会让人以为配置已生效、实际跑在另一张表上。
+// ---------------------------------------------------------------------
+static const char* kDefaultDir = "build/_t31_map";
+
+static void ensure_dir(const char* path) { EMS_TEST_MKDIR(path); }
+
+static void test_31_default_path_missing_falls_back() {
+    std::printf("T31 约定路径下没有文件时回退内置默认表（不算错误）\n");
+    reset_point_map();
+    std::string rep, used;
+    MapSource src = MapSource::kExplicit;      // 先设成别的值，验证它确实被改写
+    const bool ok = load_point_map_default_at("build/_t31_no_such_dir", &rep, &src, &used);
+    EXPECT(ok);                                       // ① 不是错误
+    EXPECT(src == MapSource::kBuiltin);
+    EXPECT(!used.empty());
+    EXPECT(rep.find("没有点表文件") != std::string::npos);
+    EXPECT(same_as_default(active_point_map()));      // 活动表没被碰
+    EXPECT_EQ(full_scan_request_count(), static_cast<std::size_t>(3));
+    reset_point_map();
+}
+
+static void test_32_default_path_loads_and_takes_effect() {
+    std::printf("T32 约定路径有合法点表时被加载，且真的生效\n");
+    reset_point_map();
+    ensure_dir(kDefaultDir);
+    // 造一份"合法但改过"的表：SOC 缩放 10000→100，P_PV 从 IR2 挪到 IR100
+    std::string csv = export_point_map_csv(make_default_map());
+    csv = replace_first(csv, "MEAS.SOC,IR,8,u16,high,10000,ro",
+                             "MEAS.SOC,IR,8,u16,high,100,ro");
+    csv = replace_first(csv, "MEAS.P_PV,IR,2,f32,high",
+                             "MEAS.P_PV,IR,100,f32,high");
+    const std::string path = std::string(kDefaultDir) + "/active.csv";
+    EXPECT(write_text_file(path.c_str(), csv));
+
+    std::string rep, used;
+    MapSource src = MapSource::kBuiltin;
+    EXPECT(load_point_map_default_at(kDefaultDir, &rep, &src, &used));
+    EXPECT(src == MapSource::kDefaultPath);
+    EXPECT(active_point_map().from_csv);
+    EXPECT(!same_as_default(active_point_map()));     // 确实换了表，不是"报告成功"
+    // 真的生效：缩放值对得上、分块数从 3 变成 4（P_PV 挪远了）
+    EXPECT_NEAR(binding_for_index(EMS_SOC).scale, 100.0, 1e-9);
+    EXPECT_EQ(full_scan_request_count(), static_cast<std::size_t>(4));
+    reset_point_map();
+}
+
+static void test_33_default_path_invalid_is_hard_failure() {
+    std::printf("T33 约定路径的表非法时硬失败，且活动表不被改动\n");
+    reset_point_map();
+    ensure_dir(kDefaultDir);
+
+    // 先加载一份"合法但改过"的表当基线。为什么必须先加载一份而不是用默认表：
+    // 否则"失败后活动表还是默认表"这种**假通过**就区分不出来 ——
+    // 而这段代码要证明的是"失败没有把表退回默认"。
+    std::string good = export_point_map_csv(make_default_map());
+    good = replace_first(good, "MEAS.SOC,IR,8,u16,high,10000,ro",
+                               "MEAS.SOC,IR,8,u16,high,100,ro");
+    const std::string path = std::string(kDefaultDir) + "/active.csv";
+    EXPECT(write_text_file(path.c_str(), good));
+    std::string rep, used;
+    MapSource src = MapSource::kBuiltin;
+    EXPECT(load_point_map_default_at(kDefaultDir, &rep, &src, &used));
+    EXPECT(src == MapSource::kDefaultPath);
+    EXPECT_NEAR(binding_for_index(EMS_SOC).scale, 100.0, 1e-9);
+
+    // 再把同一路径换成一份非法的（点名被改坏）
+    const std::string bad = replace_first(good, "MEAS.P_LOAD,IR,0", "MEAS.WRONG,IR,0");
+    EXPECT(write_text_file(path.c_str(), bad));
+    rep.clear();
+    used.clear();
+    src = MapSource::kBuiltin;
+    EXPECT(!load_point_map_default_at(kDefaultDir, &rep, &src, &used));  // ② 硬失败
+    EXPECT(rep.find("非法") != std::string::npos);   // 说清是"非法"而不是"没有"
+    // ★ 关键：活动表仍是上一次成功加载的那份，**没有退回默认表**
+    EXPECT(active_point_map().from_csv);
+    EXPECT(!same_as_default(active_point_map()));
+    EXPECT_NEAR(binding_for_index(EMS_SOC).scale, 100.0, 1e-9);
+    EXPECT_EQ(full_scan_request_count(), static_cast<std::size_t>(3));
+
+    std::remove(path.c_str());
+    reset_point_map();
+}
+
+// ---------------------------------------------------------------------
+// T34~T38: 配置通道② —— 接入参数（14/ 落盘 → 13/ 启动时读）
+//
+// 与 T31~T33 同一个套路，守的是接入参数那一半。为什么两半都要守：
+//   点表全对、IP 错一个数字 → 读到的是**另一台设备**的数据，
+//   而点表自检、分块、解码全部通过，现场没有任何异常迹象。
+// ---------------------------------------------------------------------
+static const char* kConnDir = "build/_t34_conn";
+
+// 与 14/src/connconf.py 的 dumps() 数据段同构（注释头另加）
+static std::string conn_text(const char* host = "192.168.1.10",
+                             int port = 502, int unit = 3,
+                             const char* enabled = "1") {
+    std::string s;
+    s += std::string("format=") + conn_format_tag() + "\n";
+    s += "device_id=DEV-BMS-01\n";
+    s += "protocol=modbus_tcp\n";
+    s += std::string("host=") + host + "\n";
+    s += "port=" + std::to_string(port) + "\n";
+    s += "unit_id=" + std::to_string(unit) + "\n";
+    s += "poll_period_ms=100\n";
+    s += "timeout_ms=1500\n";
+    s += "auto_reconnect=1\n";
+    s += std::string("enabled=") + enabled + "\n";
+    s += "saved_at=2026-09-29 02:00:00\n";
+    s += "username=admin\n";
+    return s;
+}
+
+static std::string to_crlf(const std::string& s) {
+    std::string o;
+    for (char c : s) { if (c == '\n') o += '\r'; o += c; }
+    return o;
+}
+
+static void test_34_conn_missing_is_not_invalid() {
+    std::printf("T34 约定路径下没有接入参数文件 → kMissing（**不编默认地址**）\n");
+    DeviceConn c;
+    c.host    = "SENTINEL";     // 若被改写，说明函数擅自填了值
+    c.unit_id = 99;
+    std::string rep, used;
+    const ConnLoad s = load_device_conn_at("build/_t34_no_such_dir", &c, &rep, &used);
+    EXPECT(s == ConnLoad::kMissing);          // 「没配」不是「配错」
+    EXPECT(!used.empty());
+    EXPECT(rep.find("没有接入参数文件") != std::string::npos);
+    // ★ 关键：*out 一个字节都不该被碰 —— 这就是"不编默认值"的落点。
+    //   编一个 127.0.0.1 出来，程序就会**真的去连它**，而屏幕上一切正常。
+    EXPECT(c.host == "SENTINEL");
+    EXPECT_EQ(c.unit_id, 99);
+}
+
+static void test_35_conn_loads_fields() {
+    std::printf("T35 合法接入参数被加载，字段逐一对上（含 BOM/CRLF/注释头）\n");
+    ensure_dir(kConnDir);
+    const std::string path = std::string(kConnDir) + "/active.conn";
+
+    // 按 14/ 真实落盘的样子造：BOM + 注释头 + CRLF
+    const std::string real = std::string("\xEF\xBB\xBF") +
+        "# ============ 注释头 ============\r\n"
+        "# 设备  DEV-BMS-01\r\n" + to_crlf(conn_text());
+    EXPECT(write_text_file(path.c_str(), real));
+
+    DeviceConn c;
+    std::string rep, used;
+    const ConnLoad s = load_device_conn_at(kConnDir, &c, &rep, &used);
+    EXPECT(s == ConnLoad::kOk);
+    EXPECT(c.device_id == "DEV-BMS-01");
+    EXPECT(c.protocol == "modbus_tcp");
+    EXPECT(c.host == "192.168.1.10");
+    EXPECT_EQ(c.port, 502);
+    EXPECT_EQ(c.unit_id, 3);
+    EXPECT_EQ(c.poll_period_ms, 100);
+    EXPECT_EQ(c.timeout_ms, 1500);
+    EXPECT(c.auto_reconnect);
+    EXPECT(c.enabled);
+    EXPECT(c.saved_at == "2026-09-29 02:00:00");   // 元信息也要读出来
+    EXPECT(c.username == "admin");
+}
+
+static void test_36_conn_invalid_is_hard_failure() {
+    std::printf("T36 接入参数非法 → kInvalid，且 *out 不被改动\n");
+    ensure_dir(kConnDir);
+    const std::string path = std::string(kConnDir) + "/active.conn";
+
+    struct Case { const char* label; std::string text; };
+    const Case cases[] = {
+        {"键名拼错（hots=）", replace_first(conn_text(), "host=", "hots=")},
+        {"缺必填键（删掉 host）", replace_first(conn_text(), "host=192.168.1.10\n", "")},
+        {"格式版本不认识",
+         replace_first(conn_text(), conn_format_tag(), "ems-device-conn/9")},
+        {"端口越界", conn_text("192.168.1.10", 70000, 3)},
+        {"从站号 0（广播）", conn_text("192.168.1.10", 502, 0)},
+        {"从站号 248（超 247）", conn_text("192.168.1.10", 502, 248)},
+        {"host 含非法字符", conn_text("192.168.1.10; rm -rf")},
+        {"不是 key=value", conn_text() + "这行没有等号\n"},
+        {"enabled 不是 0/1", conn_text("192.168.1.10", 502, 3, "maybe")},
+        {"协议不认识",
+         replace_first(conn_text(), "protocol=modbus_tcp", "protocol=iec61850")},
+    };
+
+    for (const Case& cs : cases) {
+        EXPECT(write_text_file(path.c_str(), cs.text));
+        DeviceConn c;
+        c.host    = "SENTINEL";
+        c.unit_id = 99;
+        std::string rep, used;
+        const ConnLoad s = load_device_conn_at(kConnDir, &c, &rep, &used);
+        if (s != ConnLoad::kInvalid) {
+            std::cerr << "  未拒绝: " << cs.label << " -> " << conn_load_name(s)
+                      << std::endl;
+        }
+        EXPECT(s == ConnLoad::kInvalid);            // ① 硬失败，不回退
+        EXPECT(c.host == "SENTINEL");                // ② *out 不被碰
+        EXPECT_EQ(c.unit_id, 99);
+        EXPECT(!rep.empty());
+    }
+
+    // 反证：换回合法件必须立刻恢复（否则上面的"全部拒绝"可能是因为函数坏了）
+    EXPECT(write_text_file(path.c_str(), conn_text()));
+    DeviceConn c2;
+    std::string rep2, used2;
+    EXPECT(load_device_conn_at(kConnDir, &c2, &rep2, &used2) == ConnLoad::kOk);
+    EXPECT(c2.host == "192.168.1.10");
+}
+
+static void test_37_disabled_is_readable() {
+    std::printf("T37 enabled=0 能被读出来（调用方据此拒绝连接）\n");
+    ensure_dir(kConnDir);
+    const std::string path = std::string(kConnDir) + "/active.conn";
+    EXPECT(write_text_file(path.c_str(), conn_text("192.168.1.10", 502, 3, "0")));
+    DeviceConn c;
+    std::string rep, used;
+    EXPECT(load_device_conn_at(kConnDir, &c, &rep, &used) == ConnLoad::kOk);
+    // 加载本身是成功的（文件合法），「未启用」是**语义**，由调用方决定怎么办。
+    // 这样设计是为了让 probe 与 07/ 各自给出恰当的处置，而不是在这里一刀切。
+    EXPECT(!c.enabled);
+    EXPECT(c.host == "192.168.1.10");     // 参数读得到，只是被标记为未启用
+    // "0" / "false" / "no" / "off" 四种写法都该认
+    EXPECT(write_text_file(path.c_str(),
+                           replace_first(conn_text(), "enabled=1", "enabled=false")));
+    DeviceConn c2;
+    std::string r2, u2;
+    EXPECT(load_device_conn_at(kConnDir, &c2, &r2, &u2) == ConnLoad::kOk);
+    EXPECT(!c2.enabled);
+}
+
+static void test_38_conn_dir_matches_point_map_dir() {
+    std::printf("T38 接入参数与点表**同目录**（目录约定只有一处）\n");
+    // 两侧分叉 = 「平台把参数写到 A、端侧去 B 找」= 配置永远不生效，
+    // 而两边各自都"成功"。所以这条必须钉死。
+    const std::string p = default_device_conn_path();
+    const std::string m = default_point_map_path();
+    const std::size_t ps = p.find_last_of("\\/");
+    const std::size_t ms = m.find_last_of("\\/");
+    EXPECT(ps != std::string::npos && ms != std::string::npos);
+    EXPECT(p.substr(0, ps) == m.substr(0, ms));
+    EXPECT(p.substr(ps + 1) == "active.conn");
+    EXPECT(m.substr(ms + 1) == "active.csv");
+    // 显式给目录时也一样
+    EXPECT(path_in_dir_conn("build/_t34_conn") != path_in_dir_conn("build/other"));
+    EXPECT(path_in_dir_conn("build/_t34_conn").find("active.conn") != std::string::npos);
+}
+
+// =====================================================================
 int main() {
+    // ★ stdout 必须**无缓冲**。构建脚本会把本进程输出重定向到文件，而 stdio
+    //   一旦重定向就改成**全缓冲**（4 KB）。本测试整份输出约 2.4 KB，一个缓冲区
+    //   装得下 —— 于是全份输出都要等进程退出时那一次 flush 才落盘；那次 flush
+    //   一旦没发生，**整份输出连同 PASS=597 一起消失，而退出码仍然是 0**
+    //   （实测连续 20 次里出现过 1 次 0 字节）。无缓冲后写一条落一条。
+    //   批处理侧还有第二道闸，见 13/scripts/build_test.bat 尾部的 :check_summary。
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+
     std::printf("=== 13/ Modbus TCP 协议层 + 映射表 单元测试 ===\n\n");
 
     test_01_build_requests();
@@ -653,6 +1186,19 @@ int main() {
     test_13_timeout();
     test_14_point_map();
     test_15_codec_roundtrip();
+    test_16_default_map_blocks_match();
+    test_17_csv_roundtrip();
+    test_18_csv_overrides_take_effect();
+    test_19_invalid_csv_rejected_and_rollback();
+    test_20_shipped_template_matches_default();
+    test_31_default_path_missing_falls_back();
+    test_32_default_path_loads_and_takes_effect();
+    test_33_default_path_invalid_is_hard_failure();
+    test_34_conn_missing_is_not_invalid();
+    test_35_conn_loads_fields();
+    test_36_conn_invalid_is_hard_failure();
+    test_37_disabled_is_readable();
+    test_38_conn_dir_matches_point_map_dir();
 
     std::printf("\n");
     if (g_fail == 0) {

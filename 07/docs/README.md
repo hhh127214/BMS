@@ -13,7 +13,9 @@
 | 演示 | `src/main.cpp` → 场景 C：阶跃跟随 + 抖动治理三档对照 + 变化率对照 |
 | 关键常量 | 控制周期 `dt = 100 ms`；实时层纠偏上限 `l2_correction_max_kw = ±100 kW`；输出死区 `2 kW` / 滞环 `3` 拍 |
 | 设备 I/O 抽象 | 接口在 `04/src/device_io.h`（P0）；本模块提供 3 个实现：`src/sim_device_io.h`（仿真）、`src/memory_device_io.h`（P0.5 进程内点表）、`src/rtdb/rtdb_device_io.h`（RT_DB 共享内存） |
-| RT_DB 接入测试 | `tests/test_rtdb_device_io.cpp`，**T25~T29 / 546 断言，全过**（`scripts\build_test_rtdb.bat`） |
+| RT_DB 接入测试 | `tests/test_rtdb_device_io.cpp`，**T25~T29 / 554 断言，全过**（`scripts\build_test_rtdb.bat`） |
+| **现场进程入口** | `src/main_field.cpp` → `build\main_field.exe`：`--device sim\|rtdb\|modbus`（**默认 sim**）。接真机时**默认只读**，下发指令必须显式 `--control`；闭环实录用 `--record` |
+| 现场入口测试 | `tests/test_field_entry.cpp`（T-F1~T-F9 / 124 断言）+ 输出等价性 P-F1，全过（`scripts\build_test_field.bat`） |
 
 ---
 
@@ -23,7 +25,9 @@
 cd 07
 scripts\build.bat          :: 编 test_realtime_loop.exe + loop_demo.exe
 scripts\build_test.bat     :: 编 + 跑 T11~T16（应输出 PASS=6050 FAIL=0 / ALL TESTS PASSED）
-scripts\build_test_rtdb.bat:: 编 + 跑 RT_DB 接入 T25~T29（应输出 PASS=546 FAIL=0）
+scripts\build_test_rtdb.bat:: 编 + 跑 RT_DB 接入 T25~T29（应输出 PASS=554 FAIL=0）
+scripts\build_field.bat    :: 编现场入口 main_field.exe（--device sim|rtdb|modbus）
+scripts\build_test_field.bat:: 编 + 跑现场入口 T-F1~T-F9 + 输出等价性 P-F1
 scripts\run_demo.bat       :: 跑场景 C，输出 → build\demo_output.txt
 ```
 
@@ -45,14 +49,18 @@ scripts\run_demo.bat       :: 跑场景 C，输出 → build\demo_output.txt
 ├── src/rtdb/ext_setpoints.h       ← ★ 读侧：EXT 外部设定的读取 + 失效判定（A3.1，纯 header）
 ├── src/rtdb/ems_rt_db_setup.h|.c  ← 点表初始化器（建段 + 注册 40 点；补 RT_DB 无注册 API 的缺口）
 ├── src/realtime_loop.h            ← EmsRuntime 11 步闭环 + ⓪ 限值刷新 + OutputShaper + LoopConfig/StepRecord/LoopMetrics
-├── src/main.cpp                   ← 场景 C：3 个试验
+├── src/main.cpp                   ← 场景 C 演示壳（现在只调 demo_scenario7.h）
+├── src/demo_scenario7.h           ← ★ 场景 C 演示体（从 main.cpp 抽出，与 main_field.cpp **共用**，好让两者输出可 diff）
+├── src/main_field.cpp             ← ★ **现场进程入口**：--device sim|rtdb|modbus（默认 sim；默认只读）
+├── src/field_args.h               ← ★ 现场入口命令行解析（独立成头，便于单测）
 ├── tests/test_realtime_loop.cpp   ← T11~T16
+├── tests/test_field_entry.cpp     ← T-F1~T-F9（现场入口参数解析；输出等价性在 bat 里做）
 ├── tests/test_device_io.cpp       ← T21~T24（P0/P0.5 适配器可换性）
 ├── tests/test_rtdb_device_io.cpp  ← T25~T29（RT_DB 接入：点表契约 / 跨内存边界闭环等价 / 双连接 / 故障）
 ├── vendor/rt_db/                  ← RT_DB 源码快照（rt_db_api.c/.h + structs + private）
 ├── docs/README.md                 ← 本文件
 ├── docs/design.md                 ← 设计说明（闭环时序 / 第⑨步顺序 / 整形语义 / 指标口径 / 抖动治理）
-├── scripts/{build,build_test,build_test_device_io,build_test_rtdb,run_demo}.bat
+├── scripts/{build,build_test,build_test_device_io,build_test_rtdb,build_field,build_test_field,run_demo}.bat
 └── build/                         ← 产物（git ignore；`build\demo_output.txt` 为演示输出）
 ```
 
@@ -209,7 +217,7 @@ P0.5 只用 `MemoryDeviceIO` 证明了「换数据源不改算法」在**进程�
 ```bat
 cd 07
 scripts\build_test_rtdb.bat    :: gcc 编 C 实时库 → g++ 编适配器与测试 → 跑 T25~T29
-                               :: 期望 PASS=546 FAIL=0 / ALL TESTS PASSED
+                               :: 期望 PASS=554 FAIL=0 / ALL TESTS PASSED
 ```
 
 | 用例 | 覆盖点 | 结论 |
@@ -383,3 +391,126 @@ DERATED 而非 EMERGENCY）。装配层（`EmsRuntime::set_ext_source()`）每�
 
 **测试**：`P3/tests/test_iec104.cpp` T71（纯逻辑，假读回调穷举边界）+
 `P3/tests/test_ext_rtdb.cpp` T76b/T76c（真段 + 真并发）。
+
+---
+
+## 9. 现场进程入口（`main_field.exe`）
+
+> **为什么需要它**：在它之前，平台能保存点表、13/ 能按约定路径读到点表，
+> 但**控制进程起来仍然是仿真** —— 点表填得再对，也不会去连设备。
+> 本程序就是「点表 → 真实设备」的那一步。
+
+### 9.1 三种设备来源
+
+| `--device` | 适配器 | 说明 |
+| --- | --- | --- |
+| `sim`（**默认**） | `SimDeviceIO` | 跑场景 C 演示，输出与 `loop_demo.exe` **逐字节相同** |
+| `rtdb` | `RtDbDeviceIO` | 共享内存实时库；启动即打 `self_check()`，共享内存点表与编译期点表不一致会告警 |
+| `modbus` | `ModbusDeviceIO`（13/） | Modbus TCP 主站，直连 PCS / BMS / 电表；地址见 §9.1.1 |
+
+```bat
+build\main_field.exe                                            :: 仿真（= 演示）
+build\main_field.exe --device rtdb --steps 20 -v                 :: 看实时库真实数据
+build\main_field.exe --device modbus                             :: ★ 地址读平台配好的接入参数
+build\main_field.exe --device modbus --host 10.0.0.7             :: 现场只读核对（显式指定地址）
+build\main_field.exe --device modbus --control                   :: 真下发（地址同样取自配置）
+build\main_field.exe --device modbus --host 10.0.0.7 --control --record 实录.csv  :: 真下发 + 实录（供 14/ live 入库）
+```
+
+`--record` 只配合 `--control` 用（只读模式不建 `EmsRuntime`，没闭环记录可写）。
+写出的 CSV 是 **20 列**，与 `10/ timeseries.csv` **逐列同构**，但时刻口径不同：
+`t_s` = Unix 墙钟秒、`time` = 完整日期时间（不是"一天内第几秒"）。
+14/ 侧用 `scripts\import_live.bat 实录.csv live` 增量入库（`scenario.time_base='wall'`）。
+
+#### 9.1.1 ★ `modbus` 的目标地址从哪来（配置通道②）
+
+**`--host` 不是必填** —— 命令行没给时，程序读与点表同目录的接入参数文件：
+
+```
+config/point-map/active.conn      （环境变量 EMS_POINT_MAP_DIR 可整体搬走这个目录）
+```
+
+这个文件由 14/ 平台在 15/ 界面「设备接入配置」里保存接入参数时**原子写出**，
+内容就是 `host / port / unit_id / timeout_ms / auto_reconnect / enabled`。
+于是现场起进程只要一句 `--device modbus`，**不必再把界面上填过的 IP 手敲一遍**。
+
+优先级：
+
+```
+命令行 --host/--port/--unit   >   config/point-map/active.conn   >   （都没有则报错）
+```
+
+为什么宁可报错也不编一个默认地址 —— 以及为什么**未启用**（`enabled=0`）时
+拒绝启动 —— 见 `13/docs/README.md` §3.3。三条纪律与点表加载完全一致：
+**文件不存在不编默认值、文件非法硬失败不回退、未知键硬失败**。
+
+启动横幅会把来源如实打出来（现场排障第一眼就是看这行）：
+
+```
+  接入参数 : 约定路径 ← ...\config\point-map\active.conn
+             设备号 DEV-BMS-01  协议 modbus_tcp  地址 192.168.1.10:502  从站 3 ...
+  接入参数 : 命令行指定（...）        ← 给了 --host，配置文件读了也不采用
+```
+
+### 9.2 ★★ 默认只读：现场接入的第一姿势
+
+不给 `--control` 时，程序**只读量测、绝不下发任何指令**。这不是靠 `if` 拦住的 ——
+`drive_inspect()` **不创建 `EmsRuntime`**，所以代码里根本不存在写设备的调用点。
+即使给了 `--control`，也会先做一次「预读体检」：读不到可信数据就**拒绝进入闭环**
+（除非 `--force`）。理由很直接：**连不上还把指令发出去，比连不上更糟** ——
+指令一旦写进设备，执行机构就会动，而你还以为它在等数据。
+
+### 9.3 ★ 默认路径零变更（P-F1 —— 可 diff 的判据）
+
+不传 `--device` 时调用 `demo7::run_scenario7_demo()`，与 `main.cpp` 是**同一份代码**
+（`src/demo_scenario7.h`）。所以两者输出可以直接比：
+
+```bat
+build\loop_demo.exe  > build\_parity_a.txt
+build\main_field.exe > build\_parity_b.txt
+findstr /V "mean_cycle" build\_parity_a.txt > build\_parity_a2.txt
+findstr /V "mean_cycle" build\_parity_b.txt > build\_parity_b2.txt
+fc /B build\_parity_a2.txt build\_parity_b2.txt
+```
+
+唯一允许的差异是 `mean_cycle`（每拍耗时的**计时噪声**，同一程序连跑两次都不同）。
+这正是场景代码要抽成头文件、而不是复制一份的原因 —— 复制的话这条判据只能靠人眼比数字。
+
+### 9.4 测试
+
+| 层 | 判据 |
+| --- | --- |
+| 参数解析 | `tests/test_field_entry.cpp` T-F1~T-F9 / **124 断言**（含 `"502abc"` / `"5O2"` / `" 502"` 这类**宽松解析陷阱**，及 `--record` 只在 `--control` 下有意义） |
+| 目标地址校验 | 同文件 **T-F3**：`--device modbus` 缺地址时必须拒绝，且两条来源（`--host` / `active.conn`）与工具名都要写进错误消息（配置通道②之后，这项从解析层挪到 `validate_target()`，见 §9.1.1） |
+| 输出等价 | `scripts\build_test_field.bat` 的 **P-F1**（findstr + fc，见 §9.3） |
+| 端到端（需真从站） | `13/sim/modbus_slave.py --port 15020` → `main_field --device modbus --host 127.0.0.1 --port 15020` |
+
+端到端实测（2026-09-28，本机，真从站）：
+
+```
+点表来源 : 内置默认表（32 点）      设备地址 : 127.0.0.1:15020 从站号 1
+  拍      P_grid       P_pv     P_load      P_bat      SOC  状态
+  1        232.00     150.00     382.00       0.00    0.550  正常
+  限值明细 : PCS 充/放 200.0/200.0 kW | BMS 180.0/190.0 kW | 变压器 250.0 kW
+```
+
+`P_grid = 232 = 382 − 150`，与从站设定一致；限值是从**设备**读到的
+（`limits_are_live` 生效 —— 每拍真的刷）。`--control --steps 50` 进闭环能跑完并输出
+`LoopMetrics`，`mean_cycle ≈ 1708us`：比仿真的 ~5us 高三个量级，这正是真机每拍要发
+Modbus 请求的代价。
+
+端到端实测（配置通道②，2026-09-29）：把上面那台从站的地址写进
+`config/point-map/active.conn`（`host=127.0.0.1 port=15020 unit_id=1 enabled=1`），
+**不给 `--host`** 直接 `main_field.exe --device modbus`，程序从文件取地址并连上，
+读回同一组数值 —— 「界面配好 → 端侧一句话起进程」这条链路端到端成立。
+
+### 9.5 ⚠ 已知缺口（诚实记录，勿当作已覆盖）
+
+- **`EmsRuntime` 内部 `t_` 仍是理想时间轴**：`--record` 写盘用 `unix_now()`（Unix 墙钟）是对的，
+  但 `EmsRuntime::step()` 内部 `t_ += dt_s` 仍是 `i*dt` 理想轴 —— 闭环内凡是依赖 `t_`
+  的算法（如需量窗口、电价时段）在长时间在线跑时会与真实墙钟漂移。
+  `--record` 的 CSV 时间戳已经用墙钟，**但算法内部的时间基准还没换**，这是 #106 留下的尾巴。
+- **现场策略参数未接配置**：需量目标 / 变压器容量等取代码默认值，未从配置读（属 19/ 范围）。
+- **一次一台设备**：`ModbusDeviceIO` 是单份 `Config`（`cfg_`）。现场 PCS + BMS + 电表三台
+  需要三个实例 + 三份点表，07/ 装配层目前只装一台。
+- **只有 Modbus TCP**：RTU / 串口（485 接法）未实现 —— 13/ 下只有 `modbus_tcp_client.h`。

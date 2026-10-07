@@ -211,16 +211,19 @@ public:
         last_cmd_     = cmd;
         has_last_cmd_ = true;
 
-        const std::uint16_t base = modbus::kBindings[EMS_CMD_P_BAT].address;
+        // ★ 走 binding_for_index 而不是直接索引 kBindings：现场点表可由 CSV
+        //   覆盖，直接索引编译期常量会在加载之后仍然写**旧地址** ——
+        //   那是最难查的一类故障（指令确实发出去了、设备没收到、日志全绿）。
+        const std::uint16_t base = modbus::binding_for_index(EMS_CMD_P_BAT).address;
         const std::uint16_t span = 6;   // 3 个 f32
 
         std::uint16_t regs[6] = {0};
         const modbus::DecodeError e1 = modbus::encode_point(
-            modbus::kBindings[EMS_CMD_P_BAT],   cmd.p_bat_cmd_kw, regs, 6, nullptr, 0);
+            modbus::binding_for_index(EMS_CMD_P_BAT),   cmd.p_bat_cmd_kw, regs, 6, nullptr, 0);
         const modbus::DecodeError e2 = modbus::encode_point(
-            modbus::kBindings[EMS_CMD_P_UPPER], cmd.p_upper,     regs, 6, nullptr, 0);
+            modbus::binding_for_index(EMS_CMD_P_UPPER), cmd.p_upper,     regs, 6, nullptr, 0);
         const modbus::DecodeError e3 = modbus::encode_point(
-            modbus::kBindings[EMS_CMD_P_LOWER], cmd.p_lower,     regs, 6, nullptr, 0);
+            modbus::binding_for_index(EMS_CMD_P_LOWER), cmd.p_lower,     regs, 6, nullptr, 0);
         if (e1 != modbus::DecodeError::kNone ||
             e2 != modbus::DecodeError::kNone ||
             e3 != modbus::DecodeError::kNone) {
@@ -254,10 +257,11 @@ public:
         // 而后者在设备侧看起来完全合法。
         if (has_last_cmd_) {
             std::uint16_t regs[6] = {0};
-            if (modbus::encode_point(modbus::kBindings[EMS_CMD_P_BAT], p_cmd_kw, regs, 6,
+            if (modbus::encode_point(modbus::binding_for_index(EMS_CMD_P_BAT), p_cmd_kw, regs, 6,
                                      nullptr, 0) == modbus::DecodeError::kNone &&
                 ensure_connected() &&
-                client_.write_multiple_regs(modbus::kBindings[EMS_CMD_P_BAT].address, regs, 2).ok()) {
+                client_.write_multiple_regs(
+                    modbus::binding_for_index(EMS_CMD_P_BAT).address, regs, 2).ok()) {
                 ++writes_;
             } else {
                 ++write_failures_;
@@ -310,21 +314,21 @@ public:
     //   EXT 外部设定根本不从这条路过（它们由网关的 RtDbExtWriter 写 RT_DB）。
     int stale_points() const {
         int n = 0;
-        for (std::size_t i = 0; i < modbus::kBindingCount; ++i) {
+        for (std::size_t i = 0; i < modbus::active_binding_count(); ++i) {
             if (!point_valid(i)) ++n;
         }
         return n;
     }
 
     double cached(std::size_t index) const {
-        return (index < modbus::kBindingCount) ? cache_[index] : 0.0;
+        return (index < modbus::active_binding_count()) ? cache_[index] : 0.0;
     }
 
     // ★ 本点的值当前是否可信 = **所在分块本拍成功** 且 **该点解码成功**。
     //   两个条件缺一不可：块成功但解码失败（字序错）时必须报 false，
     //   否则一个 NaN 或天文数字会被当作"采到了"。
     bool point_valid(std::size_t index) const {
-        if (index >= modbus::kBindingCount) return false;
+        if (index >= modbus::active_binding_count()) return false;
         const int b = block_of(index);
         if (b < 0 || !block_ok_[b]) return false;
         return point_ok_[index];
@@ -340,15 +344,16 @@ private:
 
     // 点 → 所属分块下标（-1 = 没有被任何分块覆盖；static_assert 已排除）
     static int block_of(std::size_t index) {
-        const modbus::PointBinding& b = modbus::kBindings[index];
+        const modbus::PointBinding& b = modbus::binding_for_index(index);
         const std::uint16_t width =
             (b.encoding == modbus::Encoding::kBit) ? 1 : b.reg_count();
-        for (std::size_t k = 0; k < modbus::kReadBlockCount; ++k) {
-            if (modbus::kReadBlocks[k].table != b.table) continue;
-            if (b.address >= modbus::kReadBlocks[k].start &&
+        const modbus::ReadBlock* blocks = modbus::active_blocks();
+        const std::size_t nBlocks = modbus::active_block_count();
+        for (std::size_t k = 0; k < nBlocks; ++k) {
+            if (blocks[k].table != b.table) continue;
+            if (b.address >= blocks[k].start &&
                 static_cast<std::uint32_t>(b.address) + width <=
-                    static_cast<std::uint32_t>(modbus::kReadBlocks[k].start) +
-                        modbus::kReadBlocks[k].count) {
+                    static_cast<std::uint32_t>(blocks[k].start) + blocks[k].count) {
                 return static_cast<int>(k);
             }
         }
@@ -371,15 +376,17 @@ private:
         if (!client_.is_connected() && !try_reconnect()) {
             // 完全没连上：一个块都没机会试。**不**逐个点去标 stale ——
             // 那会制造 32 条噪声记录，掩盖"其实只是没连上"这一个事实。
-            for (std::size_t k = 0; k < modbus::kReadBlockCount; ++k) block_ok_[k] = false;
+            for (std::size_t k = 0; k < modbus::active_block_count(); ++k) block_ok_[k] = false;
             ++unconnected_scans_;
             ++scans_;
             return;
         }
 
         int failed = 0;
-        for (std::size_t k = 0; k < modbus::kReadBlockCount; ++k) {
-            const modbus::ReadBlock& blk = modbus::kReadBlocks[k];
+        const modbus::ReadBlock* blocks  = modbus::active_blocks();
+        const std::size_t        nBlocks = modbus::active_block_count();
+        for (std::size_t k = 0; k < nBlocks; ++k) {
+            const modbus::ReadBlock& blk = blocks[k];
             if (!with_holding && blk.table == modbus::Table::kHoldingReg) continue;
 
             modbus::ModbusStatus st;
@@ -426,9 +433,10 @@ private:
     void apply_block(std::size_t block_index, bool ok) {
         if (!ok) return;   // block_ok_ 已在 scan() 里置好，点值原地保留
 
-        const modbus::ReadBlock& blk = modbus::kReadBlocks[block_index];
-        for (std::size_t i = 0; i < modbus::kBindingCount; ++i) {
-            const modbus::PointBinding& b = modbus::kBindings[i];
+        const modbus::ReadBlock& blk = modbus::active_blocks()[block_index];
+        const std::size_t nPoints = modbus::active_binding_count();
+        for (std::size_t i = 0; i < nPoints; ++i) {
+            const modbus::PointBinding& b = modbus::binding_for_index(i);
             if (b.table != blk.table) continue;
             const std::uint16_t width =
                 (b.encoding == modbus::Encoding::kBit) ? 1 : b.reg_count();
@@ -456,9 +464,9 @@ private:
         }
     }
 
-    // 分块缓冲（大小取 64/64/16；分块表的上限由 modbus_point_map.h 的
-    // static_assert 守着 —— 那边一旦调大超过这里，编译就会红。
-    // 用取地址 + sizeof 的双重校验：运行期也给一次硬检查。）
+    // 分块缓冲：按协议上限开（见成员声明处的说明）。容量与分块的关系由
+    // modbus_point_map.h 的 block_limit_of() 与这里的数组长度共同保证 ——
+    // 推导器不会产出超过 kMaxReadRegs / kMaxReadBits 的块。
     std::uint16_t* regs_of(modbus::Table t) {
         return (t == modbus::Table::kInputReg) ? ir_regs_.data() : hr_regs_.data();
     }
@@ -498,7 +506,7 @@ private:
     // （它自己正在重启）也不能用。两者都满足才敢把量测交给安全层。
     bool data_valid() const {
         if (value(EMS_STA_VALID) <= 0.5) return false;
-        for (std::size_t k = 0; k < modbus::kReadBlockCount; ++k) {
+        for (std::size_t k = 0; k < modbus::active_block_count(); ++k) {
             if (!block_ok_[k]) return false;
         }
         return true;
@@ -508,14 +516,20 @@ private:
 
     // 值缓存：初值 = 0。未采集前不瞎猜（点表默认值在设备侧，
     // 主站没读到时"没有值"比"凭空给一个默认值"更诚实）。
-    double cache_[modbus::kBindingCount]   = {0.0};
+    // 点数恒为 EMS_EXT_BEGIN（加载时校验行数，少一行直接拒），故这里用常量即可。
+    double cache_[modbus::kBindingCount]    = {0.0};
     bool   point_ok_[modbus::kBindingCount] = {false};
-    bool   block_ok_[modbus::kReadBlockCount] = {false};
+    // ★ 分块数必须按**上限**开：现场点表推导出的块可以比默认的 3 块多，
+    //   写死 kReadBlockCount(3) 的话，加载一张散表就会越界写。
+    bool   block_ok_[modbus::kMaxReadBlocks] = {false};
 
-    mutable std::array<std::uint16_t, 64> ir_regs_{};
-    mutable std::array<std::uint16_t, 64> hr_regs_{};
-    mutable std::array<bool, 16>          di_bits_{};
-    mutable std::array<bool, 16>          co_bits_{};
+    // 分块缓冲按**协议上限**开（FC03/04 单次最多 125 个寄存器、FC01/02 最多 2000 位）。
+    // 默认表只用到 40/6/8，但现场点表的块可以更大 —— 容量不足会在 read_input 里
+    // 造成越界写，而那种故障在设备侧完全看不出来。
+    mutable std::array<std::uint16_t, modbus::kMaxReadRegs> ir_regs_{};
+    mutable std::array<std::uint16_t, modbus::kMaxReadRegs> hr_regs_{};
+    mutable std::array<bool, modbus::kMaxReadBits>          di_bits_{};
+    mutable std::array<bool, modbus::kMaxReadBits>          co_bits_{};
 
     modbus::ModbusTcpClient client_{};
     modbus::DecodeError last_decode_error_    = modbus::DecodeError::kNone;

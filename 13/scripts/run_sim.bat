@@ -20,24 +20,27 @@ REM  另开一个窗口：
 REM    build\modbus_probe.exe --port 15020
 REM =====================================================================
 
-setlocal
+setlocal enabledelayedexpansion
 cd /d "%~dp0\.."
 
-if "%EMS_PYTHON%"=="" (
+REM  ★ 必须用延迟展开：仓库路径可能含括号（D:\wb(cn)\...），
+REM    而 %CD% 在 "if (...)" 块内展开时，其中的 ( ) 会被 cmd 当成
+REM    子表达式括号，块结构错乱 → 脚本一行都没跑就报「此时不应有 ...」。 
+if "!EMS_PYTHON!"=="" (
     if exist ".venv\Scripts\python.exe" (
-        set PY=%CD%\.venv\Scripts\python.exe
+        set "PY=!CD!\.venv\Scripts\python.exe"
     ) else (
-        set PY=python
+        set "PY=python"
     )
 ) else (
-    set PY=%EMS_PYTHON%
+    set "PY=!EMS_PYTHON!"
 )
 
 echo === 13\ Python Modbus 从站 ===
-echo python : %PY%
+echo python : !PY!
 echo 脚本   : sim\modbus_slave.py
 echo.
 
-%PY% sim\modbus_slave.py --port 15020 %*
+!PY! sim\modbus_slave.py --port 15020 %*
 
 endlocal & exit /b %errorlevel%

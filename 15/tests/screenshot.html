@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>15/ 截图探针</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0d1520; }
+  iframe { width: 1440px; height: 900px; border: 0; display: block; }
+</style>
+</head>
+<body>
+<iframe id="f" src="/index.html"></iframe>
+<script>
+const q = new URLSearchParams(location.search);
+const page = q.get('p') || '';
+const user = q.get('r') || 'admin';
+const pass = { admin: 'admin123', operator: 'operator123', viewer: 'viewer123' }[user];
+const scen = q.get('s') || 'normal';
+const f = document.getElementById('f');
+// 可选：把 iframe 拉高，好一次拍到整页（配合 --window-size 使用）
+if (q.get('h')) f.style.height = q.get('h') + 'px';
+
+if (page) {
+  f.addEventListener('load', async () => {
+    const w = f.contentWindow, d = f.contentDocument;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const hidden = id => d.getElementById(id).classList.contains('hidden');
+    const wait = async (fn, n) => {
+      for (let i = 0; i < (n || 90); i++) { let v = false; try { v = fn(); } catch (e) {} if (v) return true; await sleep(150); }
+      return false;
+    };
+    try {
+      d.getElementById('login-user').value = user;
+      d.getElementById('login-pass').value = pass;
+      d.getElementById('login-form').dispatchEvent(new w.Event('submit', { cancelable: true, bubbles: true }));
+      await wait(() => !hidden('app-view'));
+      if (scen === 'fault') {
+        d.querySelectorAll('#scenario-seg button')[1].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+        await sleep(300);
+      }
+      w.location.hash = '#/' + page;
+      await wait(() => (d.getElementById('content').textContent || '').indexOf('加载中') < 0, 100);
+      await sleep(600);
+
+      // ---- 可选：注入一处非法值，用于验收"预检标红"的视觉态 ----
+      const bad = q.get('bad');
+      if (bad === 'soc-scale0') {
+        await wait(() => d.querySelector('.pm-tbl tbody tr'), 60);
+        const tr = Array.from(d.querySelectorAll('.pm-tbl tbody tr'))
+          .find(x => x.children[1].textContent.trim() === 'MEAS.SOC');
+        if (tr) {
+          const inp = tr.querySelectorAll('input[type=number]')[1];
+          inp.value = '0';
+          inp.dispatchEvent(new w.Event('input', { bubbles: true }));
+          await sleep(300);
+        }
+      }
+    } catch (e) { /* 截图不关心错误，探针已经覆盖 */ }
+  });
+}
+</script>
+</body>
+</html>

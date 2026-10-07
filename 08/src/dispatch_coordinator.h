@@ -201,6 +201,7 @@ public:
         plan_ = p;
         plan_valid_ = p.loaded;
         last_reopt_ts_ = -1e18;
+        last_reopt_slot_ = -1;
         reset_window();
     }
     const DayPlan& plan() const { return plan_; }
@@ -216,11 +217,26 @@ public:
         now_ = t_s;
 
         // ---- ① 优化层：到点滚动重优化 ----
+        // ★ 触发必须对齐「计划槽边界」（period 的整数倍），而不是"距上次恰好
+        //   period 秒"。原实现用 (t_s - last_reopt_ts_) >= period 判定：首拍
+        //   last_reopt_ts_ 落在 t_s=dt（如 1 s）上，之后所有触发点都偏移 dt，
+        //   导致槽边界那一拍（如 900 / 1800 / 34200）仍采旧计划值、下一拍才
+        //   切新值 —— 日志里表现为"plan_target 单样本毛刺"（21 处，全落在
+        //   mod900=0，幅度最高 240 kW）。
+        //   现改为"槽号推进"判定：槽号 = floor(t_s/period) % n。进入一个新槽的
+        //   第一拍触发重优化（恰在槽边界、与采样同拍）；日末回绕（n-1 → 0）
+        //   不触发，因为那是"下一天"的槽 0，单日仿真用不上。
         reoptimized_this_step_ = false;
-        if (cfg_.enable_reopt && opt_ && fc_.loaded) {
-            if (last_reopt_ts_ < -1e17 || (t_s - last_reopt_ts_) >= cfg_.reopt_period_s) {
+        if (cfg_.enable_reopt && opt_ && fc_.loaded && cfg_.reopt_period_s > 0.0) {
+            const double period = cfg_.reopt_period_s;
+            const size_t n = fc_.size() > 0 ? fc_.size() : 1;
+            const size_t slot_now =
+                static_cast<size_t>(std::floor(t_s / period)) % n;
+            const bool wrapped = (last_reopt_slot_ == static_cast<long long>(n) - 1
+                                  && slot_now == 0);
+            if (last_reopt_slot_ < 0 || (slot_now != static_cast<size_t>(last_reopt_slot_) && !wrapped)) {
                 do_reoptimize(rt);
-                last_reopt_ts_ = t_s;
+                last_reopt_slot_ = static_cast<long long>(slot_now);
                 reoptimized_this_step_ = true;
             }
         }
@@ -378,6 +394,7 @@ private:
 
     Timestamp now_ = 0.0;
     Timestamp last_reopt_ts_ = -1e18;
+    long long  last_reopt_slot_ = -1;   // 上次重优化所在的槽号（日周期内），-1=尚未
     bool      reoptimized_this_step_ = false;
 
     double plan_target_kw_ = 0.0;
