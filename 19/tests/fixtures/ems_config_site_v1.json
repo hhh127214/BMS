@@ -1,0 +1,133 @@
+{
+  "coordinator": {
+    "dev_correction_max_kw": 50,
+    "dev_kp": 0.5,
+    "enable_correction": true,
+    "enable_reopt": true,
+    "energy_correction_max_kw": 40,
+    "energy_kp": 1,
+    "on_plan_tol_kw": 10,
+    "reopt_period_s": 900,
+    "soc_correction_max_kw": 60,
+    "soc_ki": 3,
+    "soc_kp": 600,
+    "total_correction_max_kw": 80
+  },
+  "description": "A 站现场配置（离线验证通过后归档）",
+  "limits": {
+    "bms_chg_forbidden": false,
+    "bms_chg_limit_kw": 250,
+    "bms_dis_forbidden": false,
+    "bms_dis_limit_kw": 250,
+    "d_target_kw": 320,
+    "pcs_rated_chg_kw": 250,
+    "pcs_rated_dis_kw": 250,
+    "transformer_capacity_kw": 630
+  },
+  "loop": {
+    "comm_stale_threshold_s": 5,
+    "demand_window_s": 900,
+    "dt_s": 1,
+    "enable_log": true,
+    "enable_output_shaper": true,
+    "enable_realtime_correction": true,
+    "enable_safety_engine": true,
+    "enable_state_machine": true,
+    "hold_last_on_comm_loss": true,
+    "l2_correction_max_kw": 80,
+    "log_every": 1,
+    "output_deadband_kw": 2,
+    "output_switch_delay": 3
+  },
+  "name": "site-a",
+  "plant": {
+    "battery_capacity_kwh": 500,
+    "comm_ok_bms": true,
+    "comm_ok_meter": true,
+    "comm_ok_pcs": true,
+    "data_valid": true,
+    "device_offline": false,
+    "eta_chg": 0.95,
+    "eta_dis": 0.95,
+    "noise_kw": 0,
+    "noise_soc": 0,
+    "pcs_deadtime_s": 0.4,
+    "pcs_fault": false,
+    "pcs_max_chg_kw": 250,
+    "pcs_max_dis_kw": 250,
+    "pcs_ramp_kw_per_s": 250,
+    "pcs_standby_kw": 2,
+    "pcs_tau_s": 0.8,
+    "seed": 20260912,
+    "soc_init": 0.5,
+    "soc_phys_max": 0.98,
+    "soc_phys_min": 0.05,
+    "soh": 1,
+    "temp_ambient_c": 25,
+    "temp_cool_coef": 0.002,
+    "temp_heat_coef": 0.0006
+  },
+  "safety": {
+    "enable_ramp": true,
+    "grid_filter_alpha": 1,
+    "grid_freq_max_hz": 50.5,
+    "grid_freq_min_hz": 49.5,
+    "grid_lookahead_max_drop_kw": 60,
+    "grid_p_max_kw": 630,
+    "grid_p_min_kw": -30,
+    "grid_volt_max_pu": 1.1,
+    "grid_volt_min_pu": 0.9,
+    "pcs_derate_ratio": 1,
+    "ramp_kw_per_s": 250,
+    "soc_hysteresis": 0.02,
+    "soc_max": 0.95,
+    "soc_min": 0.1,
+    "soc_warn_derate": 0.5,
+    "soc_warn_high": 0.9,
+    "soc_warn_low": 0.15,
+    "strict_l0": true,
+    "temp_fault_c": 55,
+    "temp_hysteresis_c": 2,
+    "temp_warn_c": 45,
+    "temp_warn_derate": 0.5,
+    "tr_extreme_th": 1.1,
+    "tr_hysteresis": 0.02,
+    "tr_load_pv_share": 0.1,
+    "tr_overload_th": 0.95
+  },
+  "site": "A 站",
+  "state_machine": {
+    "allow_ready_output": false,
+    "derate_release_cycles": 10,
+    "fault_clear_cycles": 20,
+    "init_hold_s": 0.5,
+    "self_check_cycles": 5
+  },
+  "strategies": {
+    "S04_DEMAND_MGMT": {
+      "enabled": true,
+      "params": {}
+    },
+    "S05_ANTI_REVERSE": {
+      "enabled": true,
+      "params": {}
+    },
+    "S06_PV_SMOOTHING": {
+      "enabled": true,
+      "params": {}
+    },
+    "S07_PEAK_VALLEY": {
+      "enabled": true,
+      "params": {}
+    },
+    "S08_FORECAST_OPT": {
+      "enabled": true,
+      "params": {}
+    },
+    "S09_DEMAND_RESPONSE": {
+      "enabled": true,
+      "params": {}
+    }
+  },
+  "version": "1.0"
+}

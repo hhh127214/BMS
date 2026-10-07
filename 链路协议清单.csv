@@ -1,0 +1,22 @@
+链路,协议
+电池簇内部（电芯采样）,CAN（各厂家私有，CAN 2.0B 常见）
+储能柜内 BMS ? PCS ? 簇,CAN / RS485（厂家私有协议）
+储能柜 → EMS,Modbus TCP
+关口电表 → EMS,Modbus TCP（现场多为 RTU/RS485，老表常为 DL/T 645）
+光伏逆变器 → EMS,Modbus TCP
+变压器 / 负荷,无独立链路
+EMS → 调度主站 / 虚拟电厂,IEC 60870-5-104
+EMS → 云 / 聚合平台,MQTT / HTTPS
+本地组态 / SCADA → EMS,Modbus TCP（EMS 为从站）
+EMS 内部：控制 ? 设备,共享内存 RT_DB
+EMS 内部：控制 ? 界面,HTTP
+设备点表配置通道,文件（CSV）
+设备全点表 → RT_DB,共享内存（批量写）
+仿真链路,Modbus TCP
+通信加固层,退避 / 双链路 / SNTP / FTP / TLS / Modbus RTU
+指令下行第二条路径,RT_DB 指令环形队列
+进程编排,本地进程监督（非协议）
+预留 IEC 61850 / OPC UA,IEC 61850 / OPC UA
+消防设备,
+开关,
+散热,
