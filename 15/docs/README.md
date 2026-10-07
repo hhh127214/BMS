@@ -24,14 +24,14 @@
 
 ```
 15/
-├── index.html              登录视图 + 主界面骨架（101 行）
+├── index.html              登录视图 + 主界面骨架（116 行）
 ├── assets/
-│   ├── app.css             深色工业监控主题（305 行）
-│   ├── api.js              REST 客户端：token / 401 回调 / 导出（115 行）
-│   ├── ui.js               DOM 辅助 + 内联 SVG 图表（338 行）
-│   ├── pages.js            9 个页面（634 行）
-│   └── app.js              路由 / 登录 / 场景切换 / 菜单权限（199 行）
-├── tests/selftest.js       静态契约自检（159 断言）
+│   ├── app.css             浅色 SaaS 主题（565 行）
+│   ├── api.js              REST 客户端：token / 401 回调 / 导出（144 行）
+│   ├── ui.js               DOM 辅助 + 内联 SVG 图表（849 行）
+│   ├── pages.js            10 个页面（1790 行）
+│   └── app.js              路由 / 登录 / 引擎与场景切换 / 菜单权限 / 实时刷新（629 行）
+├── tests/selftest.js       静态契约自检（205 断言）
 ├── scripts/
 │   ├── run_ui.bat          起后端 + 托管界面
 │   ├── run_selftest.bat    静态契约自检
@@ -140,18 +140,19 @@ REM  浏览器打开 http://127.0.0.1:8765/
 15\scripts\run_selftest.bat
 ```
 
-159 条断言，八段：
+205 条断言，九段：
 
 | 段 | 内容 |
 |---|---|
 | A 文件齐备 | 6 个文件齐备、脚本引用顺序、无外部资源、挂载点 |
 | B 接口契约 | 对 `14/src/api.py` 的 `ROUTES` 逐条核对（含参数化路径） |
-| C 页面与权限 | 菜单 9 项 ↔ `Pages` 导出 9 个函数一一对应、图标齐备、角色门槛 |
+| C 页面与权限 | 菜单 10 项 ↔ `Pages` 导出 10 个函数一一对应、图标齐备、角色门槛 |
 | D 渲染纪律 | 表格/文本走 `textContent`、`innerHTML` 只出现在白名单 4 处、无 `eval` |
 | E 图表与样式 | 18 个渲染函数 + `fmt` 9 个方法齐备、4 个量测色互不相同 |
 | F 口径一致 | token 键名、401 统一处理、默认场景、8640 拍口径、**"仿真 + 现场实录两个来源"必须出现** |
 | G 能量流改版契约 | 粗箭头是 7 点实心多边形（不再用 `<marker>`）、方向字在杆里、母线 3D + 竖排标签、**菜单小蓝点与顶栏小绿点必须不存在** |
 | H 接入参数下发（配置通道②） | 保存后提示**落盘路径**（不能只说"已保存"）、地址清空要提示文件被删、落盘状态徽章（`conn_file_exists` / `conn_synced`）、说明里点出端侧入口与 `active.conn` |
+| **I 引擎双模式（run / sim）** | 引擎分段器与切换后重解析、`canWrite` 角色门槛、`LIVE_PAGES` 白名单恰好 6 页 `overview / realtime / curves / alarms / economics / report`（**`strategies` 不在其中**）、<br>自动刷新定时器清理与 `document.hidden` 让路、`keepScroll` 保滚动位置、实时徽章三态、`onDispose` 契约、<br>启停前 `confirm` + 清空、来源标注读后端 `source_is_model`（不写死）、<br>仿真页 kinds 动态取、轮询清理、删除、典型日回绕与故障窗提示、`openDataset` 先切到 sim |
 
 G 段守的是"**改回去了也不会有人发现**"的那类画法约定：老的小三角 marker、
 侧边方向徽章、扁平竖条母线、菜单激活态小蓝点、顶栏连通小绿点。少了它，
@@ -212,9 +213,9 @@ G 段守的是"**改回去了也不会有人发现**"的那类画法约定：老
 | `15/assets/app.css` | 浅色 SaaS 主题；`.seg` 滑动指示条；四个量测色 `--c-load/--c-pv/--c-grid/--c-bat` |
 | `15/assets/api.js` | 唯一碰 `fetch` 的地方；401 统一回调重登录 |
 | `15/assets/ui.js` | `h()` / `fmt` / `table` / `lineChart` / `barChart` / `sparkChart` / `energyFlow`（等轴测 3D 场景）/ `svgNode` |
-| `15/assets/pages.js` | 9 个页面，每页一个 `async function(ctx)` 返回 DOM 节点 |
+| `15/assets/pages.js` | 10 个页面，每页一个 `async function(ctx)` 返回 DOM 节点 |
 | `15/assets/app.js` | `MENU` 表 + hash 路由 + 登录流 + 场景/运行模式切换（滑动指示条对位） |
-| `15/tests/selftest.js` | 静态契约自检（159 断言） |
+| `15/tests/selftest.js` | 静态契约自检（205 断言） |
 | `15/scripts/*.bat` | 界面启动 / 自检 / 构建入口 |
 | `14/src/server.py` | 后端服务；`--static 15` 把本目录发布出去 |
 

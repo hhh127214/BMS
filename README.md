@@ -91,13 +91,18 @@ BMS/
 │   ├── src/rtdb/ems_rt_db_setup.h|.c         ← 点表初始化器（建段 + 注册 40 点）
 │   ├── src/realtime_loop.h                   ← EmsRuntime 11 步闭环 + ⓪ 限值刷新 + OutputShaper + LoopMetrics
 │   ├── src/main.cpp                          ← 场景 C：阶跃跟随 + 抖动治理三档对照 + 变化率对照
+│   ├── src/record_csv.h                      ← ★ **实录 CSV 契约（20 列）**：实时源与现场进程共用同一份格式
+│   ├── src/field_args.h                      ← 现场进程入口的参数解析（--device / --conn / --record 优先级）
+│   ├── src/main_field.cpp                    ← **现场进程入口** main_field.exe（sim / rtdb / modbus 三数据源，默认只读）
+│   ├── src/demo_scenario7.h                  ← 现场演示用故障剧本（供 --device sim 跑）
 │   ├── vendor/rt_db/                         ← RT_DB 源码快照（api .c/.h + structs + private）
 │   ├── tests/test_realtime_loop.cpp          ← T11~T16（6050 断言）
-│   ├── tests/test_device_io.cpp              ← T21~T24（79 断言，P0/P0.5 适配器可换性）
-│   ├── tests/test_rtdb_device_io.cpp         ← T25~T29（546 断言，RT_DB 接入：跨内存边界闭环等价）
+│   ├── tests/test_device_io.cpp              ← T21~T24（81 断言，P0/P0.5 适配器可换性）
+│   ├── tests/test_rtdb_device_io.cpp         ← T25~T29（554 断言，RT_DB 接入：跨内存边界闭环等价）
+│   ├── tests/test_field_entry.cpp            ← T-F1~T-F9（124 断言，现场入口参数解析与优先级）
 │   ├── docs/                                 ← README.md + design.md
-│   ├── scripts/                              ← build.bat / build_test.bat / build_test_device_io.bat / build_test_rtdb.bat / run_demo.bat
-│   └── build/                                ← loop_demo.exe + test_realtime_loop.exe + test_device_io.exe + test_rtdb_device_io.exe
+│   ├── scripts/                              ← build.bat / build_test*.bat / build_field.bat / run_demo.bat
+│   └── build/                                ← loop_demo.exe + test_*.exe + **main_field.exe**
 │
 ├── 08/                                       ← 周期 8：优化调度与实时控制协同（C++17 头文件库）
 │   ├── src/plan_loader.h                     ← 01/ MILP 计划 JSON 解析 + 贪心兜底规划器
@@ -122,11 +127,13 @@ BMS/
 │   ├── src/sim_24h.h                         ← 24h 场景装配 + 故障时间窗注入 + 不变量校验
 │   ├── src/sim_report.h                      ← 产物导出：timeseries.csv / alarms.csv / summary.json / report.html
 │   ├── src/main.cpp                          ← 演示程序（典型日 / 故障注入日）
-│   ├── tests/test_sim_24h.cpp                ← T101~T110（133 断言）
+│   ├── src/sim_live.h                         ← ★ **实时仿真源**：按墙钟 `sleep_until` 逐拍推进，写 07/ 同款实录 CSV
+│   ├── src/main_live.cpp                      ← sim_live.exe（运行模式的生产数据源；`--duration-s 0` = 一直跑到被停）
+│   ├── tests/test_sim_24h.cpp                ← T101~T113（166 断言）
 │   ├── data/typical_day_96.csv               ← 典型日曲线（96 点 × 15 min）
 │   ├── scripts/gen_curves.py                 ← 曲线生成器
-│   ├── docs/README.md                        ← 经济性口径 / 缺陷复盘 / 故障注入语义
-│   └── build/                                ← sim_demo.exe + test_sim_24h.exe
+│   ├── docs/README.md                        ← 经济性口径 / 缺陷复盘 / 故障注入语义 / 实时源与多日仿真
+│   └── build/                                ← sim_demo.exe + **sim_live.exe** + test_sim_24h.exe
 │
 ├── 11/                                       ← 周期 11：系统级联调（**跨进程**，设备侧 / EMS 侧分离）
 │   ├── src/integration_runner.h              ← Pacing 节拍器 + DeviceSideSim + EmsSideApp + IntegrationCheck
@@ -206,26 +213,28 @@ P2/                                           ← 产品化 P2：可观测性（
     └── docs/                                 ← README.md（怎么跑 / 三层测试 / 6 个缺陷复盘）+ design.md + point_map_template.csv
 
 14/                                           ← 平台层后端 + SQLite 数据库（**框架第四层：平台层**）
-    ├── schema.sql                            ← §22 六张表 + 时序明细/场景/经济性/不变量/用户/会话/审计
-    ├── src/emsdb.py                          ← 连接 / 建表 / 通用查询（WAL：导入不挡读）
+    ├── schema.sql                            ← 18 张表（§22 六张表 + 时序明细/场景/经济性/不变量/用户/会话/审计 + 运行模式 + 设备接入两张 + 仿真台账），schema v1.4
+    ├── src/emsdb.py                          ← 连接 / 建表 / 通用查询（WAL：导入不挡读；后台线程靠 `Conn.db_path` 继承库路径）
     ├── src/importer.py                       ← 把 10/build 的**真实仿真产物**装进库
     ├── src/auth.py                           ← 口令（pbkdf2+盐）/ 会话（token）/ 三角色 / 审计
-    ├── src/api.py                            ← REST 路由与业务逻辑（24 个端点）
+    ├── src/engine.py                         ← **运行模式实时引擎**：尾随实录 CSV 增量入库 / 停顿判定 / 重启接活
+    ├── src/simrun.py                         ← **日 / 周 / 月批量仿真调度** + 台账（进度轮询 / 删除连带清 6 张表）
+    ├── src/api.py                            ← REST 路由与业务逻辑（41 个端点）
     ├── src/server.py                         ← HTTP 服务（标准库，同时托管 15/ 静态页）
-    ├── tests/selftest.py                     ← 九段自检（348 断言；含实时入库 [I] 段）
+    ├── tests/selftest.py                     ← 十段自检（511 断言；含实时入库 [I] 段、引擎双模式 [J] 段）
     ├── scripts/                              ← import_sim.bat / import_live.bat / run_server.bat / run_selftest.bat / run_all.bat
-    └── docs/README.md                        ← 为什么需要 / 表与来源 / 24 个接口 / 权限 / 已知边界
+    └── docs/README.md                        ← 为什么需要 / 表与来源 / 41 个接口 / 权限 / 已知边界
 
 15/                                           ← 平台层前端 + 运行界面（**框架第四层：平台层**）
     ├── index.html                            ← 登录视图 + 主界面骨架（脚本引用顺序即依赖顺序）
-    ├── assets/app.css                        ← 深色工业主题（四个量测色：负荷/光伏/电网/电池）
+    ├── assets/app.css                        ← 浅色 SaaS 主题（四个量测色：负荷/光伏/电网/电池）
     ├── assets/api.js                         ← REST 客户端（唯一碰 fetch 的地方；401 统一重登录）
     ├── assets/ui.js                          ← DOM 辅助 + **手写 SVG** 折线/柱状/能量流（不引图表库）
-    ├── assets/pages.js                       ← 9 个页面（总览/实时/曲线/告警/策略/收益/报表/设备/用户）
-    ├── assets/app.js                         ← hash 路由 + 登录流 + 场景切换 + 菜单角色过滤
-    ├── tests/selftest.js                     ← 静态契约自检（138 断言，Node）
+    ├── assets/pages.js                       ← 10 个页面（总览/实时/曲线/告警/策略/收益/报表/仿真/设备/用户）
+    ├── assets/app.js                         ← hash 路由 + 登录流 + **引擎/场景双切换** + 菜单角色过滤 + 运行模式 5 s 自刷
+    ├── tests/selftest.js                     ← 静态契约自检（205 断言，Node）
     ├── scripts/                              ← run_ui.bat / run_selftest.bat / run_all.bat
-    └── docs/README.md                        ← 9 页结构 / 接口对齐 / 权限 / 已知边界
+    └── docs/README.md                        ← 10 页结构 / 接口对齐 / 权限 / 已知边界
 
 16/                                           ← 通信加固（**上现场前必须补的工程欠项**，6/7 条）
     ├── src/backoff.h                         ← 重连指数退避 + 抖动（确定性 PRNG）
@@ -314,12 +323,13 @@ scripts\build_all.bat
 07\build\test_device_io.exe                 产品化 P0/P0.5 适配器可换性（T21~T24 / 81 断言）
 07\build\test_rtdb_device_io.exe            RT_DB 接入（T25~T29 / 554 断言，共享内存实时库）
 07\build\main_field.exe                     07/ 现场进程入口（--device sim|rtdb|modbus，默认 sim；默认只读）
-07\build\test_field_entry.exe               07/ 现场入口参数解析（T-F1~T-F9 / 111 断言）
+07\build\test_field_entry.exe               07/ 现场入口参数解析（T-F1~T-F9 / 124 断言）
 08\build\coord_demo.exe                     周期 8 场景 D：24h 分层协同
 08\build\test_dispatch_coordinator.exe      08/ 单元测试（T17~T20 / 444 断言）
 09\build\test_multi_strategy.exe            09/ 单元测试（T91~T97 / 77 断言；7 场景 × 12000 拍闭环）
 10\build\sim_demo.exe                        周期 10 场景 E：EMS 24h 离线仿真（产物 report.html 等 4 个文件）
-10\build\test_sim_24h.exe                    10/ 单元测试（T101~T111 / 144 断言）
+10\build\sim_live.exe                        **实时仿真源**：按墙钟逐拍跑并写实录 CSV（运行模式的生产数据源）
+10\build\test_sim_24h.exe                    10/ 单元测试（T101~T113 / 166 断言）
 11\build\rtdb_initializer.exe                 周期 11 共享内存段初始化器（段 + 全点表注册，常驻保活）
 11\build\device_side.exe                      周期 11 设备侧进程（六类数据源 + 故障剧本）
 11\build\ems_side.exe                         周期 11 EMS 侧进程（全栈闭环，消费共享内存）
@@ -368,16 +378,16 @@ vendor\lib60870\build\lib60870.a              IEC 60870-5-104 协议栈静态库
 20\build\alarm_demo.exe                       20/ 告警能力 + 持久化端到端演示
 ```
 
-**全量回归：15986 断言全绿（`exit=0`）**—— 这是**本机口径**：`python` + `pymodbus` + Node
+**全量回归：16178 断言全绿（`exit=0`）**—— 这是**本机口径**：`python` + `pymodbus` + Node
 齐备（`13/` 下建过 `.venv`，`build_test.bat` 会自动捡起它）。四个合法口径见下表，别混读。
 `02/` 与 `03/` 只印 `ALL TESTS PASSED` 不印计数，故不入明细；其余 **23 项**加总如下
 （按**齐备口径**列，其中 `13/` 齐备为 **813**；缺 pymodbus 时实跑 **735**，
-故缺 pymodbus 合计 = 15986 − 78 = **15908**）：
+故缺 pymodbus 合计 = 16178 − 78 = **16100**）：
 
 ```
 04=94   05=94   06=34   07=6050  P0+P0.5=81  RT_DB=554  07-field=124  08=444
-09=77   10=142  P1=171  P2=434   11=152      12=114     P3=529（协议 408 + EXT 落点 121）
-13=813（缺 pymodbus 时 735）     14=389      15=159
+09=77   10=166  P1=171  P2=434   11=152      12=114     P3=529（协议 408 + EXT 落点 121）
+13=813（缺 pymodbus 时 735）     14=511      15=205
 16=3898（缺 python 时 3840）     17=721      18=91      19=424   20=397
 ```
 
@@ -386,16 +396,16 @@ vendor\lib60870\build\lib60870.a              IEC 60870-5-104 协议栈静态库
 > **不要再手工加总** —— 用 `python scripts/baseline.py` 从 `build_all.log` 直接算。
 > 它逐行解**混合编码**（见下文告警），并按「每步取汇总行；没有汇总行就加总各 exe」
 > 的口径列成 **23 项**明细，顺带校验步骤号 1..N 无缺号（与 `12/` 验收器 A7-04 同一条纪律）。
-> 本机实跑：`{"steps": 41, "denom": 41, "counted": 23, "total": 15986, "consistent": true}`。
+> 本机实跑：`{"steps": 41, "denom": 41, "counted": 23, "total": 16178, "consistent": true}`。
 
 > **★ 两处环境依赖，让基线有四个合法值**（写报告时必须说明用的哪个口径）：
 >
 > | 条件 | 少了什么 | 全量基线 | 日志里的正面证据 |
 > | --- | --- | --- | --- |
-> | `python` + `pymodbus` + Node 都齐备 | — | **15986** ← **本机实测** | `SKIPPED=0` + `[OK] 15/ 静态契约自检通过` + `[OK] 16/ 通信加固 五层测试全部通过` |
-> | 缺 `pymodbus` 的 Python | `13/` 跨语言层 **−78**（83 条里 5 条仍实跑，见下） | **15908** | `[SKIP] … 跨语言层未运行` |
-> | 缺 Node | `15/` 静态契约自检 = 159 | **15827** | `[SKIP] 未找到 Node 运行时` |
-> | 两者都缺（**开箱默认**） | 78 + 159 = 237 | **15749** | 上面两行同时出现 |
+> | `python` + `pymodbus` + Node 都齐备 | — | **16178** ← **本机实测** | `SKIPPED=0` + `[OK] 15/ 静态契约自检通过` + `[OK] 16/ 通信加固 五层测试全部通过` |
+> | 缺 `pymodbus` 的 Python | `13/` 跨语言层 **−78**（83 条里 5 条仍实跑，见下） | **16100** | `[SKIP] … 跨语言层未运行` |
+> | 缺 Node | `15/` 静态契约自检 = 205 | **15973** | `[SKIP] 未找到 Node 运行时` |
+> | 两者都缺（**开箱默认**） | 78 + 205 = 283 | **15895** | 上面两行同时出现 |
 >
 > ★ **缺 pymodbus 时不是 −83，而是 −78**（实测修正）。
 > 跨语言层 8 个用例里 **T40 点表一致性走 `--dump-tsv`，不需要 pymodbus**，因此照常实跑。
@@ -432,19 +442,19 @@ vendor\lib60870\build\lib60870.a              IEC 60870-5-104 协议栈静态库
 >
 > **★ `15/` 的自检需要 Node**（`EMS_NODE` 或 PATH 上的 `node`）。
 > 15/ 是纯静态前端、没有编译步骤，进全量回归的就是它的**静态契约自检**
-> （159 条：文件结构 / 接口契约 / 页面与权限 / 渲染纪律 / 图表齐备 / 口径一致 / 模式与接入参数）。
+> （205 条：文件结构 / 接口契约 / 页面与权限 / 渲染纪律 / 图表齐备 / 口径一致 / 模式与接入参数 / **引擎双模式**）。
 > 定位不到 Node 时打印 `[SKIP]` 并以 0 退出 —— 环境缺失不是代码缺陷，
 > 但**必须显式喊出来**（同 `13/` `16/` 的处理），否则"静默跳过"与"真的跑过"不可区分。
 
-> **断基数口径**：**23 项**明细加总（齐备口径）= 15986；缺 pymodbus = **15908**。
+> **断基数口径**：**23 项**明细加总（齐备口径）= 16178；缺 pymodbus = **16100**。
 > 三种**打印格式不同**，扫描时要认全：
 >
 > | 格式 | 谁 |
 > | --- | --- |
 > | 不印计数（只印 `ALL TESTS PASSED`） | `01/ 03/` 各步、**`02/`**、`04/` 的 demo 步 |
-> | 中文格式 `通过 N / 失败 M` | **`P1/`**（171）、**`P2/`**（434）、**`15/`**（159） |
+> | 中文格式 `通过 N / 失败 M` | **`P1/`**（171）、**`P2/`**（434）、**`15/`**（205） |
 > | `PASS=N FAIL=M` / `PASS=N` | 其余大部分（注意**有的只印 PASS 不印 FAIL**） |
-> | `PASS=n  FAIL=m  SKIPPED=k`（三栏） | **`14/`**（389；即使全跑也会印出 `SKIPPED=0`）、**`19/`**（424） |
+> | `PASS=n  FAIL=m  SKIPPED=k`（三栏） | **`14/`**（511；即使全跑也会印出 `SKIPPED=0`）、**`19/`**（424） |
 > | **带前缀的汇总行** `合计 PASS=…` | **`16/`**（3898，五层逐层都印 + 末行汇总） |
 > | **带前缀的汇总行** `assertions total: PASS=…` | **`17/`**（721）、**`19/`**（424，与上一行同一行） |
 > | **不打汇总行**，逐 exe 各印一行 | **`20/`**（176 + 144 + 77）、**`P3/`**（408 + 121）、**`13/`**（597 + 133 + 83） |
@@ -503,7 +513,21 @@ vendor\lib60870\build\lib60870.a              IEC 60870-5-104 协议栈静态库
 > 落盘 / 同事务回滚 / 跨语言判据 G12~G13）；`15/` 125 → **159**（+34，新增接入参数
 > 下发 H 段等）；`07/` 现场入口 111 → **124**（+13）；`10/` 144 → **142**（−2，
 > 系 09-28 下午 `sim_24h.h / sim_report.h / test_sim_24h.cpp` 的未提交改动所致）。
-> 详见 `CHANGES.md` §54）
+> 详见 `CHANGES.md` §54）→
+> **2026-10-07 运行 / 仿真双模式后 16178**（`10/` 142 → **166**（+24，T112/T113：
+> 实时源与离线仿真的**逐列等价断言** + 时长与护栏）；`14/` 389 → **511**（+122，
+> 新增整个 [J] 段引擎双模式 + [F] 段引擎接口断言，表数 17 → 18、schema v1.3 → **v1.4**）；
+> `15/` 159 → **205**（+46，新增 [I] 段引擎双模式契约，菜单 9 → 10 项含「仿真」页）；
+> **其余不动**。详见 `CHANGES.md` §56）
+>
+> ⚠️ **同一回合修掉的一次真红**：首轮全量构建 `19/` 从 424 → **423**，唯一红项是
+> `[D] 反向守卫：ems 先成功起来过`。**不是守护器逻辑错**，也不是偶发（单跑 3/3 复现）：
+> 该用例是**三跳链** `init → dev → ems`，而本机 Python 解释器冷启动已从文档记的
+> 0.8 s 涨到 **1.42 ~ 1.85 s**，三跳 ≈ 6.7 s，可 `init` 当时只活 2.5 s（≈ 3.9 s 退出），
+> `ems` 还没 ready 就被级联 kill。按 冷启动上限 2.0 s × 跳数 重标定
+> （`init` 活 2.5 → 8.0 s、窗口 8.0 → 20.0 s）后 `PASS=73 FAIL=0`，`19/` 回到 424。
+> 教训见 `19/docs/README.md` 坑 11c：**链上每多一跳就多乘一次冷启动**，
+> 而"冷启动"这个常数会随机器漂移，**必须定期重测**。
 >
 > ★ **本机口径也变了**：`13/.venv` 建好后 `build_test.bat` 会自动捡起它，
 > 跨语言层（83 条）从 `SKIP` 变成实跑 —— 本机实测口径因此由「缺 pymodbus」
@@ -511,8 +535,8 @@ vendor\lib60870\build\lib60870.a              IEC 60870-5-104 协议栈静态库
 >
 > ★ **本回合起基线一律以 `python scripts/baseline.py` 实测为准**（不再手工加总）。
 > 实测（本机：`python` + `pymodbus` + Node 齐备）：
-> `{"steps": 41, "denom": 41, "counted": 23, "total": 15986, "consistent": true}`
-> → 四口径 **齐备 15986 / 缺 pymodbus 15908 / 缺 Node 15827 / 两者都缺 15749**。
+> `{"steps": 41, "denom": 41, "counted": 23, "total": 16178, "consistent": true}`
+> → 四口径 **齐备 16178 / 缺 pymodbus 16100 / 缺 Node 15973 / 两者都缺 15895**。
 >
 > ⚠️ **历史手工数字的一次对账**：本回合重算时发现旧的四口径（15545/15467/15420/15342）
 > 与其**自己的明细行加总（15568）差 23** —— 正是 `baseline.py` 文件头警告的
@@ -524,7 +548,7 @@ vendor\lib60870\build\lib60870.a              IEC 60870-5-104 协议栈静态库
 > `13/`（597+133+83）与 `11/`（152）、`12/`（114）都是新的，`P3/` 的测试组织也被远程改过
 > （646 → 408 + 121）。
 > 两个数字**不能再引用**；基线一律以本章节上面的**四口径表**为准
-> （齐备 **15986** / 缺 pymodbus **15908** / 缺 Node **15827** / 两者都缺 **15749**）。
+> （齐备 **16178** / 缺 pymodbus **16100** / 缺 Node **15973** / 两者都缺 **15895**）。
 
 `12/` 的主产物是**验收报告**而非断言计数：七维度 **55 检查项**，实跑结论
 `55 / 55 项通过`，退出码 0。

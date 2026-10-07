@@ -11,7 +11,7 @@
 ## 1. 为什么需要它
 
 `01`–`13` / `P1`–`P3` 已经把**设备层**与 **EMS 核心控制层**做透了（当时 9748 断言 / 33 组件；
-补 `16/`~`20/` 后为 **15986 断言 / 41 步**，见根 `README.md` 四口径表），
+补 `16/`~`20/` 后为 **16178 断言 / 41 步**，见根 `README.md` 四口径表），
 但框架的**第四层平台层此前是空的**：没有数据库、没有接口、没有界面。
 
 结果是：系统能跑、能验收，但**运行人员看不见它在干什么**。要回答"昨天发生了什么"，
@@ -29,9 +29,9 @@
 | `src/emsdb.py` | 连接、建表、通用查询（WAL 模式：导入不挡读） |
 | `src/importer.py` | 把 `10/build` 的真实仿真产物装进库 |
 | `src/auth.py` | 口令（pbkdf2）、会话（token）、三角色权限、审计 |
-| `src/api.py` | REST 路由与业务逻辑（24 个端点） |
+| `src/api.py` | REST 路由与业务逻辑（41 个端点，含引擎与仿真调度） |
 | `src/server.py` | HTTP 服务（标准库 `http.server`，同时托管 `15/` 静态页） |
-| `tests/selftest.py` | 断言式自检，**389 断言** |
+| `tests/selftest.py` | 断言式自检，**511 断言** |
 | `scripts/*.bat` | 导入 / 启服务 / 自检 / live 入库 / 一键 |
 
 **零第三方依赖** —— 只用 Python 标准库（`sqlite3` / `http.server`）。
@@ -132,6 +132,12 @@ curl -X POST http://127.0.0.1:8765/api/login -H "Content-Type: application/json"
 | GET | `/api/audit` | admin | 操作审计 |
 | GET · POST | `/api/users` | admin | 用户列表 / 新建 |
 | GET | `/api/export/{timeseries\|alarms\|commands\|devices}` | viewer | 导出 CSV |
+| GET | `/api/engine` | viewer | **引擎状态**：`run` / `sim` 两种模式、当前数据集、数据源清单（模型源 / 现场设备源 + 各自可用性） |
+| POST | `/api/engine` | **operator** | 切引擎模式（运行 ↔ 仿真）；切模式会**重解析默认数据集**，运行模式默认落到 `live` |
+| POST | `/api/engine/live/{start\|stop\|reset}` | **operator** | 实时引擎启停与重置：`start` 拉起实时源并开始尾随入库（返回 pid 与实录文件路径），<br>`stop` 有序停掉，`reset` 清空该场景数据（**先停再清**） |
+| GET | `/api/sim/runs` | viewer | 仿真台账列表 + `kinds` 元数据（日 / 周 / 月的时长、步长、`log_every`） |
+| POST | `/api/sim/runs` | **operator** | 发起仿真（`kind` = `day`/`week`/`month`，可选 `fault`），返回 `run_id` |
+| GET · DELETE | `/api/sim/runs/{run_id}` | viewer / **operator** | 单次仿真进度与结果摘要 / 删除（**连带清 6 张表** + 产物目录） |
 
 ### 关于"下发指令"
 
@@ -171,19 +177,20 @@ curl -X POST http://127.0.0.1:8765/api/login -H "Content-Type: application/json"
 14\scripts\run_selftest.bat
 ```
 
-九个段、**389 断言**：
+十个段、**511 断言**：
 
 | 段 | 内容 |
 | :--- | :--- |
-| A schema | 17 张表齐全（v1.1 加 `run_mode`，v1.2 加设备接入两张 + `scenario.time_base`） |
+| A schema | 18 张表齐全（v1.1 加 `run_mode`，v1.2 加设备接入两张 + `scenario.time_base`，v1.4 加 `sim_run` 仿真台账） |
 | B 导入 | 行数（两场景各 8640 拍 / 17280 条指令 / 296 条告警） |
 | **C 数据一致性** | **入库值逐项对照 `summary.json`** —— 证明平台展示的不是编造的数字；<br>含**电量交叉验证**（关口电量 = `e_import − e_export`，见 §7.1） |
 | D 幂等 | 重复导入不产生重复行、不漂移；含**跨日重导**（见 §7.2） |
 | E 认证与权限 | 口令哈希、token 生命周期、三角色边界 |
-| F REST 接口 | 24 个端点的状态码与关键字段（含 401/403/404/400 负路径） |
+| F REST 接口 | **29 个端点路径**的状态码与关键字段（含 401/403/404/400 负路径）；<br>引擎与仿真相关接口（`/api/engine*`、`/api/sim/runs*`）另在 **[J] 段**覆盖（路由表共 41 条） |
 | G 设备接入闭环 | 点表校验镜像 13/ `validate_map()`、落盘文件判据、保存回滚、<br>**配置通道②**（接入参数落盘 `active.conn`：内容/幂等/清空即删/回滚/解析器严格性）、<br>**两条跨语言判据**（13/ 的 C++ 进程分别读平台写出的 `active.csv` 与 `active.conn`） |
-| H 旧库迁移 | v1.1 → v1.2 的幂等 `ALTER TABLE` |
+| H 旧库迁移 | v1.1 → v1.2 → v1.3 → v1.4 的幂等 `ALTER TABLE`（且**不产生多余的 ALTER**） |
 | I 实时入库 | 07/ `--record` 的 wall 口径、增量幂等、台账兜底、`h_series` 时间轴分支 |
+| **J 引擎双模式** | **运行 / 仿真两条数据链路**：`engine` 切换与权限、仿真调度端到端入库、<br>**实时引擎真的被拉起 / 写实录 / 增量入库 / 被停掉**、`time_base=wall` 口径、<br>仿真产物删除连带清 6 张表、跨日能量分摊不变量 |
 
 `10/build` 不存在时整个自检显式打印 `SKIPPED=1` 并以 0 退出 ——
 环境缺失不是代码缺陷，但**必须显式出现**（沿用 `13/` 定下的规矩）。

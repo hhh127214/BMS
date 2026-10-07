@@ -77,7 +77,9 @@ def write_root(tmp: str, procs: list[dict], **over) -> str:
         p.setdefault("exe", sys.executable)
         # ★ 默认"长命"（30 s）：顺序类用例要的是"进程一直在"，不是"反复退出"。
         #   短命子进程见 [C]/[D]，那里显式给 alive。另注意 Python 子进程在本机
-        #   冷启动约 0.8 s（实测），所以下面各段的窗口都按这个量级留了余量。
+        #   冷启动 **2026-10-07 实测 1.42 ~ 1.85 s**（早先记的 0.8 s / 上限 1.5 s
+        #   已经跟不上本机），所以下面各段的窗口一律按 **2.0 s/跳** 留余量 ——
+        #   链上每多一跳就要多付一次冷启动，见 [D] 段的时长口径推导。
         p.setdefault("args", ["-u", fake, p["name"], "30", "1", "0.05"])
         p.setdefault("cwd", ".")
     cfg = {"poll_s": 0.25,
@@ -259,9 +261,19 @@ def main() -> int:
         # =============================================================
         t.section("D 级联重启（初始化器死了，下游必须作废重起）")
         # =============================================================
+        # ★ 时长口径（2026-10-07 实测重标定，同坑 11 / 11b 的教训）：
+        #   本段是**三跳链** init → dev → ems，每一跳都要付一次 Python 解释器冷启动。
+        #   2026-10-07 实测本机冷启动 **1.42 ~ 1.85 s**（该模块文档早先记的是 0.8 s、
+        #   上限按 1.5 s 取，已经跟不上）。于是"轮到 ems 就绪"要约
+        #   3 × 1.85 + 轮询 ≈ 6.7 s，而当时 init 只活 2.5 s（≈ 3.9 s 就退出），
+        #   ems 还没 ready 就被级联 kill 掉 —— 守卫「ems 先成功起来过」必红。
+        #   ⚠️ 这**不是守护器逻辑错**，是窗口比"冷启动 × 链长"还紧（坑 11b 的同型）。
+        #   现按 冷启动上限 2.0 s + 3 跳余量 取 init 活 8.0 s、窗口 20.0 s：
+        #   最坏情况 ems 就绪 ≈ 6.7 s，init 退出 ≈ 9.9 s，余量 3.2 s；
+        #   退出后级联作废 + 重启链（再 3 跳 ≈ 4 s）也仍在 20 s 内。
         root_d = write_root(tmp, [
             {"name": "init", "args": ["-u", "@FAKE@",
-                                      "init", "2.5", "1", "0.05"],
+                                      "init", "8.0", "1", "0.05"],
              "ready_pattern": r"\[FAKE\] ready", "ready_timeout_s": 5,
              "depends_on": []},
             {"name": "dev", "args": ["-u", "@FAKE@",
@@ -273,7 +285,7 @@ def main() -> int:
              "ready_pattern": r"\[FAKE\] ready", "ready_timeout_s": 5,
              "depends_on": ["dev"]},
         ])
-        rc, out, log, _ = run_sup(root_d, 8.0)
+        rc, out, log, _ = run_sup(root_d, 20.0)
         ev = parse_events(log)
         t.guard(len(all_t(ev, "ready", "ems")) >= 1, "D 反向守卫：ems 先成功起来过")
         casc = [(n, t_) for t_, k, n in ev if k == "cascade_dirty"]

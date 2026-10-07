@@ -30,9 +30,9 @@ REM    建环境：python -m venv .venv
 REM            .venv\Scripts\pip install -r sim\requirements.txt
 REM
 REM  ★ 全量基线因此有**两个合法值**（必须按本次实际跑到的那个上报）： 
-REM      有 pymodbus → 13\ 贡献 813，全量 15986
-REM      无 pymodbus → 13\ 贡献 735（第三层 7 条 SKIP），全量 15908
-REM    （数字以 `python scripts\baseline.py` 实测为准；本机实测 = 15986，pymodbus 可用。）
+REM      有 pymodbus → 13\ 贡献 813，全量 16178
+REM      无 pymodbus → 13\ 贡献 735（第三层 7 条 SKIP），全量 16100
+REM    （数字以 `python scripts\baseline.py` 实测为准；本机实测 = 16178，pymodbus 可用。）
 REM    判据：本脚本末尾那行回显的**层数**，或 build\bridge_status.txt 里的 SKIPPED=。 
 REM    ★ 为什么非要把这件事喊出来：SKIP 本身是有意的（环境问题不是代码缺陷）， 
 REM      但如果构建脚本仍然印「三层测试全部通过」，那么「静默跳过」与「真的跑过」 
@@ -133,7 +133,7 @@ if "%FAIL%"=="1" (
 )
 if "%BRIDGE_SKIPPED%"=="1" (
     echo [SKIP] 13\ Modbus 前两层通过（597 + 133）；**跨语言层未运行** —— 缺 pymodbus
-    echo        这不是代码缺陷，但本次 13\ 只贡献 735 条：全量口径是 **15908**，不是 15986。 
+    echo        这不是代码缺陷，但本次 13\ 只贡献 735 条：全量口径是 **16100**，不是 16178。 
     echo        要补上第三层（83 条）： 
     echo            python -m venv .venv
     echo            .venv\Scripts\pip install -r sim\requirements.txt
