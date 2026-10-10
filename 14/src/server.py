@@ -66,12 +66,25 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers",
-                         "Content-Type, Authorization")
-        self.send_header("Access-Control-Allow-Methods",
-                         "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Cache-Control", "no-store")
+        # ★ 2026-10-11 收紧：原先无条件回 Access-Control-Allow-Origin: *，
+        #   等于允许任意第三方网页直接调本项目的 /api/*。
+        #   它与「明文 HTTP + 库里默认口令」是**相乘**关系，不是相加：
+        #   任一第三方站点都能在用户已登录本平台的情况下，借浏览器里的
+        #   会话去读 /api/* —— 用户完全察觉不到。
+        #
+        #   托管模式下（15/ 由本进程 --static 发布）前端与 API 同源，
+        #   浏览器本来就不依赖 CORS 头；15/tests/e2e_probe.html 用的也是
+        #   相对路径 w.fetch('/api/health')，同源，照样不受影响。
+        #   真正需要跨域的场景（外部页面调测）请用 --allow-origin 显式开，
+        #   并把结果打在启动横幅上 —— 开关状态必须看得见。
+        ao = getattr(self.server, "allow_origin", None)
+        if ao:
+            self.send_header("Access-Control-Allow-Origin", ao)
+            self.send_header("Access-Control-Allow-Headers",
+                             "Content-Type, Authorization")
+            self.send_header("Access-Control-Allow-Methods",
+                             "GET, POST, PUT, DELETE, OPTIONS")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -194,7 +207,8 @@ def _ctype_of(p: str) -> str:
 
 
 def create_server(host: str, port: int, db_path: str | None = None,
-                  static_dir: str | None = None) -> ThreadingHTTPServer:
+                  static_dir: str | None = None,
+                  allow_origin: str | None = None) -> ThreadingHTTPServer:
     conn = emsdb.init_db(db_path)
     n_new = auth.ensure_default_users(conn)
     auth.purge_expired(conn)
@@ -215,6 +229,8 @@ def create_server(host: str, port: int, db_path: str | None = None,
     srv.new_users = n_new                                   # type: ignore[attr-defined]
     srv.engine_attached = n_attach                          # type: ignore[attr-defined]
     srv.engine_live_state = live_state                      # type: ignore[attr-defined]
+    # None = 不回 Access-Control-Allow-Origin（同源模式，默认，最安全）
+    srv.allow_origin = allow_origin or None                 # type: ignore[attr-defined]
     return srv
 
 
@@ -232,9 +248,13 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--db", default=None, help="SQLite 文件路径")
     ap.add_argument("--static", default=None, help="静态目录（默认 15/）")
+    ap.add_argument("--allow-origin", default=None,
+                    help="跨域白名单，如 http://127.0.0.1:5173；"
+                         "不给则不回 Access-Control-Allow-Origin（同源模式）")
     args = ap.parse_args()
 
-    srv = create_server(args.host, args.port, args.db, args.static)
+    srv = create_server(args.host, args.port, args.db, args.static,
+                        args.allow_origin)
     db = srv.db_path                                        # type: ignore[attr-defined]
     st = srv.static_dir                                     # type: ignore[attr-defined]
 
@@ -249,6 +269,12 @@ def main() -> int:
     print(f"   静态目录  {st}")
     print(f"   启动时间  {datetime.datetime.now():%Y-%m-%d %H:%M:%S}")
     print(f"   运行引擎  {srv.engine_live_state}")           # type: ignore[attr-defined]
+    ao = srv.allow_origin                                    # type: ignore[attr-defined]
+    if ao:
+        print(f"   跨域(CORS) 开启 → {ao}")
+    else:
+        print("   跨域(CORS) 关闭（同源模式，默认）"
+              "  ← 外部页面要调测就加 --allow-origin <origin>")
     if srv.engine_attached:                                 # type: ignore[attr-defined]
         print("   [引擎] 已接上仍在跑的实时引擎，继续增量入库")  # type: ignore[attr-defined]
     if srv.new_users:                                       # type: ignore[attr-defined]
