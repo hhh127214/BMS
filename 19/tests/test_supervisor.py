@@ -238,8 +238,14 @@ def main() -> int:
         t.ge(len(exits), 2, "C 检出了多次退出（存活检测有效）")
         gaps = [round(b - a, 3) for a, b in zip(starts, starts[1:])]
         t.gt(len(gaps), 1, "C 至少测到两段重启间隔")
-        t.ok(all(y >= x - 1e-6 for x, y in zip(gaps, gaps[1:])),
-             f"C 重启间隔非递减（退避在放大）：{gaps}")
+        # ★ 容差为什么是 50 ms 而不是 1e-6：这里的间隔是**真实进程调度**测出来的，
+        #   本身有毫秒级抖动 —— 全量构建满载时实测过 [1.784, 1.781, 2.283]，
+        #   第二段比第一段小 3 ms，于是「非递减」被掀翻，而退避逻辑其实是对的。
+        #   用 1e-6 的容差等于在测线程调度精度，不是测退避。
+        #   50 ms 远小于本用例要证明的量级（首末段差 0.5 s），反向守卫仍然有效。
+        BACKOFF_JITTER_S = 0.05
+        t.ok(all(y >= x - BACKOFF_JITTER_S for x, y in zip(gaps, gaps[1:])),
+             f"C 重启间隔非递减（退避在放大，容差 {BACKOFF_JITTER_S}s）：{gaps}")
         t.gt(gaps[-1], gaps[0], f"★ 反向守卫：末段间隔明显大于首段（{gaps[-1]} > {gaps[0]}）")
         # 退避不是固定间隔 —— 固定间隔实现会让上面两条红
         t.ne(len(set(gaps)), 1, "★ 间隔不全相等（不是固定 0.3 s 硬重启）")
