@@ -203,7 +203,9 @@ public:
                 e.field = "type"; e.message = "类型非法";
                 return e;
             }
-            if (p.device < DK_BMS || p.device > DK_PCS) {
+            // ★ 上界用 DK_COUNT 哨兵，不用写死 DK_PCS ——
+            //   否则每加一个设备类就得回来改这里，漏改 = 新设备类的点被静默判非法。
+            if (p.device < DK_BMS || p.device >= DK_COUNT) {
                 e.ok = false; e.point_index = static_cast<int>(i); e.point_name = p.name;
                 e.field = "device"; e.message = "所属设备非法";
                 return e;
@@ -255,6 +257,46 @@ public:
         }
         root.set("points", std::move(arr));
         return jmin::dump(root, indent);
+    }
+
+    // =================================================================
+    // 从文件加载（★ 站点追加点的加载入口）
+    //
+    // 为什么必须收进类里，而不是每个调用方自己 fopen + load_json：
+    //   "从哪个文件加载"一旦散落，就会出现各写一份读文件代码、路径约定不一致 ——
+    //   现场表现为"同一个站，A 进程加载了追加点、B 进程没加载"，两边日志都不报错，
+    //   只有点表内容不同。集中在此，路径与错误口径只有一份。
+    //
+    // ★ 读不到文件时怎么办，由**调用方**决定调用语义，本函数只负责如实上报：
+    //   · 显式指定的站点追加表缺失 = 缺陷（调用方必须报错退出）
+    //   · 可选默认文件不存在 = 设计内的降级（调用方**必须打印**，不许静默）
+    //   两者都不能退化成"当作没这回事" —— 那正是站点追加点悄悄失效的样子。
+    // =================================================================
+    LoadError load_file(const std::string& path, bool append) {
+        LoadError e;
+        std::FILE* fp = std::fopen(path.c_str(), "rb");
+        if (fp == nullptr) {
+            e.ok = false;
+            e.point_index = -1;
+            e.field = "<file>";
+            e.message = std::string("打不开点表文件: ") + path;
+            return e;
+        }
+        std::string text;
+        char buf[8192];
+        std::size_t n;
+        while ((n = std::fread(buf, 1, sizeof(buf), fp)) > 0) text.append(buf, n);
+        std::fclose(fp);
+        if (text.empty()) {
+            e.ok = false;
+            e.point_index = -1;
+            e.field = "<file>";
+            e.message = std::string("点表文件为空: ") + path;
+            return e;
+        }
+        e = load_json(text, append);
+        if (!e.ok) e.message = path + " -> " + e.message;
+        return e;
     }
 
     // =================================================================
@@ -362,7 +404,7 @@ public:
             p.device = device_kind_from_name(s);
             if (p.device < 0) {
                 e.ok = false; e.point_index = gi; e.point_name = p.name; e.field = "device";
-                e.message = "device 必须是 bms / meter / pcs，实为 '" + s + "'";
+                e.message = "device 必须是 " + all_device_kind_names() + "，实为 '" + s + "'";
                 return e;
             }
             // ---- zone ----

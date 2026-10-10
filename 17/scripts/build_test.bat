@@ -85,12 +85,13 @@ gcc -std=c11 -O2 -I ..\07\src\rtdb -I ..\07\vendor\rt_db ^
     -c ..\07\src\rtdb\ems_rt_db_setup.c -o build\ems_rt_db_setup.o
 if errorlevel 1 ( echo [FAIL] ems_rt_db_setup.c compile error & endlocal & exit /b 1 )
 
-REM  ---------- [2/3] 编译 + 运行 6 个测试 ----------
+REM  ---------- [2/3] 编译 + 运行 7 个测试 ----------
 set "INC=-I src -I tests -I ..\07\src\rtdb -I ..\07\vendor\rt_db"
 set "LNK=build\ems_point_table.o"
 set "LNK_RTDB=build\ems_point_table.o build\rt_db_api.o build\ems_rt_db_setup.o"
 
 set NFAIL=0
+set NTOT=0
 set TOTAL=0
 set TOTFAIL=0
 set TOTSKIP=0
@@ -100,6 +101,7 @@ call :run test_point_config tests\test_point_config.cpp
 call :run test_sim_meter    tests\test_sim_meter.cpp
 call :run test_sim_bms      tests\test_sim_bms.cpp
 call :run test_sim_pcs      tests\test_sim_pcs.cpp
+call :run test_sim_aux      tests\test_sim_aux.cpp
 call :run test_scale_rtdb   tests\test_scale_rtdb.cpp rtdb
 
 REM  ---------- [3/3] 收尾 ----------
@@ -109,7 +111,7 @@ if not "!NFAIL!"=="0" (
     echo        assertions total: PASS=!TOTAL!  FAIL=!TOTFAIL!  SKIPPED=!TOTSKIP!
     endlocal & exit /b 1
 )
-echo [OK] 17\ device point table ^& hi-fi simulators: 6 test exe^(s^) all passed
+echo [OK] 17\ device point table ^& hi-fi simulators: !NTOT! test exe^(s^) all passed
 echo      assertions total: PASS=!TOTAL!  FAIL=0  SKIPPED=!TOTSKIP!
 if not "!TOTSKIP!"=="0" (
     echo      [SKIP] !TOTSKIP! assertion^(s^) explicitly skipped ^(environment limit, not a defect^) 
@@ -128,6 +130,7 @@ REM  ★ 只用裸文件名与相对路径做参数（本仓库根路径含括�
 REM  ★ 块内读取路径语义的变量一律 !VAR! 延迟展开（见 §4.2 与 fix_bat_encoding.py）。 
 REM =====================================================================
 :run
+set /a NTOT+=1
 set "TNAME=%~1"
 set "TSRC=%~2"
 set "TLNK=!LNK!"

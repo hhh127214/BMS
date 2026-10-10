@@ -1,0 +1,49 @@
+{
+  "points": [
+    {
+      "name": "STA.FIRE.HOST_STATE",
+      "unit": "-",
+      "type": "analog",
+      "range": [0, 2],
+      "default": 0,
+      "device": "fire",
+      "zone": "sta"
+    },
+    {
+      "name": "ALM.FIRE.SMOKE",
+      "unit": "bool",
+      "type": "digital",
+      "range": [0, 1],
+      "default": 0,
+      "device": "fire",
+      "zone": "alm"
+    },
+    {
+      "name": "ALM.FIRE.HEAT",
+      "unit": "bool",
+      "type": "digital",
+      "range": [0, 1],
+      "default": 0,
+      "device": "fire",
+      "zone": "alm"
+    },
+    {
+      "name": "STA.FIRE.RELEASED",
+      "unit": "bool",
+      "type": "digital",
+      "range": [0, 1],
+      "default": 0,
+      "device": "fire",
+      "zone": "sta"
+    },
+    {
+      "name": "MEAS.FIRE.PRESSURE",
+      "unit": "MPa",
+      "type": "analog",
+      "range": [0, 20],
+      "default": 1.2,
+      "device": "fire",
+      "zone": "meas"
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+﻿所属部位,部件,测点（现场口径）,设备点名 17/ 第1层(107点),EMS点名 07/ 第2层(40点),单位,类型,现状,来源与协议
+柜内·电池舱,电池簇,簇电压,DP_BMS_CLUSTER_U,—,V,analog,部分（仅第1层）,BMS ←→ BAMS（CAN）
+柜内·电池舱,电池簇,簇电流,DP_BMS_CLUSTER_I,—,A,analog,部分（仅第1层）,BMS ←→ BAMS（CAN）
+柜内·电池舱,电池簇,簇温度,DP_BMS_CLUSTER_T,EMS_T_C,°C,analog,已有,BMS ←→ BAMS（CAN）
+柜内·电池舱,电池簇,SOC,DP_BMS_SOC,EMS_SOC,0..1,analog,已有,BMS ←→ BAMS（CAN）
+柜内·电池舱,电池簇,SOH,DP_BMS_SOH,EMS_SOH,0..1,analog,已有,BMS ←→ BAMS（CAN）
+柜内·电池舱,电池簇,剩余可充电量,DP_BMS_RM_CHG_KWH,—,kWh,analog,部分（仅第1层）,BMS ←→ BAMS（CAN）
+柜内·电池舱,电池簇,剩余可放电量,DP_BMS_RM_DIS_KWH,—,kWh,analog,部分（仅第1层）,BMS ←→ BAMS（CAN）
+柜内·电池舱,电池簇,循环次数,DP_BMS_CYCLE_COUNT,—,次,analog,部分（仅第1层）,BMS ←→ BAMS（CAN）
+柜内·电池舱,电芯（模组内单体）,单体最高电压,DP_BMS_CELL_V_MAX,—,V,analog,部分（仅第1层）,BMU（CAN 2.0B）
+柜内·电池舱,电芯（模组内单体）,最高电压单体编号,DP_BMS_CELL_V_MAX_IDX,—,#,analog,部分（仅第1层）,BMU（CAN 2.0B）
+柜内·电池舱,电芯（模组内单体）,单体最低电压,DP_BMS_CELL_V_MIN,—,V,analog,部分（仅第1层）,BMU（CAN 2.0B）
+柜内·电池舱,电芯（模组内单体）,最低电压单体编号,DP_BMS_CELL_V_MIN_IDX,—,#,analog,部分（仅第1层）,BMU（CAN 2.0B）
+柜内·电池舱,电芯（模组内单体）,单体压差,DP_BMS_CELL_V_DIFF,—,V,analog,部分（仅第1层）,BMU（CAN 2.0B）
+柜内·电池舱,电芯（模组内单体）,单体最高温度,DP_BMS_T_MAX,—,°C,analog,部分（仅第1层）,BMU（CAN 2.0B）
+柜内·电池舱,电芯（模组内单体）,最高温度点位编号,DP_BMS_T_MAX_IDX,—,#,analog,部分（仅第1层）,BMU（CAN 2.0B）
+柜内·电池舱,电芯（模组内单体）,单体最低温度,DP_BMS_T_MIN,—,°C,analog,部分（仅第1层）,BMU（CAN 2.0B）
+柜内·电池舱,绝缘监测,绝缘电阻,DP_BMS_INSUL_R,—,kΩ,analog,部分（仅第1层）,BMS ←→ BAMS
+柜内·电池舱,绝缘监测,漏电流,DP_BMS_LEAK_I,—,mA,analog,部分（仅第1层）,BMS ←→ BAMS
+柜内·电池舱,直流接触器,主正接触器状态,DP_BMS_MAIN_POS,—,0/1,digital,部分（仅第1层）,BMS 管辖（CAN/RS485）
+柜内·电池舱,直流接触器,主负接触器状态,DP_BMS_MAIN_NEG,—,0/1,digital,部分（仅第1层）,BMS 管辖（CAN/RS485）
+柜内·电池舱,直流接触器,预充继电器状态,STA.BMS.PRECHARGE,—,0/1,digital,已定义·配置追加(107),BMS 管辖（CAN/RS485）
+柜内·电池舱,直流接触器,充电状态位,DP_BMS_CHARGING,—,0/1,digital,部分（仅第1层）,BMS 管辖
+柜内·电池舱,BMS 主控,通信正常,DP_BMS_COMM_OK,EMS_STA_BMS,0/1,digital,已有,BAMS → EMS（Modbus TCP）
+柜内·电池舱,BMS 主控,心跳计数,DP_BMS_HEARTBEAT,—,次,analog,部分（仅第1层）,BAMS → EMS
+柜内·电池舱,BMS 主控,数据有效位,DP_BMS_DATA_VALID,EMS_STA_VALID,0/1,digital,已有,BAMS → EMS
+柜内·电池舱,BMS 主控,禁止充电,DP_BMS_CHG_FORBID,EMS_STA_BMS_CHG_FORBID,0/1,digital,已有（安全链 L0）,read_limits → S01 → 05/
+柜内·电池舱,BMS 主控,禁止放电,DP_BMS_DIS_FORBID,EMS_STA_BMS_DIS_FORBID,0/1,digital,已有（安全链 L0）,read_limits → S01 → 05/
+柜内·电池舱,BMS 主控,禁充放原因码,DP_BMS_FORBID_REASON,—,码,analog,部分（仅第1层）,BMS 管辖
+柜内·电池舱,BMS 主控,允许充电功率,DP_BMS_CHG_LIMIT_KW,EMS_CFG_BMS_CHG_LIM,kW,analog,已有,read_limits（每拍刷新）
+柜内·电池舱,BMS 主控,允许放电功率,DP_BMS_DIS_LIMIT_KW,EMS_CFG_BMS_DIS_LIM,kW,analog,已有,read_limits（每拍刷新）
+柜内·电池舱,BMS 主控,告警级别,DP_BMS_ALM_LEVEL,—,级,analog,部分（仅第1层）,BMS → ALM 区
+柜内·电池舱,BMS 主控,告警码,DP_BMS_ALM_CODE,—,码,analog,部分（仅第1层）,BMS → ALM 区
+柜内·PCS舱,PCS 变流器,有功功率,DP_PCS_P_ACT,EMS_P_BAT,kW,analog,已有,BMS ←→ PCS（CAN/RS485）
+柜内·PCS舱,PCS 变流器,无功功率,DP_PCS_Q_ACT,—,kvar,analog,部分（仅第1层）,PCS → EMS
+柜内·PCS舱,PCS 变流器,直流侧电压,DP_PCS_UDC,—,V,analog,部分（仅第1层）,PCS → EMS
+柜内·PCS舱,PCS 变流器,直流侧电流,DP_PCS_IDC,—,A,analog,部分（仅第1层）,PCS → EMS
+柜内·PCS舱,PCS 变流器,交流侧三相电压,DP_PCS_U_A/B/C,—,V,analog,部分（仅第1层）,PCS → EMS
+柜内·PCS舱,PCS 变流器,交流侧三相电流,DP_PCS_I_A/B/C,—,A,analog,部分（仅第1层）,PCS → EMS
+柜内·PCS舱,PCS 变流器,运行模式,DP_PCS_MODE,—,码,analog,部分（仅第1层）,PCS → EMS
+柜内·PCS舱,PCS 变流器,故障位,DP_PCS_FAULT,EMS_STA_FAULT,0/1,digital,已有,PCS → EMS
+柜内·PCS舱,PCS 变流器,故障码,DP_PCS_FAULT_CODE,—,码,analog,部分（仅第1层）,PCS → EMS
+柜内·PCS舱,PCS 变流器,通信正常,DP_PCS_COMM_OK,EMS_STA_PCS,0/1,digital,已有,PCS → EMS
+柜内·PCS舱,PCS 变流器,限功率原因,DP_PCS_LIMIT_REASON,—,码,analog,部分（仅第1层）,PCS → EMS
+柜内·PCS舱,PCS 变流器,日发电量 / 累计发电量,DP_PCS_E_DAY_KWH / E_TOTAL_KWH,—,kWh,analog,部分（仅第1层）,PCS → EMS
+柜内·PCS舱,PCS 变流器,运行小时,DP_PCS_RUN_HOURS,—,h,analog,部分（仅第1层）,PCS → EMS
+柜内·PCS舱,PCS 变流器,IGBT / 模块温度,MEAS.PCS.T_MODULE,—,°C,analog,已定义·配置追加(108),PCS 内部 → 多走 CAN
+柜内·PCS舱,PCS 指令落点,有功设定,DP_PCS_CMD_P_SET,EMS_CMD_P_BAT,kW,analog,已有,CMD 区（RtDbDeviceIO 写）
+柜内·PCS舱,PCS 指令落点,允许上界 / 下界,DP_PCS_CMD_P_UPPER / P_LOWER,EMS_CMD_P_UPPER / P_LOWER,kW,analog,已有,CMD 区
+柜内·PCS舱,PCS 指令落点,启停遥控,DP_PCS_CMD_ONOFF,—,0/1,digital,已有,CMD 区
+柜内·辅助,消防主机,主机状态（正常/火警/故障）,STA.FIRE.HOST_STATE,—,0/1/2,digital,已定义·选配模块（仅第 1 层）,Modbus RTU（RS485）；已落 data/mod_fire.json（111..115）
+柜内·辅助,消防主机,烟感报警,ALM.FIRE.SMOKE,—,0/1,digital,已定义·选配模块（仅第 1 层）,探测器 DI 或 Modbus RTU；已落 data/mod_fire.json（111..115）
+柜内·辅助,消防主机,温感报警,ALM.FIRE.HEAT,—,0/1,digital,已定义·选配模块（仅第 1 层）,探测器 DI 或 Modbus RTU；已落 data/mod_fire.json（111..115）
+柜内·辅助,消防主机,喷洒 / 释放信号,STA.FIRE.RELEASED,—,0/1,digital,已定义·选配模块（仅第 1 层）,★ 干接点 DI 硬接线优先；已落 data/mod_fire.json（111..115）
+柜内·辅助,消防主机,灭火装置压力,MEAS.FIRE.PRESSURE,—,MPa,analog,已定义·选配模块（仅第 1 层）,Modbus RTU 或 AI（4-20mA）；已落 data/mod_fire.json（111..115）
+柜内·辅助,空调 / 液冷机组,柜内环境温度,MEAS.HVAC.T_AMB,—,°C,analog,已定义·选配模块（仅第 1 层）,★ 与 EMS_T_C（电池温度）不是一回事；已落 data/mod_hvac.json（116..122）
+柜内·辅助,空调 / 液冷机组,回风温度,MEAS.HVAC.T_RETURN,—,°C,analog,已定义·选配模块（仅第 1 层）,Modbus RTU（RS485）；已落 data/mod_hvac.json（116..122）
+柜内·辅助,空调 / 液冷机组,进 / 出水温（液冷）,MEAS.HVAC.T_WATER,—,°C,analog,已定义·选配模块（仅第 1 层）,CDU → Modbus RTU/TCP；已落 data/mod_hvac.json（116..122）
+柜内·辅助,空调 / 液冷机组,冷却液流量,MEAS.HVAC.FLOW,—,L/min,analog,已定义·选配模块（仅第 1 层）,CDU → Modbus RTU/TCP；已落 data/mod_hvac.json（116..122）
+柜内·辅助,空调 / 液冷机组,水泵运行状态,STA.HVAC.PUMP_ON,—,0/1,digital,已定义·选配模块（仅第 1 层）,DI 或 Modbus RTU；已落 data/mod_hvac.json（116..122）
+柜内·辅助,空调 / 液冷机组,启停（遥调）,CMD.HVAC.ONOFF,—,0/1,digital,已定义·选配模块（仅第 1 层）,DO 或 Modbus 写寄存器；已落 data/mod_hvac.json（116..122）
+柜内·辅助,空调 / 液冷机组,目标温度（遥调）,CMD.HVAC.T_SET,—,°C,analog,已定义·选配模块（仅第 1 层）,DO 或 Modbus 写寄存器；已落 data/mod_hvac.json（116..122）
+柜内·辅助,门禁 / 安防,柜门磁状态,STA.SEC.DOOR_OPEN,—,0/1,digital,已定义·选配模块（仅第 1 层）,干接点 DI；已落 data/mod_sec.json（123..124）
+柜内·辅助,门禁 / 安防,水浸报警,ALM.SEC.WATER,—,0/1,digital,已定义·选配模块（仅第 1 层）,干接点 DI；已落 data/mod_sec.json（123..124）
+柜内·辅助,配电 / 开关,交流侧断路器分合,STA.SWITCH.AC_BREAKER,—,0/1,digital,已定义·选配模块（仅第 1 层）,Modbus RTU 或辅助触点 DI；已落 data/mod_switch.json（125..127）
+柜内·辅助,配电 / 开关,脱扣原因,STA.SWITCH.TRIP_REASON,—,码,analog,已定义·选配模块（仅第 1 层）,智能断路器 → Modbus RTU；已落 data/mod_switch.json（125..127）
+柜内·辅助,配电 / 开关,急停按钮状态,STA.SWITCH.ESTOP,—,0/1,digital,已定义·选配模块（仅第 1 层）,★ 干接点 DI 硬接线；已落 data/mod_switch.json（125..127）
+站内·一次,关口电表,关口功率,DP_METER_P_TOTAL,EMS_P_GRID,kW,analog,已有,Modbus TCP（现场多 RTU/RS485）
+站内·一次,关口电表,三相电压 / 电流,DP_METER_U_A..C / I_A..C,—,V/A,analog,部分（仅第1层）,Modbus TCP
+站内·一次,关口电表,频率,DP_METER_FREQ,—,Hz,analog,部分（仅第1层）,Modbus TCP
+站内·一次,关口电表,正 / 反向电能,DP_METER_EP_FWD / EP_REV,—,kWh,analog,部分（仅第1层）,Modbus TCP
+站内·一次,关口电表,当前需量 / 峰值需量,DP_METER_DEMAND_NOW / PEAK,—,kW,analog,部分（仅第1层）,★ 需量策略的价值全在这
+站内·一次,关口电表,通信正常,DP_METER_COMM_OK,EMS_STA_METER,0/1,digital,已有,Modbus TCP
+站内·一次,关口电表,分路功率（负荷 / 光伏）,DP_METER_P_LOAD / P_PV,EMS_P_LOAD / EMS_P_PV,kW,analog,已有,Modbus TCP
+站内·一次,关口电表,变压器容量（一次侧配置）,DP_METER_TR_KVA,EMS_CFG_TR_KVA,kVA,analog,已有,CFG（初始化写一次）
+站内·一次,关口电表,契约需量（配置）,DP_METER_D_TARGET,EMS_CFG_D_TARGET,kW,analog,已有,CFG（初始化写一次）
+站内·一次,变压器,绕组温度 / 油温,MEAS.METER.TR_TEMP,—,°C,analog,已定义·配置追加(109),干变温控仪 → Modbus RTU
+站内·一次,变压器,负载率,MEAS.METER.TR_LOAD_RATE,—,%,analog,已定义·配置追加(110),由关口功率 / 容量推算或温控仪给
+站内·一次,光伏逆变器,光伏出力,DP_METER_P_PV,EMS_P_PV,kW,analog,已有,Modbus TCP

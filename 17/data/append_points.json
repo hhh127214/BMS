@@ -1,0 +1,40 @@
+{
+  "points": [
+    {
+      "name": "STA.BMS.PRECHARGE",
+      "unit": "bool",
+      "type": "digital",
+      "range": [0, 1],
+      "default": 0,
+      "device": "bms",
+      "zone": "sta"
+    },
+    {
+      "name": "MEAS.PCS.T_MODULE",
+      "unit": "degC",
+      "type": "analog",
+      "range": [-40, 125],
+      "default": 25,
+      "device": "pcs",
+      "zone": "meas"
+    },
+    {
+      "name": "MEAS.METER.TR_TEMP",
+      "unit": "degC",
+      "type": "analog",
+      "range": [-40, 200],
+      "default": 25,
+      "device": "meter",
+      "zone": "meas"
+    },
+    {
+      "name": "MEAS.METER.TR_LOAD_RATE",
+      "unit": "%",
+      "type": "analog",
+      "range": [0, 200],
+      "default": 0,
+      "device": "meter",
+      "zone": "meas"
+    }
+  ]
+}

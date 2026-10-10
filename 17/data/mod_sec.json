@@ -1,0 +1,22 @@
+{
+  "points": [
+    {
+      "name": "STA.SEC.DOOR_OPEN",
+      "unit": "bool",
+      "type": "digital",
+      "range": [0, 1],
+      "default": 0,
+      "device": "sec",
+      "zone": "sta"
+    },
+    {
+      "name": "ALM.SEC.WATER",
+      "unit": "bool",
+      "type": "digital",
+      "range": [0, 1],
+      "default": 0,
+      "device": "sec",
+      "zone": "alm"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "points": [
+    {
+      "name": "STA.SWITCH.AC_BREAKER",
+      "unit": "bool",
+      "type": "digital",
+      "range": [0, 1],
+      "default": 1,
+      "device": "switch",
+      "zone": "sta"
+    },
+    {
+      "name": "STA.SWITCH.TRIP_REASON",
+      "unit": "-",
+      "type": "digital",
+      "range": [0, 9999],
+      "default": 0,
+      "device": "switch",
+      "zone": "sta"
+    },
+    {
+      "name": "STA.SWITCH.ESTOP",
+      "unit": "bool",
+      "type": "digital",
+      "range": [0, 1],
+      "default": 0,
+      "device": "switch",
+      "zone": "sta"
+    }
+  ]
+}

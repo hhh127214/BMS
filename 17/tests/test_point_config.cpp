@@ -22,6 +22,9 @@
 //   T12 JSON 宽松（注释 / 尾逗号 / 裸键）
 //   T13 数字输出：整数不带小数点、小数最短可往返
 //   T14 反向守卫：这些判据确实有区分度
+//   T15 站点追加点文件 data/append_points.json：能加载 / 落在 107..110 / 旧索引不动
+//   T16 load_file：站点追加点的加载入口（缺失必须报错，不许静默）
+//   T17 选配模块（消防 / 温控 / 门禁安防 / 配电开关）17 点：设备类已扩、索引连续
 //
 // 编译：见 17/scripts/build_test.bat
 // =====================================================================
@@ -568,6 +571,154 @@ static void test_14_guards() {
     EXPECT_EQ(self_check(), 0);
 }
 
+// =====================================================================
+// T15 站点追加点文件：data/append_points.json（★ 会腐坏的东西必须有断言）
+//
+//   为什么单独一条：追加点若只写在映射表文档里，改了点名 / 单位 / 插到中间
+//   都不会有任何东西变红 —— 它会在某次现场升级后悄悄错位。这里加载一遍，
+//   钉住三件事：能加载、落在追加区 107..110、既有 107 点逐点不动。
+//
+//   ★ 为什么是"配置文件追加"而不是往内置表里塞：
+//     内置表 107 点是**典型厂家点表**（devpt 头文件注释第 20-23 行：
+//     现场点表最容易变，必须能配置化加载，算法契约不能跟着站变）。
+//     换站/换厂家才有的点走运行时追加，内置枚举一个都不动。
+// =====================================================================
+static void test_15_append_points_file() {
+    std::printf("T15 站点追加点文件：data/append_points.json\n");
+
+    const char* kPath = "data/append_points.json";
+    std::FILE* fp = std::fopen(kPath, "rb");
+    EXPECT(fp != nullptr);
+    if (!fp) return;
+
+    std::string text;
+    char buf[4096];
+    std::size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), fp)) > 0) text.append(buf, n);
+    std::fclose(fp);
+    EXPECT_GT0(static_cast<int>(text.size()));
+
+    const DevicePointTable base = DevicePointTable::builtin();
+    DevicePointTable t = base;
+    const LoadError e = t.load_json(text, true);
+    EXPECT(e.ok);
+    EXPECT_EQ(t.size(), 111);
+
+    // ① 四个点落在追加区，索引连续且紧接内置表末尾
+    EXPECT_EQ(t.index_of("STA.BMS.PRECHARGE"),       107);
+    EXPECT_EQ(t.index_of("MEAS.PCS.T_MODULE"),       108);
+    EXPECT_EQ(t.index_of("MEAS.METER.TR_TEMP"),      109);
+    EXPECT_EQ(t.index_of("MEAS.METER.TR_LOAD_RATE"), 110);
+
+    // ② 既有 107 点的索引与默认值逐点不变
+    int moved = 0;
+    for (int i = 0; i < 107; ++i) {
+        if (t.index_of(base.points[static_cast<std::size_t>(i)].name) != i) ++moved;
+        if (!(t.points[static_cast<std::size_t>(i)].def ==
+              base.points[static_cast<std::size_t>(i)].def)) ++moved;
+    }
+    EXPECT_EQ(moved, 0);
+
+    // ③ 字段合法（单位/类型/量程/device/zone）
+    EXPECT_EQ(t.validate().ok, 1);
+}
+
+// =====================================================================
+// T16 load_file：站点追加点的加载入口（★ 缺失必须报错，不许静默）
+//
+//   为什么单独一条：dev_points.exe 靠 load_file 起加载作用，而"文件读不到时
+//   退化成没加载"是这类配置**最容易出现的失效方式** —— 界面上什么都看不出来，
+//   只是点表里少了几行。这里钉住三件事：读得到、读不到会报错且报出路径、
+//   失败时不改动原表（原子性）。
+// =====================================================================
+static void test_16_load_file() {
+    std::printf("T16 load_file：站点追加点的加载入口\n");
+
+    // ① 存在的文件 → 加载成功
+    DevicePointTable t = DevicePointTable::builtin();
+    const LoadError e1 = t.load_file("data/append_points.json", true);
+    EXPECT(e1.ok);
+    EXPECT_EQ(t.size(), 111);
+
+    // ② 不存在的文件 → **报错**，不是静默跳过
+    DevicePointTable u = DevicePointTable::builtin();
+    const LoadError e2 = u.load_file("data/__does_not_exist__.json", true);
+    EXPECT(!e2.ok);
+    EXPECT(e2.message.find("__does_not_exist__") != std::string::npos);
+    EXPECT_STR_EQ(e2.field, "<file>");
+
+    // ③ 原子性：失败不改动原表（半加载的表比加载失败更危险）
+    EXPECT_EQ(u.size(), 107);
+    EXPECT_EQ(u.index_of("MEAS.BMS.SOC"), 11);
+
+    // ④ 报错信息里带路径 —— 现场排查的第一现场是"哪个文件"
+    const std::string s = e2.to_string();
+    EXPECT(s.find("__does_not_exist__") != std::string::npos);
+}
+
+// =====================================================================
+// T17 选配模块**（消防 / 温控 / 门禁安防 / 配电开关）**
+//
+//   为什么单列一条：这 17 个点是站上的"选配部件"，是否装配取决于柜型。
+//   若不钉住，最容易出现两类失效 ——
+//     ① 加载器拒绝（device 不在合法集合里），界面上只是"这几个部件没数据"；
+//     ② 加载顺序变了导致索引漂移，而旧日志/旧段里的索引不会跟着变。
+//   这里同时钉：设备类合法 + 索引落在 111..127 + 内置 107 点一个没动。
+// =====================================================================
+static void test_17_optional_modules() {
+    std::printf("T17 选配模块：消防 / 温控 / 门禁安防 / 配电开关\n");
+
+    DevicePointTable base = DevicePointTable::builtin();
+
+    // ① 加一个 device 不在合法集合里的点 → 必须被拒，且报错列出全部合法值
+    const std::string bad =
+        "{\"points\":[{\"name\":\"STA.X.FOO\",\"unit\":\"-\",\"type\":\"digital\","
+        "\"range\":[0,1],\"default\":0,\"device\":\"firewall\",\"zone\":\"sta\"}]}";
+    DevicePointTable u = DevicePointTable::builtin();
+    const LoadError e0 = u.load_json(bad, true);
+    EXPECT(!e0.ok);
+    EXPECT_STR_EQ(e0.field, "device");
+    EXPECT(e0.message.find("switch") != std::string::npos);   // 报错要列出新增的设备类
+    EXPECT_EQ(u.size(), 107);                                  // 失败不半加载
+
+    // ② 四个选配模块按固定顺序加载
+    DevicePointTable t = DevicePointTable::builtin();
+    const char* files[] = {"data/append_points.json",
+                           "data/mod_fire.json", "data/mod_hvac.json",
+                           "data/mod_sec.json",  "data/mod_switch.json"};
+    for (const char* f : files) {
+        const LoadError e = t.load_file(f, true);
+        EXPECT(e.ok);
+    }
+    EXPECT_EQ(t.size(), 128);
+
+    // ③ 索引连续且设备类归位（每组抽首尾各一个即可定位整段）
+    EXPECT_EQ(t.index_of("STA.FIRE.HOST_STATE"), 111);
+    EXPECT_EQ(t.index_of("MEAS.FIRE.PRESSURE"),  115);
+    EXPECT_EQ(t.points[115].device, DK_FIRE);
+    EXPECT_EQ(t.index_of("MEAS.HVAC.T_AMB"),     116);
+    EXPECT_EQ(t.index_of("CMD.HVAC.T_SET"),      122);
+    EXPECT_EQ(t.points[122].device, DK_HVAC);
+    EXPECT_EQ(t.index_of("STA.SEC.DOOR_OPEN"),   123);
+    EXPECT_EQ(t.points[124].device, DK_SEC);
+    EXPECT_EQ(t.index_of("STA.SWITCH.AC_BREAKER"),   125);
+    EXPECT_EQ(t.index_of("STA.SWITCH.ESTOP"),        127);
+    EXPECT_EQ(t.points[127].device, DK_SWITCH);
+
+    // ④ 既有 107 点的索引与默认值逐点不变（追加纪律的核心承诺）
+    int moved = 0;
+    for (int i = 0; i < 107; ++i) {
+        if (t.index_of(base.points[static_cast<std::size_t>(i)].name) != i) ++moved;
+        if (!(t.points[static_cast<std::size_t>(i)].def ==
+              base.points[static_cast<std::size_t>(i)].def)) ++moved;
+    }
+    EXPECT_EQ(moved, 0);
+
+    // ⑤ 整表校验 + 两层自检仍然通过
+    EXPECT(t.validate().ok);
+    EXPECT_EQ(self_check(t), 0);
+}
+
 int main() {
     TEST_BANNER("17/ 点表配置化（C5）—— 往返 / 报错定位 / 追加点");
 
@@ -585,6 +736,9 @@ int main() {
     test_12_lenient_json();
     test_13_number_format();
     test_14_guards();
+    test_15_append_points_file();
+    test_16_load_file();
+    test_17_optional_modules();
 
     TEST_TAIL();
     return g_fail == 0 ? 0 : 1;

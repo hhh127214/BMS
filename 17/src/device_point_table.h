@@ -63,7 +63,13 @@ enum PointZone {
 enum DeviceKind {
     DK_BMS   = 0,
     DK_METER = 1,
-    DK_PCS   = 2
+    DK_PCS   = 2,
+    // ---- 以下四类为**选配模块**（是否装配取决于柜型），前三类的点不进内置表 ----
+    DK_FIRE   = 3,   // 消防主机 / 烟温感 / 喷洒 / 灭火装置压力
+    DK_HVAC   = 4,   // 空调 / 液冷 CDU（温控散热）
+    DK_SEC    = 5,   // 门禁 / 水浸 / 安防（干接点 DI）
+    DK_SWITCH = 6,   // 配电开关：交流侧断路器、脱扣原因、急停按钮
+    DK_COUNT          // ★ 哨兵：合法性校验的上界。新设备类一律加在它**之前**
 };
 
 inline const char* point_type_name(int t) {
@@ -87,10 +93,14 @@ inline const char* point_zone_name(int z) {
 
 inline const char* device_kind_name(int d) {
     switch (d) {
-        case DK_BMS:   return "bms";
-        case DK_METER: return "meter";
-        case DK_PCS:   return "pcs";
-        default:       return "invalid";
+        case DK_BMS:    return "bms";
+        case DK_METER:  return "meter";
+        case DK_PCS:    return "pcs";
+        case DK_FIRE:   return "fire";
+        case DK_HVAC:   return "hvac";
+        case DK_SEC:    return "sec";
+        case DK_SWITCH: return "switch";
+        default:        return "invalid";
     }
 }
 
@@ -107,10 +117,27 @@ inline int point_zone_from_name(const std::string& s) {
     if (s == "cmd")  return PZ_CMD;
     return -1;
 }
+// 所有合法设备类名的列表（供报错信息用）
+//
+// ★ 为什么不用手写常量串：每加一个设备类就得回来改报错文案，
+//   漏改 = 现场拿到"device 非法"却看不到合法值有哪些，排查多绕一圈。
+inline std::string all_device_kind_names() {
+    std::string s;
+    for (int d = DK_BMS; d < DK_COUNT; ++d) {
+        if (!s.empty()) s += " / ";
+        s += device_kind_name(d);
+    }
+    return s;
+}
+
 inline int device_kind_from_name(const std::string& s) {
-    if (s == "bms")   return DK_BMS;
-    if (s == "meter") return DK_METER;
-    if (s == "pcs")   return DK_PCS;
+    if (s == "bms")    return DK_BMS;
+    if (s == "meter")  return DK_METER;
+    if (s == "pcs")    return DK_PCS;
+    if (s == "fire")   return DK_FIRE;
+    if (s == "hvac")   return DK_HVAC;
+    if (s == "sec")    return DK_SEC;
+    if (s == "switch") return DK_SWITCH;
     return -1;
 }
 

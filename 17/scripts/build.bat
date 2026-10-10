@@ -12,6 +12,18 @@ REM    build\test_sim_meter.exe    电表模拟器（B4）
 REM    build\test_sim_bms.exe      BMS 模拟器（B5） 
 REM    build\test_sim_pcs.exe      PCS 模拟器（B3） 
 REM    build\test_scale_rtdb.exe   分级节拍 + 死区 + 批量写（C1/C2/C3） 
+REM    build\dev_points.exe        ★ 点表加载与核对工具（站点追加点的现场入口） 
+REM
+REM  为什么 dev_points.exe 要进 build（而不是只在测试里 load 一次） 
+REM    谁来加载站点追加点、加载了没有，原本无处可查；它是现场可核对的一步 
+REM    加载 -> 校验 -> 两层自检 -> 导出；默认追加表缺失打印 [SKIP] 
+REM    显式 --append 指定却缺失则报错退出 1（不许静默跳过） 
+REM
+REM  ★ 坑：本文件是 UTF-8，cmd 却按 GBK(CP936) 解析字节. 若 REM 行以全角 
+REM    标点结尾，行尾 CR 会被当成 GBK 前导字节的尾字节吞掉，于是下一行 
+REM    被当成命令执行，刷出「不是内部或外部命令」噪声，盖住真正的编译错误 
+REM    结尾一律留一个 ASCII 空格（与文件里其它 REM 行一致），详见 docs\README.md 
+REM
 REM
 REM  本模块**零第三方依赖**：不需要 Python / pymodbus / Node / lib60870。 
 REM  依赖只有 07\ 的点表与 vendor 的 RT_DB（都是仓库内源码）。 
@@ -61,7 +73,11 @@ call :cc test_sim_bms      tests\test_sim_bms.cpp
 if errorlevel 1 endlocal & exit /b 1
 call :cc test_sim_pcs      tests\test_sim_pcs.cpp
 if errorlevel 1 endlocal & exit /b 1
+call :cc test_sim_aux      tests\test_sim_aux.cpp
+if errorlevel 1 endlocal & exit /b 1
 call :cc test_scale_rtdb   tests\test_scale_rtdb.cpp rtdb
+if errorlevel 1 endlocal & exit /b 1
+call :cc dev_points        src\main_points.cpp
 if errorlevel 1 endlocal & exit /b 1
 
 echo.

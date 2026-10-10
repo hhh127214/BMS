@@ -1,0 +1,67 @@
+{
+  "points": [
+    {
+      "name": "MEAS.HVAC.T_AMB",
+      "unit": "degC",
+      "type": "analog",
+      "range": [-40, 100],
+      "default": 25,
+      "device": "hvac",
+      "zone": "meas"
+    },
+    {
+      "name": "MEAS.HVAC.T_RETURN",
+      "unit": "degC",
+      "type": "analog",
+      "range": [-40, 100],
+      "default": 25,
+      "device": "hvac",
+      "zone": "meas"
+    },
+    {
+      "name": "MEAS.HVAC.T_WATER",
+      "unit": "degC",
+      "type": "analog",
+      "range": [-20, 80],
+      "default": 25,
+      "device": "hvac",
+      "zone": "meas"
+    },
+    {
+      "name": "MEAS.HVAC.FLOW",
+      "unit": "L/min",
+      "type": "analog",
+      "range": [0, 500],
+      "default": 0,
+      "device": "hvac",
+      "zone": "meas"
+    },
+    {
+      "name": "STA.HVAC.PUMP_ON",
+      "unit": "bool",
+      "type": "digital",
+      "range": [0, 1],
+      "default": 0,
+      "device": "hvac",
+      "zone": "sta"
+    },
+    {
+      "name": "CMD.HVAC.ONOFF",
+      "unit": "bool",
+      "type": "digital",
+      "range": [0, 1],
+      "default": 0,
+      "device": "hvac",
+      "zone": "cmd"
+    },
+    {
+      "name": "CMD.HVAC.T_SET",
+      "unit": "degC",
+      "type": "analog",
+      "range": [5, 40],
+      "default": 25,
+      "device": "hvac",
+      "zone": "cmd"
+    }
+  ]
+}
