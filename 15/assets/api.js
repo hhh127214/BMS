@@ -84,7 +84,10 @@ const API = (() => {
     steps:           (sc, p)     => get('/api/steps',     Object.assign({ scenario: sc }, p)),
     commands:        (sc, p)     => get('/api/commands',  Object.assign({ scenario: sc }, p)),
     alarms:          (sc, p)     => get('/api/alarms',    Object.assign({ scenario: sc }, p)),
-    alarmSummary:    (sc)        => get('/api/alarms/summary', { scenario: sc }),
+    // 交叉筛选：传 level / source 时，各维度的计数会带上**另一个**维度的筛选，
+    // 但不带自己那份（否则选中 FAULT 后 WARNING 变 0，就再也点不回去了）。
+    // 与后端 h_alarm_summary 的 _where() 同一口径。
+    alarmSummary:    (sc, p)     => get('/api/alarms/summary', Object.assign({ scenario: sc }, p)),
 
     devices:         ()          => get('/api/devices'),
     device:          (id)        => get(`/api/devices/${encodeURIComponent(id)}`),

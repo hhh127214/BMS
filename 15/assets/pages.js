@@ -711,35 +711,109 @@ const Pages = (() => {
     ]);
   }
 
-  /* ======================= 4. 告警中心 ======================= */
+  /* ======================= 4. 告警中心 =======================
+     ★ 分类维度开哪些，是拿真实数据定的，不是拍脑袋（实测 14/data/ems.db 290 行，
+       探针脚本 14/scripts/probe_alarm_dims.py，记录见 CHANGES.md §60）：
+         level      3 个取值（FAULT 272 / INFO 12 / DERATED 6）  → 可筛
+         source     2 个取值（COMM 270 / FSM 20）               → 可筛
+         status     1 个取值（active 290）                       → ★ 不开放
+         device_id  1 个取值（DEV-BMS-01 290）                   → ★ 不开放
+       status / device_id 做进筛选就是"恒 0 条"的假入口：界面上看着能选，
+       选了却永远空 —— 比不提供这个选项更糟（"已恢复"至今一条都没有，
+       因为 importer.py:395 把所有行的 status 写死成 active）。
+     ============================================================ */
   async function alarms(ctx) {
-    ctx.setSub('等级筛选 + 来源统计 + 24 h 分布');
-    let level = '';
-    let offset = 0;
+    /* 等级全谱：与后端 h_alarm_summary 的 ALARM_LEVELS 同一份清单。
+       后端已把未发生的等级补成 n=0，这里照同一份清单渲染 —— 界面上
+       「这一档没告警」和「这一档没统计到」才分得开（两者长得一模一样）。 */
+    const LEVELS = ['INFO', 'WARNING', 'DERATED', 'FAULT', 'EMERGENCY'];
+
+    /* ★ 筛选条件必须跨渲染记住：本页在 LIVE_PAGES 里，运行模式每 5 s 重渲染一次。
+       用闭包变量的话，用户刚点完"只看 FAULT"，下一秒就被冲回"全部" ——
+       这正是 PREFS 存在的理由（见本文件顶部），原实现偏偏漏掉了这一页。 */
+    let level  = PREFS.alarmLevel  || '';
+    let source = PREFS.alarmSource || '';
+    let offset = PREFS.alarmOffset || 0;
     const LIMIT = 50;
+
     const listHost = h('div');
-    const sumHost = h('div');
-    const pageLabel = h('span', { class: 'muted' });
+    const sumHost  = h('div');
+    const srcBar   = h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center' });
+    let srcSig = '';     // 来源按钮的指纹；集合与选中项都没变就不重建（否则每 5 s 闪一次）
+
+    const lvlBtns = [];
+    const lvlBar = h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center' },
+      [['', '全部']].concat(LEVELS.map(l => [l, l])).map(([v, name]) => {
+        const b = h('button', { class: `btn-sm ${v === level ? 'primary' : ''}`, text: name,
+                                onclick: () => setLevel(v) });
+        lvlBtns.push([v, b]);
+        return b;
+      }));
+
+    // 再点一次已选中的维度 = 取消该维度（回到"全部"），不必非得去点"全部"按钮
+    function setLevel(v) {
+      level = v; PREFS.alarmLevel = v; offset = 0; PREFS.alarmOffset = 0;
+      lvlBtns.forEach(([vv, b]) => b.classList.toggle('primary', vv === v));
+      draw();
+    }
+    function setSource(v) {
+      source = v; PREFS.alarmSource = v; offset = 0; PREFS.alarmOffset = 0;
+      draw();
+    }
+    function goPage(delta) {
+      offset = Math.max(0, offset + delta);
+      PREFS.alarmOffset = offset;
+      draw();
+    }
 
     async function draw() {
       const [sum, list] = await Promise.all([
-        API.alarmSummary(ctx.scenario),
-        API.alarms(ctx.scenario, { level, limit: LIMIT, offset }),
+        API.alarmSummary(ctx.scenario, { level, source }),
+        API.alarms(ctx.scenario, { level, source, limit: LIMIT, offset }),
       ]);
+
+      /* 来源按钮：计数直接写在按钮上，这些数来自交叉筛选后的 by_source ——
+         点进去列表里的条数就是这个数，不会出现"按钮写 270、点进去 12 条"。 */
+      const sig = (sum.by_source || []).map(r => `${r.source}:${r.n}`).join('|') + '#' + source;
+      if (sig !== srcSig) {
+        srcSig = sig;
+        clear(srcBar);
+        srcBar.appendChild(h('button', {
+          class: `btn-sm ${source === '' ? 'primary' : ''}`, text: '全部',
+          onclick: () => setSource(''),
+        }));
+        (sum.by_source || []).forEach(r => {
+          const v = r.source || '';
+          srcBar.appendChild(h('button', {
+            class: `btn-sm ${source === v ? 'primary' : ''}`,
+            text: `${v || '—'}（${r.n}）`,
+            onclick: () => setSource(v),
+          }));
+        });
+      }
+
+      const sumOf = arr => (arr || []).reduce((a, b) => a + b.n, 0);
       clear(sumHost);
       sumHost.appendChild(h('div', { class: 'grid g3' }, [
-        card('按等级', null, h('table', { class: 'tbl' }, h('tbody', null,
-          (sum.by_level || []).map(r => h('tr', null, [
+        card('按等级', '点一行即按该等级筛选', h('table', { class: 'tbl' }, h('tbody', null,
+          (sum.by_level || []).map(r => h('tr', {
+            style: 'cursor:pointer',
+            onclick: () => setLevel(r.level === level ? '' : r.level),
+          }, [
             h('td', null, levelBadge(r.level)),
             h('td', { class: 'num', text: String(r.n) }),
-          ])).concat([h('tr', null, [h('td', { class: 'muted', text: '合计' }),
-            h('td', { class: 'num', text: String((sum.by_level || []).reduce((a, b) => a + b.n, 0)) })])])))),
-        card('按来源', null, h('table', { class: 'tbl' }, h('tbody', null,
-          (sum.by_source || []).slice(0, 8).map(r => h('tr', null, [
+          ])).concat([h('tr', null, [
+            h('td', { class: 'muted', text: '合计' }),
+            h('td', { class: 'num', text: String(sumOf(sum.by_level)) })]))))),
+        card('按来源', '点一行即按该来源筛选', h('table', { class: 'tbl' }, h('tbody', null,
+          (sum.by_source || []).slice(0, 8).map(r => h('tr', {
+            style: 'cursor:pointer',
+            onclick: () => setSource((r.source || '') === source ? '' : (r.source || '')),
+          }, [
             h('td', { text: r.source || '—' }),
             h('td', { class: 'num', text: String(r.n) }),
           ]))))),
-        card('24 h 分布', '按小时', h('div', {
+        card('24 h 分布', '按小时 · 已应用当前筛选', h('div', {
           html: barChart({
             labels: (sum.timeline || []).map(r => `${String(r.hour).padStart(2, '0')}`),
             values: (sum.timeline || []).map(r => r.n), height: 170, color: 'var(--warn)',
@@ -750,9 +824,9 @@ const Pages = (() => {
       clear(listHost);
       listHost.appendChild(h('div', { class: 'pager' }, [
         h('button', { class: 'btn-sm', text: '上一页', disabled: offset <= 0,
-          onclick: () => { offset = Math.max(0, offset - LIMIT); draw(); } }),
+          onclick: () => goPage(-LIMIT) }),
         h('button', { class: 'btn-sm', text: '下一页', disabled: offset + LIMIT >= list.total,
-          onclick: () => { offset += LIMIT; draw(); } }),
+          onclick: () => goPage(LIMIT) }),
         h('span', { class: 'muted', text: `第 ${Math.floor(offset / LIMIT) + 1} 页 / 共 ${list.total} 条` }),
       ]));
       listHost.appendChild(table([
@@ -765,22 +839,13 @@ const Pages = (() => {
       ], list.items));
     }
 
-    const filter = h('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' },
-      [['', '全部'], ['INFO', 'INFO'], ['WARNING', 'WARNING'], ['DERATED', 'DERATED'],
-       ['FAULT', 'FAULT'], ['EMERGENCY', 'EMERGENCY']].map(([lv, name]) => {
-        const b = h('button', { class: `btn-sm ${lv === level ? 'primary' : ''}`, text: name });
-        b.addEventListener('click', () => {
-          level = lv; offset = 0;
-          $$('button', filter).forEach(x => x.classList.remove('primary'));
-          b.classList.add('primary');
-          draw();
-        });
-        return b;
-      }));
-
     await draw();
+    const cur = [level && `等级=${level}`, source && `来源=${source}`].filter(Boolean).join(' · ');
+    ctx.setSub(cur ? `已筛选：${cur}` : '等级 × 来源 双维筛选 + 24 h 分布');
+
     return h('div', { class: 'grid' }, [
-      card('筛选', '告警等级', filter),
+      card('筛选', '两行可任意组合（AND）· 再点一次已选项即取消',
+        h('div', { class: 'grid' }, [lvlBar, srcBar])),
       sumHost,
       card('告警明细', '与 10/ alarms.csv 一致', listHost),
     ]);
@@ -959,14 +1024,40 @@ const Pages = (() => {
   }
 
   /* ======================= 7. 报表系统 ======================= */
+  /* 日报 / 周报 / 月报：一处定义，分段按钮与打印稿抬头共用同一份名字 ——
+     两处各写一遍的话，改个名字抬头就跟按钮对不上，纸面稿上就成了第二个真相。 */
+  const PERIOD_NAME = { day: '日报', week: '周报', month: '月报' };
+
   async function report(ctx) {
     ctx.setSub('日 / 周 / 月聚合视角');
     let period = PREFS.report || 'day';
     const host = h('div');
+    /* 打印稿抬头：屏幕上 display:none，只在 @media print 里显形（见 app.css）。
+       ★ 没有它，纸上看不出这份报表是哪个数据集、什么时候出的 —— 拿出去当不了凭据。 */
+    const printHead = h('div', { class: 'print-head' });
+
+    function fillPrintHead(d) {
+      clear(printHead);
+      const n = new Date();
+      const p2 = x => String(x).padStart(2, '0');
+      const stamp = `${n.getFullYear()}-${p2(n.getMonth() + 1)}-${p2(n.getDate())} ${p2(n.getHours())}:${p2(n.getMinutes())}`;
+      printHead.appendChild(h('h1', { text: `工商业储能 EMS · ${PERIOD_NAME[period]}` }));
+      printHead.appendChild(h('div', { class: 'ph-meta' }, [
+        h('span', { text: `数据集 ${d.scenario || ctx.scenario || '—'}` }),
+        h('span', { text: `聚合视角 ${d.period} · 覆盖 ${d.days} 天` }),
+        h('span', { text: `引擎 ${ctx.engine === 'run' ? '运行模式（实时）' : '仿真模式（离线）'}` }),
+        h('span', { text: `出具人 ${(ctx.user && ctx.user.username) || '—'}` }),
+        h('span', { text: `出具时间 ${stamp}` }),
+      ]));
+      // data_note 是后端给的"这份数据能代表什么"的诚实边界，必须跟着走纸面，
+      // 否则打印出来的报表看着像真实运行数据。
+      if (d.data_note) printHead.appendChild(h('p', { class: 'ph-note', text: d.data_note }));
+    }
 
     async function draw() {
       const d = await API.report(ctx.scenario, period);
       clear(host);
+      fillPrintHead(d);
       host.appendChild(h('div', { class: 'grid g2' }, [
         card('聚合汇总', `视角 ${d.period} · 覆盖 ${d.days} 天`, table([
           { title: '项目', key: 'k' },
@@ -1013,7 +1104,8 @@ const Pages = (() => {
     /* 日报 / 周报 / 月报：同 .seg 一套（蓝色滑块 + 白字），
        对位由 app.js 挂载后的 placeSegs() 负责，这里只管点击时滑动。 */
     const seg = h('div', { class: 'seg' });
-    [['day', '日报'], ['week', '周报'], ['month', '月报']].forEach(([k, n]) => {
+    Object.keys(PERIOD_NAME).forEach((k) => {
+      const n = PERIOD_NAME[k];
       const b = h('button', { class: k === period ? 'active' : '', text: n });
       b.addEventListener('click', () => {
         period = k;
@@ -1027,14 +1119,240 @@ const Pages = (() => {
 
     await draw();
     return h('div', { class: 'grid' }, [
-      h('div', { style: 'display:flex;justify-content:space-between;align-items:center' }, [
+      printHead,
+      // 这一整行是操作条，纸面上不需要 —— 打印时靠 .no-print 整行隐掉
+      h('div', { class: 'no-print', style: 'display:flex;justify-content:space-between;align-items:center' }, [
         seg,
         h('div', { style: 'display:flex;gap:9px' }, [
           h('button', { class: 'btn-sm', text: '导出时序', onclick: () => API.download('timeseries', ctx.scenario) }),
           h('button', { class: 'btn-sm', text: '导出告警', onclick: () => API.download('alarms', ctx.scenario) }),
+          h('button', { class: 'btn-sm primary', text: '打印 / 存为 PDF', onclick: () => window.print() }),
         ]),
       ]),
       host,
+    ]);
+  }
+
+  /* ==================== 装配视图（爆炸图） ====================
+     ★ 数据来源，以及"为什么多数部件是灰的"（这不是没做完，是事实）：
+       结构来自 `assets/assembly.js` ← `docs/规划/部件测点映射表.csv`
+       （4 部位 / 14 部件 / 78 测点，逐行对齐，由 selftest J 段守住）。
+       运行时值**只有 5 个部件拿得到** —— `/api/realtime` 仅返回
+       DEV-METER-01 / DEV-PV-01 / DEV-LOAD-01 / DEV-PCS-01 / DEV-BMS-01 五台设备。
+       其余 9 个部件的点要走 `13/` 的 Modbus 接入才有实时值，
+       所以画成灰的并写「无实时源」。★ 把它们涂成"正常"等于谎报现场在传数据 ——
+       这正是本项目最忌讳的失效方式（不报错、界面上什么都看不出来）。
+     ============================================================ */
+
+  /* 部件的运行时状态。
+     cfg   设计上无实时源（dev=null）     → 灰 + 「无实时源」
+     live  绑到设备且取到值               → 量测色 + 当前值
+     alarm 绑了设备但取不到值（离线/坏值）→ 红 + 「告警」 */
+  function partLive(p, devMap) {
+    const it = p.dev ? devMap[p.dev] : null;
+    if (!p.dev) return { kind: 'cfg', value: null };
+    if (!it || !it.quality_ok) return { kind: 'alarm', value: null };
+    const v = p.key ? it[p.key] : null;
+    if (v == null) return { kind: 'alarm', value: null };
+    return { kind: 'live', value: p.mul ? v * p.mul : v };
+  }
+
+  function findAsmPart(id) {
+    for (const a of ASSEMBLY) {
+      const p = a.parts.find(x => x.id === id);
+      if (p) return { area: a, part: p };
+    }
+    return null;
+  }
+
+  async function structure(ctx) {
+    const rt = await API.realtime(ctx.scenario, ctx.t);
+    const devMap = {};
+    (rt.items || []).forEach(it => { devMap[it.device_id] = it; });
+
+    const nParts = ASSEMBLY.reduce((n, a) => n + a.parts.length, 0);
+    const nPts = ASSEMBLY.reduce((n, a) => n + a.parts.reduce((m, p) => m + p.n, 0), 0);
+    const nLive = ASSEMBLY.reduce((n, a) => n + a.parts.filter(p => p.dev).length, 0);
+    ctx.setSub(`${nParts} 部件 · ${nPts} 测点 · 其中 ${nLive} 个部件有实时数据源`);
+
+    // 选中的部件要跨重渲染记住：运行模式每 5 s 重渲一次，不记会自己跳回"未选中"
+    let active = PREFS.asmPart || null;
+    const svgHost = h('div');
+    const detailHost = h('div');
+
+    function drawSvg() {
+      const areas = ASSEMBLY.map(a => ({
+        id: a.id, name: a.name,
+        parts: a.parts.map(p => {
+          const st = partLive(p, devMap);
+          return { id: p.id, name: p.name, n: p.n, state: st.kind,
+                   hasLive: st.kind === 'live' && st.value != null,
+                   value: st.value, unit: p.unit };
+        }),
+      }));
+      clear(svgHost);
+      svgHost.appendChild(h('div', { class: 'flow-wrap', html: assemblyView({ areas, active }) }));
+      svgHost.querySelectorAll('.asm-part').forEach(g => {
+        g.addEventListener('click', () => {
+          active = g.getAttribute('data-pid');
+          PREFS.asmPart = active;
+          draw();
+        });
+      });
+    }
+
+    function drawDetail() {
+      clear(detailHost);
+      if (!active) {
+        detailHost.appendChild(h('div', { class: 'empty', text: '点左侧任一部件，看它的全部测点' }));
+        return;
+      }
+      const f = findAsmPart(active);
+      if (!f) { active = null; PREFS.asmPart = null; drawDetail(); return; }
+      const st = partLive(f.part, devMap);
+      const stBadge = st.kind === 'live'
+        ? badge(`${fmt.num(st.value, 1)} ${f.part.unit || ''}`.trim(), 'b-ok')
+        : st.kind === 'alarm' ? badge('取不到值', 'b-bad')
+        : badge('无实时源', 'b-mute');
+
+      detailHost.appendChild(h('div', { class: 'grid g3' }, [
+        card('当前值', null, h('div', { class: 'kpi-v' }, [stBadge])),
+        card('测点数', null, h('div', { class: 'kpi-v', text: `${f.part.n} 个` })),
+        card('实时源', null, h('div', { class: 'kpi-v muted mono', text: f.part.dev || '—' })),
+      ]));
+      detailHost.appendChild(card(
+        `${f.area.name} · ${f.part.name}`,
+        st.kind === 'cfg'
+          ? '测点已在点表里定义，实时值需经 13/ Modbus 接入后才有'
+          : `设备侧点名见下表（第 1 层，17/ 全点表）`,
+        table([
+          { title: '测点（现场口径）', key: 'n' },
+          { title: '设备点名', key: 'd', mono: true },
+          { title: '单位', key: 'u', mono: true },
+        ], f.part.points)));
+    }
+
+    function draw() { drawSvg(); drawDetail(); }
+    draw();
+
+    return h('div', { class: 'grid' }, [
+      card('柜体装配视图', '等轴测展开 · 点部件看测点', svgHost),
+      h('div', { class: 'grid' }, [
+        card('部件详情', '测点定义来自 部件测点映射表.csv', detailHost),
+        card('图例', '三种颜色是有语义的，不是配色', h('div', { class: 'grid g3' }, [
+          h('div', { class: 'lgd' }, [h('i', { class: 'sw sw-live' }), h('span', { text: '有实时数据源' })]),
+          h('div', { class: 'lgd' }, [h('i', { class: 'sw sw-cfg' }), h('span', { text: '无实时源（需 13/ 接入）' })]),
+          h('div', { class: 'lgd' }, [h('i', { class: 'sw sw-bad' }), h('span', { text: '取不到值 / 告警' })]),
+        ])),
+      ]),
+    ]);
+  }
+
+  /* ==================== 一次接线图 ====================
+     ★ 与「能量流」卡的区别，别做成同一个东西：
+       能量流 = 能流示意（四节点定死，回答"电往哪走、走多少"）。
+       接线图 = 拓扑事实（节点来自 柜体装配视图.md §2 的 9 条连接，
+               回答"柜里有什么、怎么接的"）。节点不是四个，加设备就多一个。
+     ★ 辅助舱三部件（消防/空调/门禁）挂在柜外、用虚线 —— 它们不走主电流。
+       画进主链等于说"电流流过烟感"，现场会当场指出画错。
+     ============================================================ */
+  async function wiring(ctx) {
+    const [ov, rt] = await Promise.all([
+      API.overview(ctx.scenario, ctx.t),
+      API.realtime(ctx.scenario, ctx.t),
+    ]);
+    const devMap = {};
+    (rt.items || []).forEach(it => { devMap[it.device_id] = it; });
+    const p = ov.power || {};
+    const bat = ov.battery || {};
+
+    ctx.setSub('电气连接来自 柜体装配视图.md §2 · 数值为当前功率');
+
+    const NW = 82, NH = 50, ROW = 168;
+    const colX = i => 12 + i * (NW + 24);
+    const node = (id, name, i, y, opt) => Object.assign(
+      { id, name, x: colX(i), y, w: NW, h: NH, live: false, value: null, unit: '' }, opt || {});
+
+    const dOf = (id, key, unit, mul) => {
+      const it = devMap[id];
+      if (!it || it[key] == null) return { live: false, value: null, unit };
+      return { live: true, value: mul ? it[key] * mul : it[key], unit };
+    };
+
+    const nodes = [
+      node('grid', '电网', 0, ROW),
+      Object.assign(node('meter', '关口电表', 1, ROW), dOf('DEV-METER-01', 'power_kw', 'kW')),
+      node('tr', '变压器', 2, ROW),
+      node('bus', '站内母线', 3, ROW),
+      Object.assign(node('sw', '交流断路器', 4, ROW), { live: false }),
+      Object.assign(node('conv', 'PCS 变流器', 5, ROW), dOf('DEV-PCS-01', 'power_kw', 'kW')),
+      node('contactor', '直流接触器', 6, ROW),
+      Object.assign(node('cluster', '电池簇', 7, ROW), dOf('DEV-BMS-01', 'soc', '%', 100)),
+      // —— 分支：发电 / 用电 / 辅助（不走主链，虚线框）——
+      Object.assign(node('pv', '光伏逆变器', 2, ROW + 92, { branch: true }),
+        dOf('DEV-PV-01', 'power_kw', 'kW')),
+      Object.assign(node('load', '厂区负荷', 3, ROW + 92, { branch: true }),
+        dOf('DEV-LOAD-01', 'power_kw', 'kW')),
+      node('fire', '消防主机', 5, ROW - 96, { branch: true }),
+      node('hvac', '空调 / 液冷', 6, ROW - 96, { branch: true }),
+      node('sec', '门禁 / 安防', 7, ROW - 96, { branch: true }),
+    ];
+
+    const kw = v => (v == null ? '' : `${fmt.num(v, 1)} kW`);
+    const edges = [
+      { from: 'grid', to: 'meter', label: kw(p.grid_kw), active: Math.abs(p.grid_kw || 0) > 0.5,
+        color: 'var(--c-grid)' },
+      { from: 'meter', to: 'tr',   color: 'var(--c-grid)' },
+      { from: 'tr',    to: 'bus',  color: 'var(--c-grid)' },
+      { from: 'bus',   to: 'sw',   color: 'var(--c-bat)' },
+      { from: 'sw',    to: 'conv', color: 'var(--c-bat)' },
+      { from: 'conv',  to: 'contactor', color: 'var(--c-bat)' },
+      { from: 'contactor', to: 'cluster', label: kw(p.battery_kw),
+        active: Math.abs(p.battery_kw || 0) > 0.5, color: 'var(--c-bat)' },
+      { from: 'pv',   to: 'bus', label: kw(p.pv_kw), active: (p.pv_kw || 0) > 0.5,
+        color: 'var(--c-pv)' },
+      { from: 'bus',  to: 'load', label: kw(p.load_kw), active: (p.load_kw || 0) > 0.5,
+        color: 'var(--c-load)' },
+      // 辅助：只表示"挂在柜上"，不表示电流路径
+      { from: 'bus', to: 'fire', dashed: true, color: 'var(--text-3)' },
+      { from: 'bus', to: 'hvac', dashed: true, color: 'var(--text-3)' },
+      { from: 'bus', to: 'sec',  dashed: true, color: 'var(--text-3)' },
+    ];
+
+    const linkRows = [
+      ['1 电网 → 关口电表', 'AC', '关口表计量进线功率'],
+      ['2 关口电表 → 变压器', 'AC', '站内一次侧'],
+      ['3 变压器 → 站内母线', 'AC', '母线为汇流点'],
+      ['4 光伏逆变器 → 母线', 'AC', '分支 · 发电'],
+      ['5 母线 → 厂区负荷', 'AC', '分支 · 用电'],
+      ['6 母线 → 交流断路器', 'AC', '辅助舱 · 配电/开关'],
+      ['7 断路器 → PCS 交流侧', 'AC', 'PCS 舱'],
+      ['8 PCS 直流侧 → 直流接触器', 'DC', '★ AC/DC 在 PCS 内部，不是一个独立设备'],
+      ['9 接触器 → 电池簇', 'DC', '电池舱 · 主正/主负/预充'],
+    ];
+
+    return h('div', { class: 'grid' }, [
+      /* ★ 图表调用要内联进 html:，不要先算进一个变量再传。
+         selftest D 段用静态规则卡"html: 的实参必须是字面量或图表函数调用"，
+         写成 `html: svg` 它看不出 svg 里装的是自绘 SVG 还是接口返回的字段 ——
+         只有把调用摆在这里，静态检查才认得出来。 */
+      card('一次接线图', '实线 = 主电流路径 · 虚线 = 辅助挂载（不导电）',
+        h('div', { class: 'flow-wrap', html: wiringDiagram({ nodes, edges }) })),
+      h('div', { class: 'grid g2' }, [
+        card('连接清单', '9 条，依据 柜体装配视图.md §2',
+          table([{ title: '连接', key: '0' }, { title: '性质', key: '1', mono: true },
+                 { title: '说明', key: '2' }],
+            linkRows.map(r => ({ 0: r[0], 1: r[1], 2: r[2] })))),
+        card('当前断面', `SOC ${fmt.num((bat.soc || 0) * 100, 1)} % · 温度 ${fmt.num(bat.temperature_c, 1)} °C`,
+          h('div', { class: 'grid g2' }, [
+            kpi('关口', fmt.num(p.grid_kw, 1), 'kW', p.grid_kw > 0 ? '从电网取电' : '向电网送电',
+              'accent'),
+            kpi('光伏', fmt.num(p.pv_kw, 1), 'kW', '', 'ok'),
+            kpi('负荷', fmt.num(p.load_kw, 1), 'kW', '', 'warn'),
+            kpi('储能', fmt.num(p.battery_kw, 1), 'kW',
+              p.battery_kw > 0.5 ? '放电' : p.battery_kw < -0.5 ? '充电' : '保持', 'info'),
+          ])),
+      ]),
     ]);
   }
 
@@ -1785,6 +2103,6 @@ const Pages = (() => {
     return host;
   }
 
-  return { overview, realtime, curves, alarms, strategies, economics, report, sim,
-           devices, users };
+  return { overview, realtime, curves, alarms, strategies, economics, report,
+           structure, wiring, sim, devices, users };
 })();

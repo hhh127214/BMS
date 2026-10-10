@@ -477,12 +477,28 @@ def h_commands(conn, query, body, user, params) -> tuple[int, dict]:
 def h_alarms(conn, query, body, user, params) -> tuple[int, dict]:
     sc = resolve_scenario(conn, query)
     level = q1(query, "level")
+    source = q1(query, "source")
     limit = max(1, min(2000, qi(query, "limit", 100)))
     offset = max(0, qi(query, "offset", 0))
     where, args = "scenario_id = ?", [sc]
     if level:
         where += " AND level = ?"
         args.append(level)
+    # 来源维度：与 level 同一套拼法，两者可任意组合（AND）。
+    # ★ 两个 if 都靠"空串 / None 为假"跳过条件，别改成 `is not None`：
+    #   前端"全部"选项传的是空串（api.js 的 url() 会直接把它丢掉，但后端不能依赖前端），
+    #   一旦被当成条件，SQL 会去匹配 source='' 的行，结果恒为 0 条 ——
+    #   不报错、界面只是"什么都没有"，是最难查的那种失效。
+    #   另：where 拼接顺序必须与 args.append 顺序严格一致，否则条件张冠李戴。
+    #
+    # ★ 为什么不开放 status（active / cleared）筛选：
+    #   importer.py:395 把所有告警行的 status 硬编码成 "active"，库里 290 行没有任何
+    #   一条是 cleared（实测 SELECT status, COUNT(*) ... GROUP BY status → 只有 active/290）。
+    #   给它一个筛选下拉 = "已恢复"永远 0 条 —— 那是假入口，比没有更糟。
+    #   等有了真实的告警恢复路径（10/ 侧报 cleared）再加，届时就是下面同样的三行。
+    if source:
+        where += " AND source = ?"
+        args.append(source)
     total = emsdb.query_value(conn, f"SELECT COUNT(*) FROM alarm WHERE {where}",
                               args, 0)
     rows = emsdb.query(
@@ -494,16 +510,48 @@ def h_alarms(conn, query, body, user, params) -> tuple[int, dict]:
 
 def h_alarm_summary(conn, query, body, user, params) -> tuple[int, dict]:
     sc = resolve_scenario(conn, query)
+    level = q1(query, "level")
+    source = q1(query, "source")
+
+    # ★ 交叉筛选（drill-down）：每个维度的计数要带上"其他维度"的筛选，但不带自己。
+    #     按等级 的计数 → 应用 source，不用 level
+    #     按来源 的计数 → 应用 level，  不用 source
+    #     24h 分布      → 两个都用（它是结果视图，不是筛选入口）
+    #   为什么必须这样：若"按等级"也应用 level，选中 FAULT 之后 WARNING 就变成 0，
+    #   用户再也点不回去；若两个维度都不应用任何筛选，按钮上写的 270 点进去却是
+    #   12 条 —— 计数与结果对不上，是最容易被当成 bug 的一类错觉。
+    def _where(use_level: bool, use_source: bool):
+        w, a = "scenario_id = ?", [sc]
+        if use_level and level:
+            w += " AND level = ?"
+            a.append(level)
+        if use_source and source:
+            w += " AND source = ?"
+            a.append(source)
+        return w, a
+
+    wl, al = _where(False, True)
     by_level = emsdb.query(
-        conn, "SELECT level, COUNT(*) AS n FROM alarm WHERE scenario_id = ?"
-              " GROUP BY level ORDER BY n DESC", (sc,))
+        conn, f"SELECT level, COUNT(*) AS n FROM alarm WHERE {wl}"
+              " GROUP BY level ORDER BY n DESC", al)
+    # ★ 分类视图要"全谱"：没发生的等级也得占一行（n=0），不能因为 GROUP BY
+    #   查不到就不显示。否则界面上只看见 FAULT，会让人以为 WARNING 这一档不存在、
+    #   或者以为它被漏统计了 —— 「没告警」和「没统计到」在界面上长得一模一样。
+    ALARM_LEVELS = ("INFO", "WARNING", "DERATED", "FAULT", "EMERGENCY")
+    got = {r["level"]: r["n"] for r in by_level}
+    by_level = [{"level": lv, "n": got.get(lv, 0)} for lv in ALARM_LEVELS]
+    # 库里若出现了上面五个之外的值（新等级），也要能看见 —— 排在末尾，不静默丢掉
+    for lv, n in got.items():
+        if lv not in ALARM_LEVELS:
+            by_level.append({"level": lv, "n": n})
+    ws, asrc = _where(True, False)
     by_source = emsdb.query(
-        conn, "SELECT source, COUNT(*) AS n FROM alarm WHERE scenario_id = ?"
-              " GROUP BY source ORDER BY n DESC LIMIT 20", (sc,))
+        conn, f"SELECT source, COUNT(*) AS n FROM alarm WHERE {ws}"
+              " GROUP BY source ORDER BY n DESC LIMIT 20", asrc)
+    wt, at = _where(True, True)
     timeline = emsdb.query(
-        conn, "SELECT CAST(ts/3600 AS INTEGER) AS hour, COUNT(*) AS n"
-              " FROM alarm WHERE scenario_id = ? GROUP BY hour ORDER BY hour",
-        (sc,))
+        conn, f"SELECT CAST(ts/3600 AS INTEGER) AS hour, COUNT(*) AS n"
+              f" FROM alarm WHERE {wt} GROUP BY hour ORDER BY hour", at)
     return 200, {"scenario": sc, "by_level": by_level,
                  "by_source": by_source, "timeline": timeline}
 

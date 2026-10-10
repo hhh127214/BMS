@@ -847,3 +847,186 @@ function exportSvgPng(svgEl, filename) {
   img.onerror = () => URL.revokeObjectURL(url);
   img.src = url;
 }
+
+/* =====================================================================
+   装配视图（爆炸图）：柜 → 舱 → 部件，点部件看它的测点
+   ---------------------------------------------------------------------
+   ★ 为什么画成"等轴测托盘 + 立方体"而不是平面框图：
+     `energyFlow` 已经是这个界面里唯一的等轴测图形（3D 母线 + 四个场景），
+     装配视图沿用同一套"顶面 + 正面 + 右侧面"的画法，两张图放在一起才像同一个产品；
+     若这里换成平面方框，视觉上会像两个项目拼起来的。
+
+   ★ 为什么四个舱是 2×2 而不是沿一条斜线排开：
+     斜线排开（真正的爆炸图）在 900px 宽度里只能画 2 个舱，
+     剩下两个要滚屏才能看到 —— 而这张图的用途是"一眼看清柜里有几个舱、
+     哪个部件在报警"。可读性优先于形式感。舱内部件仍按等轴测斜向错开，
+     保留了"层层展开"的意思。
+
+   ★ 部件的三种颜色是有语义的，不是配色：
+     live   有实时数据源（能显示当前值）
+     cfg    测点已定义，但当前数据源给不出实时值 —— ★ 必须显式画成灰色，
+            涂成"正常"等于谎报现场这个部件在传数据（这是本项目最忌讳的失效）
+     alarm  该部件当前有告警
+   ===================================================================== */
+const ASM_KX = 0.55;                       // 等轴测斜切系数（与 energyFlow 的投影同一手感）
+const ASM_W  = 900, ASM_H = 560;
+const ASM_TRAY = { w: 300, d: 160, th: 16 };
+const ASM_CUBE = { w: 62, d: 62, h: 40 };
+
+/* 托盘顶面内一点的屏幕坐标。ta/tb ∈ [0,1]，分别沿"宽"与"深"两个方向。 */
+function asmTopPoint(ox, oy, ta, tb) {
+  return [ox + ta * ASM_TRAY.w + tb * ASM_TRAY.d * ASM_KX,
+          oy + tb * ASM_TRAY.d * 0.55];
+}
+
+function assemblyView(d) {
+  const areas = (d && d.areas) || [];
+  const active = d && d.active;
+  const s = [];
+  s.push(`<svg viewBox="0 0 ${ASM_W} ${ASM_H}" class="chart asm" role="img">`);
+  s.push(`<title>柜体装配视图</title><desc>柜 → 舱 → 部件三层装配关系，点部件看其测点</desc>`);
+
+  areas.forEach((a, i) => {
+    const col = i % 2, row = Math.floor(i / 2);
+    const ox = 26 + col * 452;
+    const oy = 74 + row * 250;
+    const [ax, ay] = asmTopPoint(ox, oy, 0, 0);
+    const [bx, by] = asmTopPoint(ox, oy, 1, 0);
+    const [cx2, cy2] = asmTopPoint(ox, oy, 1, 1);
+    const [dx, dy] = asmTopPoint(ox, oy, 0, 1);
+    const th = ASM_TRAY.th;
+
+    // 托盘：顶面 + 正面 + 右侧面（等轴测三面）
+    s.push(`<polygon points="${dx},${dy} ${cx2},${cy2} ${cx2},${cy2 + th} ${dx},${dy + th}" fill="var(--line)" opacity="0.35"/>`);
+    s.push(`<polygon points="${bx},${by} ${cx2},${cy2} ${cx2},${cy2 + th} ${bx},${by + th}" fill="var(--line)" opacity="0.22"/>`);
+    s.push(`<polygon points="${ax},${ay} ${bx},${by} ${cx2},${cy2} ${dx},${dy}" fill="var(--card)" stroke="var(--line)" stroke-width="1.2"/>`);
+
+    // 舱名挂在托盘左上方（与 energyFlow 的"名称挂图案外侧"同一条规矩）
+    s.push(`<text x="${ax + 4}" y="${ay - 12}" fill="var(--text)" font-size="12.5" font-weight="600">${a.name}</text>`);
+    s.push(`<text x="${ax + 4}" y="${ay - 0}" fill="var(--text-3)" font-size="10.5">${a.parts.length} 部件 · ${a.parts.reduce((n, p) => n + p.n, 0)} 点</text>`);
+
+    // 舱内部件：网格排布，最多 3 列
+    a.parts.forEach((p, j) => {
+      const cCol = j % 3, cRow = Math.floor(j / 3);
+      const ta = 0.06 + cCol * 0.30;
+      const tb = 0.10 + cRow * 0.52;
+      const [px, py] = asmTopPoint(ox, oy, ta, tb);
+      const w = ASM_CUBE.w, dd = ASM_CUBE.d, hh = ASM_CUBE.h;
+      const p0 = [px, py];
+      const p1 = [px + w, py];
+      const p2 = [px + w + dd * ASM_KX, py + dd * 0.55];
+      const p3 = [px + dd * ASM_KX, py + dd * 0.55];
+      const pts = (arr) => arr.map(q => `${q[0].toFixed(1)},${q[1].toFixed(1)}`).join(' ');
+
+      const kind = p.state === 'alarm' ? 'alarm' : (p.hasLive ? 'live' : 'cfg');
+      const topC = kind === 'alarm' ? 'var(--bad)'
+                 : kind === 'live'  ? 'var(--c-bat)'
+                                    : 'var(--text-3)';
+      const op   = kind === 'cfg' ? 0.30 : 0.85;
+      const sw   = p.id === active ? 2.4 : 1.1;
+
+      // 部件立方体：正面 + 右侧面 + 顶面
+      s.push(`<polygon points="${pts([p3, p2, [p2[0], p2[1] + hh], [p3[0], p3[1] + hh]])}" fill="${topC}" opacity="${op * 0.7}"/>`);
+      s.push(`<polygon points="${pts([p1, p2, [p2[0], p2[1] + hh], [p1[0], p1[1] + hh]])}" fill="${topC}" opacity="${op * 0.5}"/>`);
+      s.push(`<g class="asm-part" data-pid="${p.id}" style="cursor:pointer">`);
+      s.push(`<polygon points="${pts([p0, p1, p2, p3])}" fill="${topC}" opacity="${op}" stroke="var(--text)" stroke-width="${sw}"/>`);
+
+      // 部件名 + 当前值：名在顶面上，值在顶面下方（与 energyFlow 的"数值在图案下方"一致）
+      const lx = px + w * 0.5 + dd * ASM_KX * 0.5, ly = py + dd * 0.55 * 0.5;
+      s.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" fill="${kind === 'cfg' ? 'var(--text-3)' : '#fff'}" font-size="10.5" font-weight="600" pointer-events="none">${p.name}</text>`);
+      const vt = p.hasLive && p.value != null
+        ? `${fmt.num(p.value, 1)}${p.unit ? ' ' + p.unit : ''}`
+        : (kind === 'alarm' ? '告警' : '无实时源');
+      s.push(`<text x="${lx.toFixed(1)}" y="${(ly + 13).toFixed(1)}" text-anchor="middle" fill="${kind === 'cfg' ? 'var(--text-3)' : 'var(--text)'}" font-size="10" pointer-events="none">${vt}</text>`);
+      s.push(`</g>`);
+    });
+  });
+
+  s.push(`</svg>`);
+  return s.join('');
+}
+
+/* =====================================================================
+   一次接线图：柜/舱/部件之间的电气连接 + 当前功率方向
+   ---------------------------------------------------------------------
+   ★ 与 `energyFlow` 的分工（不要混）：
+     energyFlow 是**能流示意**——四节点定死（光伏/储能/母线/负荷/电网），
+     回答"电往哪走、走多少"。
+     一次接线图是**拓扑事实**——节点来自 `docs/规划/柜体装配视图.md` §2 的 9 条连接，
+     回答"柜里有什么、怎么接的"。节点数不是四个，加一台设备就多一个节点。
+
+   ★ 为什么辅助舱三个部件挂在主链**外面**：
+     消防 / 空调 / 门禁不走主电流。把它们画进主链等于说"电流流过烟感"——
+     现场会当场指出画错了。所以挂在柜体轮廓上，用虚线表示"辅助用电 / 保护"。
+
+   ★ PCS 的 AC/DC 是**同一个部件内部**的变换，不画成两个节点。
+
+   d.nodes: [{ id, name, x, y, w, h, live, value, unit, branch }]
+   d.edges: [{ from, to, label, active, color, dashed }]
+   ===================================================================== */
+function wiringDiagram(d) {
+  const W = 900, H = 330;
+  const nodes = (d && d.nodes) || [];
+  const edges = (d && d.edges) || [];
+  const idx = {};
+  nodes.forEach(n => { idx[n.id] = n; });
+
+  const s = [];
+  s.push(`<svg viewBox="0 0 ${W} ${H}" class="chart wiring" role="img">`);
+  s.push(`<title>一次接线图</title><desc>柜 → 舱 → 部件的电气连接与当前功率方向</desc>`);
+
+  /* ---- 连线先画（压在节点下面，接头才干净） ---- */
+  edges.forEach(e => {
+    const a = idx[e.from], b = idx[e.to];
+    if (!a || !b) return;
+    // 从 a 的右边出发，进 b 的左边；同 y 时画直线，不同 y 时走折线（先平后斜再平）
+    const x1 = a.x + a.w, y1 = a.y + a.h / 2;
+    const x2 = b.x,       y2 = b.y + b.h / 2;
+    const mid = (x1 + x2) / 2;
+    const path = Math.abs(y1 - y2) < 1
+      ? `M${x1},${y1} L${x2},${y2}`
+      : `M${x1},${y1} L${mid},${y1} L${mid},${y2} L${x2},${y2}`;
+    const stroke = e.color || 'var(--line)';
+    const wdt = e.active ? 3.2 : 1.6;
+    s.push(`<path d="${path}" fill="none" stroke="${stroke}" stroke-width="${wdt}"`
+         + (e.dashed ? ' stroke-dasharray="6 4"' : '')
+         + (e.active ? ' opacity="0.95"' : ' opacity="0.4"') + '/>');
+    if (e.active) {
+      // 箭头：与 energyFlow 同规矩——7 点实心多边形，不用 <marker>
+      const ay = y2, ax = x2;
+      s.push(`<polygon points="${ax},${ay} ${ax - 11},${ay - 6.5} ${ax - 11},${ay + 6.5}" fill="${stroke}"/>`);
+    }
+    if (e.label) {
+      s.push(`<text x="${(x1 + x2) / 2}" y="${Math.min(y1, y2) - 8}" text-anchor="middle"`
+           + ` fill="var(--text)" font-size="10.5" font-weight="600">${e.label}</text>`);
+    }
+  });
+
+  /* ---- 节点 ---- */
+  nodes.forEach(n => {
+    const cls = n.branch ? 'branch' : '';
+    const fill = n.live ? 'var(--card)' : 'var(--card-2)';
+    const stroke = n.state === 'alarm' ? 'var(--bad)'
+                 : n.live ? 'var(--line)' : 'var(--text-3)';
+    const op = n.live ? 1 : 0.55;
+    s.push(`<g opacity="${op}">`);
+    if (n.branch) {
+      s.push(`<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="8"`
+           + ` fill="${fill}" stroke="${stroke}" stroke-width="1.4" stroke-dasharray="5 3"/>`);
+    } else {
+      s.push(`<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="6"`
+           + ` fill="${fill}" stroke="${stroke}" stroke-width="1.6"/>`);
+    }
+    // 名称在框内上方，数值在框内下方（与 energyFlow「数值在图案下方」同一条规矩）
+    s.push(`<text x="${n.x + n.w / 2}" y="${n.y + 20}" text-anchor="middle"`
+         + ` fill="var(--text)" font-size="11.5" font-weight="600">${n.name}</text>`);
+    const vt = n.live && n.value != null ? `${fmt.num(n.value, 1)}${n.unit ? ' ' + n.unit : ''}`
+             : (n.live ? '—' : '无实时源');
+    s.push(`<text x="${n.x + n.w / 2}" y="${n.y + n.h - 10}" text-anchor="middle"`
+         + ` fill="${n.live ? 'var(--text)' : 'var(--text-3)'}" font-size="11" class="mono">${vt}</text>`);
+    s.push(`</g>`);
+  });
+
+  s.push(`</svg>`);
+  return s.join('');
+}

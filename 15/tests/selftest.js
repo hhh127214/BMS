@@ -65,6 +65,7 @@ const FILES = [
   'assets/app.css',
   'assets/api.js',
   'assets/ui.js',
+  'assets/assembly.js',   // 装配视图数据（派生产物，由 J 段守它与 CSV 的一致性）
   'assets/pages.js',
   'assets/app.js',
 ];
@@ -74,19 +75,35 @@ const indexHtml = read(path.join(ROOT15, 'index.html'));
 const css = read(path.join(ROOT15, 'assets/app.css'));
 const apiJs = read(path.join(ROOT15, 'assets/api.js'));
 const uiJs = read(path.join(ROOT15, 'assets/ui.js'));
+const asmJs = read(path.join(ROOT15, 'assets/assembly.js'));
 const pagesJs = read(path.join(ROOT15, 'assets/pages.js'));
 const appJs = read(path.join(ROOT15, 'assets/app.js'));
 
-// 引用顺序：api.js 必须先于 app.js（后者启动时要调 API），ui.js 先于 pages.js（后者用 h/fmt）
+/* 静态扫描用的"裸源码"（剥掉注释）。
+   ★ 为什么必须有这一层：本文大量断言是"源码里出没出现某个写法"，而正则不认注释 ——
+     注释里提到 `<marker>`、`html:` 都会被当成一处真实使用点，报出来的却是
+     "ui.js 又用了 <marker>"、"渲染纪律有问题"这类吓人的说法，纯误导。
+     （2026-10-08 加装配视图时连踩两次：ui.js 注释里的 <marker>、pages.js 注释里的 html:）
+   注：剥注释只会让"不应该出现 X"这类**否定**断言更宽松（注释不再误伤），
+   不会放过真代码里的 X —— 代码本体不会被剥掉。 */
+const stripComments = s => s
+  .replace(/\/\*[\s\S]*?\*\//g, '')     // 块注释
+  .replace(/(^|\s)\/\/[^\n]*/g, '$1');  // 行注释（前导空白，避免吃掉 :// 的斜杠）
+const uiCode = stripComments(uiJs);
+const pagesCode = stripComments(pagesJs);
+
+/* 引用顺序：api.js 必须先于 app.js（后者启动时要调 API），ui.js 先于 pages.js
+   （后者用 h/fmt）。assembly.js 夹在中间：pages.js 的两个新页要读它的 ASSEMBLY，
+   它自己不依赖任何东西。 */
 const refs = [...indexHtml.matchAll(/<script\s+src="([^"]+)"><\/script>/g)].map(m => m[1]);
-t.eq(refs, ['assets/api.js', 'assets/ui.js', 'assets/pages.js', 'assets/app.js'],
-  '脚本引用顺序正确');
+t.eq(refs, ['assets/api.js', 'assets/ui.js', 'assets/assembly.js',
+            'assets/pages.js', 'assets/app.js'], '脚本引用顺序正确');
 
 const cssRefs = [...indexHtml.matchAll(/<link\s+[^>]*href="([^"]+)"/g)].map(m => m[1]);
 t.eq(cssRefs, ['assets/app.css'], '样式表引用正确');
 
 // 离线可用：不允许任何外部主机
-const externals = [...(indexHtml + css + apiJs + uiJs + pagesJs + appJs)
+const externals = [...(indexHtml + css + apiJs + uiJs + asmJs + pagesJs + appJs)
   .matchAll(/https?:\/\/[^\s"'<>)]+/g)]
   .map(m => m[0])
   .filter(u => !/127\.0\.0\.1|localhost/.test(u));
@@ -169,16 +186,21 @@ t.head('C 页面与权限一致性');
 //   全文扫会把它们当菜单项抓进来，然后报出一串"缺图标"的假失败。
 const MENU_BLOCK = (appJs.match(/const MENU = \[([\s\S]*?)\n\];/) || ['', ''])[1];
 const menuIds = [...MENU_BLOCK.matchAll(/id:\s*'([a-z]+)',\s*name:/g)].map(m => m[1]);
-t.eq(menuIds.length, 10, '菜单项数 = 10（v1.4 新增「仿真」页）');
+t.eq(menuIds.length, 12, '菜单项数 = 12（v1.5 新增「装配视图」「一次接线图」两页）');
 t.ok(new Set(menuIds).size === menuIds.length, '菜单 id 不重复');
 t.ok(menuIds.includes('sim'), '菜单含「仿真」页');
+t.ok(menuIds.includes('structure'), '菜单含「装配视图」页');
+t.ok(menuIds.includes('wiring'), '菜单含「一次接线图」页');
+// 两页的 render 必须指向 Pages 里的同名函数（不是占位函数）
+t.ok(/render:\s*Pages\.structure/.test(appJs), '装配视图 render 指向 Pages.structure');
+t.ok(/render:\s*Pages\.wiring/.test(appJs), '一次接线图 render 指向 Pages.wiring');
 
 // Pages 导出键：取 IIFE 收尾那句 return { a, b, ... };})();
 const pagesTail = pagesJs.match(/return \{ ([a-z0-9_,\s]+) \};\s*\}\)\(\);\s*$/m);
 const pageKeys = pagesTail
   ? pagesTail[1].split(',').map(s => s.trim()).filter(Boolean)
   : [];
-t.ge(pageKeys.length, 10, 'Pages 导出页面数');
+t.ge(pageKeys.length, 12, 'Pages 导出页面数');
 t.eq([...pageKeys].sort(), [...menuIds].sort(), '菜单项与页面函数一一对应');
 
 // 每个菜单 id 有图标
@@ -205,24 +227,26 @@ t.ok(/h_user_create,\s*"admin"/.test(apiPy), '后端 users(建) = admin');
    ===================================================================== */
 t.head('D 渲染纪律');
 
+/* 本段的统计一律扫 pagesCode（剥注释后的源码），理由见文件顶部 stripComments 处。 */
 t.ok(/td\.textContent = /.test(uiJs), 'table() 单元格走 textContent');
 t.ok(/else if \(k === 'text'\) el\.textContent = v;/.test(uiJs), "h(text:) 走 textContent");
 t.ok(/document\.createTextNode/.test(uiJs), '子节点走 createTextNode');
 
 // innerHTML 只允许出现在明确白名单的 5 处：h() 的 html 分支 + pages.js 四个图表容器
-const innerHtmlPages = (pagesJs.match(/innerHTML/g) || []).length;
+// （同样扫剥掉注释后的源码，注释里提到 innerHTML 不该被算成一处使用点）
+const innerHtmlPages = (pagesCode.match(/innerHTML/g) || []).length;
 const innerHtmlUi = (uiJs.match(/innerHTML/g) || []).length;
 t.eq(innerHtmlUi, 1, 'ui.js 仅 1 处 innerHTML（h() 的 html 分支）');
 t.eq(innerHtmlPages, 4, 'pages.js 仅 4 处 innerHTML（图表容器）');
 
 // 这四处必须是图表函数或静态文案，不能直接塞接口返回的字符串
-const innerTargets = [...pagesJs.matchAll(/innerHTML\s*=\s*(.{0,40})/g)].map(m => m[1]);
+const innerTargets = [...pagesCode.matchAll(/innerHTML\s*=\s*(.{0,40})/g)].map(m => m[1]);
 t.ok(innerTargets.every(s => /^(lineChart\(|energyFlow\(|'<div class="empty">)/.test(s)),
   'innerHTML 目标均为自绘 SVG 或静态文案');
 
 // html: 的实参必须是字符串字面量（不含来自响应的变量插值）
 const htmlArgs = [
-  ...pagesJs.matchAll(/html:\s*\n?\s*(.{0,60})/g),
+  ...pagesCode.matchAll(/html:\s*\n?\s*(.{0,60})/g),
 ].map(m => m[1]);
 t.ge(htmlArgs.length, 4, 'html: 使用点已枚举');
 t.ok(htmlArgs.every(s => /^[`'"]/.test(s) || /^[A-Za-z]+\(\{/.test(s)),
@@ -245,7 +269,7 @@ t.head('E 图表与样式');
 
 const FN_DECL = ['h', '$', '$$', 'clear', 'badge', 'stateBadge', 'levelBadge',
   'resultBadge', 'toast', 'card', 'kpi', 'table', 'lineChart', 'chartLegend',
-  'energyFlow', 'barChart', 'ratioRow'];
+  'energyFlow', 'assemblyView', 'wiringDiagram', 'barChart', 'ratioRow'];
 FN_DECL.forEach(fn => {
   const esc = fn.replace(/\$/g, '\\$');
   t.ok(new RegExp(`function ${esc}\\s*\\(`).test(uiJs), `ui.js 定义 ${fn}()`);
@@ -271,6 +295,24 @@ t.ok(new Set(colorVals).size === 4, '四个量测色互不相同');
 // 深色工业主题与中文文案
 t.ok(/body\s*\{[^}]*background/.test(css), 'body 有背景色');
 t.ok(/[\u4e00-\u9fa5]/.test(css), 'CSS 注释为中文（与全仓一致）');
+
+/* ★ 用过的 CSS 变量必须在 app.css 里真的定义过。
+   为什么值得单独一条断言：var(--没定义) **不报错** —— 它在"计算值阶段"失效，
+   浏览器当成这个属性没写（fill 退回继承值、背景色退回透明）。界面照常画出来，
+   只是颜色不对，看的人只会以为"设计就这样"。新画一张图时顺手写了个不存在的
+   变量名，是这类失效最常见的入口 —— 装配视图第一版就踩了（--txt/--mute/--bg）。 */
+const cssDefined = new Set([...css.matchAll(/^\s*(--[\w-]+)\s*:/gm)].map(m => m[1]));
+const cssUsed = new Set();
+[uiJs, pagesJs, asmJs].forEach(src => {
+  [...src.matchAll(/var\((--[\w-]+)\)/g)].forEach(m => cssUsed.add(m[1]));
+});
+const cssMissing = [...cssUsed].filter(v => !cssDefined.has(v));
+t.eq(cssMissing, [], `用到的 CSS 变量全部有定义（共 ${cssUsed.size} 个，缺 ${cssMissing.length} 个）`);
+
+// 新增页面用到的样式钩子
+[['lgd', '图例容器'], ['sw', '图例色块'], ['kpi-v', '部件详情大数值']].forEach(([cls, what]) => {
+  t.ok(new RegExp(`\\.${cls}\\s*\\{`).test(css), `CSS 定义 .${cls}（${what}）`);
+});
 
 /* =====================================================================
    F 与后端的口径一致
@@ -317,13 +359,13 @@ t.ok(/live/.test(pagesJs) && /07\//.test(pagesJs), '界面明示「仿真 + 现�
 t.head('G 能量流图改版契约');
 
 // 粗箭头：7 点实心多边形；不再用 <marker> 拼小三角
-t.ok(!/<marker/.test(uiJs), 'ui.js 不再用 <marker> 画箭头（改实心多边形）');
+t.ok(!/<marker/.test(uiCode), 'ui.js 不再用 <marker> 画箭头（改实心多边形）');
 t.ok(/const AT = 16, AH = 14, AHH = 12;/.test(uiJs),
      '粗箭头体量为 16/14/12（够粗能读，又不压储能柜与铁塔导线）');
 t.ok(/const arrow = \(x1, x2, y, color, active, label, key\)/.test(uiJs),
      'arrow() 签名含方向字 label 与 patch 钩子 key');
 t.ok(/class="flow-arrow"/.test(uiJs), '箭头有 .flow-arrow 钩子');
-t.ok(!/badgeText/.test(uiJs), 'node() 不再画侧边徽章（方向字已挪进箭头杆）');
+t.ok(!/badgeText/.test(uiCode), 'node() 不再画侧边徽章（方向字已挪进箭头杆）');
 
 // 箭头两端留白：尾端退到 Lx±gap，母线端退到 cx±(busHalf+busGap)
 t.ok(/const gap = 58, busGap = 10;/.test(uiJs), 'ui.js 定义箭头两端留白 gap = 58 / busGap = 10');
@@ -335,7 +377,7 @@ t.ok(/busL = cx - busHalf - busGap, busR = cx \+ busHalf \+ busGap/.test(uiJs),
 // 等轴测 3D 母线 + 竖排标签
 t.ok(/const sceneBus = \(c\) =>/.test(uiJs), 'ui.js 定义等轴测母线场景 sceneBus()');
 t.ok(/const busLabel = \['交', '流', '母', '线'\];/.test(uiJs), '母线标签为四字数组（每行一字）');
-t.ok(!/rotate\(-90/.test(uiJs), '母线标签不再旋转（改竖排、字正）');
+t.ok(!/rotate\(-90/.test(uiCode), '母线标签不再旋转（改竖排、字正）');
 
 // 两处小圆点移除
 t.ok(!/id="conn-state"/.test(indexHtml), 'index.html 无顶栏连通绿点 #conn-state');
@@ -349,7 +391,7 @@ t.ok(!/\.nav \.dot/.test(css) && !/\.conn\b/.test(css), 'app.css 已删 .nav .do
 // 的光带因此与箭头对走 —— 这两条断言就是防它回来。
 t.ok(/x1="\$\{x1\}" y1="\$\{y\}" x2="\$\{base\}" y2="\$\{y\}"/.test(uiJs),
      '光带 <line> 从箭尾 x1 画到 base（线方向 = 潮流方向）');
-t.ok(!/flow-sweep-l/.test(uiJs) && !/flow-sweep-l/.test(css),
+t.ok(!/flow-sweep-l/.test(uiCode) && !/flow-sweep-l/.test(css),
      '已无"左行"光带变体（flow-sweep-l）—— 方向不再按屏幕左右取反');
 t.ok(/@keyframes flow-sweep-run \{ to \{ stroke-dashoffset: -100; \} \}/.test(css),
      '光带位移固定为负 100（沿线的尾→头推进，与箭头一致）');
@@ -370,7 +412,7 @@ t.ok(uiJs.includes('data-k="${key}"') && /data-k="soc-bar"/.test(uiJs)
 t.ok(/barW = FLOW_SOC\.w/.test(uiJs), 'SOC 条几何走 FLOW_SOC（patch 与重建同一口径）');
 t.ok(/const flowSignature = \(p\) =>/.test(pagesJs) && /energyFlowPatch\(flowSvg, fargs\)/.test(pagesJs),
      'pages.js 用结构签名决定「重建 / patch」（方向没变就不重建）');
-t.ok(!/clear\(flowHost\)/.test(pagesJs), 'pages.js 不再每拍清空重建能量流卡（否则光带动画重启）');
+t.ok(!/clear\(flowHost\)/.test(pagesCode), 'pages.js 不再每拍清空重建能量流卡（否则光带动画重启）');
 t.ok(/card\('能量流', '数值为功率大小 · 方向见箭头'/.test(pagesJs),
      '能量流副标题已改口径（方向见箭头，不再是"见各侧徽章"）');
 
@@ -474,6 +516,175 @@ t.ok(/"id": "model"/.test(enginePy) && /sim_live\.exe/.test(enginePy),
   '后端提供模型源（sim_live.exe）');
 t.ok(/record_csv\.h/.test(enginePy),
   '后端说明实录契约与 07/ 完全一致（换真机时入库与界面不用改）');
+
+/* =====================================================================
+   J 装配视图数据与 CSV 一致（爆炸图 / 一次接线图的共用地基）
+   ---------------------------------------------------------------------
+   ★ 这一段守的是"派生产物没脱钩"。
+     assets/assembly.js 是从 docs/规划/部件测点映射表.csv 生成的，不是手抄的。
+     手抄清单的典型失效是：CSV 加了一行、界面还按旧的画 —— 没有任何业务断言会红，
+     界面也不报错，只是"现场有这个测点、界面上没这个测点"。
+     所以这里**逐点**比三列（测点名 / 设备点名 / 单位），不是只比总数：
+     只比总数的话，两处各错一处还能凑成一样的数。
+   ===================================================================== */
+t.head('J 装配视图 ← CSV 一致');
+
+const CSV_MAP = path.join(ROOT, 'docs', '规划', '部件测点映射表.csv');
+t.ok(fs.existsSync(CSV_MAP), '存在 docs/规划/部件测点映射表.csv');
+
+/* 极简 CSV 解析（够用即可：本仓库规划 CSV 是 UTF-8 + 逗号分隔 + 可选双引号） */
+function parseCsv(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  const s = String(text).replace(/^\uFEFF/, '');
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) {
+      if (c === '"') { if (s[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+    else if (c !== '\r') cur += c;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter(r => r.some(x => String(x).trim() !== ''));
+}
+
+const mapRows = parseCsv(read(CSV_MAP));
+const mapHead = mapRows[0] || [];
+const mapBody = mapRows.slice(1);
+const hdr = needle => mapHead.findIndex(c => String(c).replace(/\s/g, '').includes(needle));
+const I_AREA = hdr('所属部位'), I_PART = hdr('部件'), I_PT = hdr('测点'),
+      I_DEV = hdr('设备点名'), I_UNIT = hdr('单位');
+t.ok(I_AREA >= 0 && I_PART >= 0 && I_PT >= 0 && I_DEV >= 0 && I_UNIT >= 0,
+  'CSV 表头含「所属部位 / 部件 / 测点 / 设备点名 / 单位」五列');
+
+// assembly.js 是纯数据脚本（const ASSEMBLY = [...]），不依赖浏览器 —— 直接求值取出
+const ASSEMBLY = new Function(`${asmJs}\nreturn ASSEMBLY;`)();
+
+/* ★ join 键用 src（CSV 原值），不用 name（页面显示名）。
+   name 是给人看的（带部位序号、把"站内·一次"写成"④ 站级·站内一次"），
+   与 CSV 的写法天然不同 —— 早先用 name 做 join，只能靠一串 replace 猜两边口径，
+   改一个显示名就误报。现在 assembly.js 由 15/scripts/gen_assembly.py 生成，
+   每个部位 / 部件都带 src，join 是**精确**的：对不上就是真脱钩。 */
+const GEN_PY = path.join(ROOT15, 'scripts', 'gen_assembly.py');
+t.ok(fs.existsSync(GEN_PY), '存在生成器 15/scripts/gen_assembly.py（派生产物可重现）');
+
+const allParts = ASSEMBLY.flatMap(a => a.parts.map(p => Object.assign({ area: a }, p)));
+const nPts = allParts.reduce((n, p) => n + (p.points || []).length, 0);
+
+t.eq(ASSEMBLY.length, 4, '装配视图 4 个部位');
+t.eq(allParts.length, 14, '装配视图 14 个部件');
+t.eq(nPts, 78, '装配视图 78 个测点');
+t.eq(mapBody.length, 78, 'CSV 数据行 = 78（与装配视图同源）');
+t.ok(new Set(allParts.map(p => p.id)).size === allParts.length, '部件 id 不重复');
+
+// ① 部件自洽：n 必须等于它自己 points[] 的长度（界面上写着"N 个测点"）
+allParts.forEach(p =>
+  t.eq((p.points || []).length, p.n, `部件 ${p.id} 的 n 与 points[] 长度一致`));
+
+// 部位集合：CSV 里出现的新部位必须已经在 assembly.js 里登记（否则静默漏掉一整舱）
+t.eq(ASSEMBLY.map(a => a.src).sort(),
+  [...new Set(mapBody.map(r => String(r[I_AREA]).trim()))].sort(),
+  '部位 src 集合与 CSV「所属部位」一致（CSV 新增部位会被这里抓住）');
+t.ok(new Set(allParts.map(p => p.src)).size === allParts.length,
+  '部件 src 在 CSV 中唯一（join 不会串组）');
+
+// ② 分组计数：CSV 按（部位 + 部件）分组的行数 = 该部件的点数
+const csvGroup = new Map();
+mapBody.forEach(r => {
+  const k = `${String(r[I_AREA]).trim()}||${String(r[I_PART]).trim()}`;
+  if (!csvGroup.has(k)) csvGroup.set(k, []);
+  csvGroup.get(k).push(r);
+});
+allParts.forEach(p => {
+  const k = `${String(p.area.src).trim()}||${String(p.src).trim()}`;
+  t.eq((csvGroup.get(k) || []).length, p.points.length,
+    `部件 ${p.id} 的测点数与 CSV 分组「${k}」一致`);
+});
+
+// ③ 逐行三列比对（真正"不是手抄"的证据）
+const ptBad = [];
+allParts.forEach(p => {
+  const k = `${String(p.area.src).trim()}||${String(p.src).trim()}`;
+  const g = csvGroup.get(k) || [];
+  p.points.forEach((pt, j) => {
+    const r = g[j];
+    if (!r) { ptBad.push(`${p.id}[${j}] 缺对应 CSV 行`); return; }
+    if (pt.n !== String(r[I_PT]).trim())   ptBad.push(`${p.id}[${j}] 测点名「${pt.n}」≠「${r[I_PT]}」`);
+    if (pt.d !== String(r[I_DEV]).trim())  ptBad.push(`${p.id}[${j}] 设备点名「${pt.d}」≠「${r[I_DEV]}」`);
+    if (pt.u !== String(r[I_UNIT]).trim()) ptBad.push(`${p.id}[${j}] 单位「${pt.u}」≠「${r[I_UNIT]}」`);
+  });
+});
+t.eq(ptBad, [], `78 个测点逐行对齐 CSV（测点名 / 设备点名 / 单位），不符 ${ptBad.length} 处`);
+
+// ④ 实时源绑定：只有 5 个部件拿得到值，其余必须显式为 null（不是"暂时空"）
+const LIVE_PARTS = ['cluster', 'cell', 'conv', 'meter', 'pv'];
+t.eq(allParts.filter(p => p.dev).map(p => p.id).sort(), [...LIVE_PARTS].sort(),
+  '仅 5 个部件绑定实时设备（对应 /api/realtime 那 5 台）');
+allParts.filter(p => !p.dev).forEach(p =>
+  t.ok(p.key === null || p.key === undefined, `无实时源的部件 ${p.id} 不绑 key`));
+
+// ⑤ 页面上的计数必须由 ASSEMBLY 现算，不许写死
+t.ok(/ASSEMBLY\.reduce/.test(pagesJs), '装配页的部件 / 测点计数由 ASSEMBLY 现算（不写死数字）');
+
+/* =====================================================================
+   K 报表打印 与 告警分类
+   ===================================================================== */
+t.head('K 报表打印与告警分类');
+
+// ---- 打印 / 存 PDF ----
+t.ok(/@media print/.test(css), 'app.css 有 @media print（报表可打印 / 存 PDF）');
+t.ok(/window\.print\(\)/.test(pagesJs), '报表页有「打印 / 存为 PDF」入口');
+t.ok(/\.no-print/.test(css) && /class: 'no-print'/.test(pagesJs),
+  '操作条整行带 .no-print（不进纸面）');
+
+/* ★ 打印里必须拆掉 overflow：.app-view 是 height:100vh + overflow:hidden，
+   .content 是 overflow-y:auto 的滚动容器。不拆的话打印只吐"第一屏"，
+   下面的表格全丢 —— 不报错，纸面看着像"报表就这些内容"。 */
+/* ★ 收尾的 \n 后面不要再要求 \n：app.css 是 CRLF 换行（实测 647 行 CRLF），
+   `}\r\n` 对 `\n\}\n` 不成立，块取不出来 → 下面 5 条连带全红，
+   看上去像"打印样式没写"，其实是正则没吃 CRLF。 */
+const PRINT_BLOCK = (css.match(/@media print \{([\s\S]*?)\n\}/) || ['', ''])[1];
+t.ok(PRINT_BLOCK.length > 0, '能取出 @media print 块');
+t.ok(/\.app-view[^}]*overflow: visible/.test(PRINT_BLOCK),
+  '打印时 .app-view 拆掉 overflow（否则只印第一屏）');
+t.ok(/\.content[^}]*overflow: visible/.test(PRINT_BLOCK),
+  '打印时 .content 拆掉滚动（否则下方表格被裁掉）');
+t.ok(/\.tbl-wrap[^{]*\{[^}]*max-height: none/.test(PRINT_BLOCK),
+  '打印时表格容器不设高度上限');
+t.ok(/break-inside: avoid/.test(PRINT_BLOCK), '打印时卡片整块不跨页断开');
+t.ok(/@page/.test(PRINT_BLOCK), '打印纸张尺寸已指定');
+
+// 打印稿抬头：数据集 / 视角 / 出具人 / 时间 + 后端的数据边界说明
+t.ok(/\.print-head/.test(css) && /class: 'print-head'/.test(pagesJs),
+  '打印稿有抬头（数据集 / 视角 / 出具人 / 时间）');
+t.ok(/d\.data_note/.test(pagesJs),
+  '打印稿带上后端 data_note（不把仿真数据印得像现场实录）');
+t.ok(/PERIOD_NAME/.test(pagesJs),
+  '日报 / 周报 / 月报的名字只有一份（分段按钮与打印抬头共用）');
+
+// ---- 告警分类 ----
+t.ok(/API\.alarmSummary\(ctx\.scenario, \{ level, source \}\)/.test(pagesJs),
+  '告警页把当前筛选传给 summary（计数才与列表条数对得上）');
+t.ok(/API\.alarms\(ctx\.scenario, \{ level, source, limit: LIMIT, offset \}\)/.test(pagesJs),
+  '告警页按 等级 + 来源 双维取数');
+t.ok(/PREFS\.alarmLevel/.test(pagesJs) && /PREFS\.alarmSource/.test(pagesJs)
+     && /PREFS\.alarmOffset/.test(pagesJs),
+  '★ 告警筛选存 PREFS（本页在 LIVE_PAGES 里，不存会被 5 s 重刷冲回"全部"）');
+t.ok(/const LEVELS = \['INFO', 'WARNING', 'DERATED', 'FAULT', 'EMERGENCY'\]/.test(pagesJs),
+  '等级全谱与后端 ALARM_LEVELS 同一份清单');
+t.ok(/onclick: \(\) => setLevel\(/.test(pagesJs) && /onclick: \(\) => setSource\(/.test(pagesJs),
+  '分类统计表可点（点了就筛，不只是好看）');
+
+t.ok(/source = q1\(query, "source"\)/.test(apiPy),
+  '后端 /api/alarms 支持 source 筛选');
+t.ok(/ALARM_LEVELS = \("INFO", "WARNING", "DERATED", "FAULT", "EMERGENCY"\)/.test(apiPy),
+  '后端 summary 按全谱补零（没发生的等级也占一行）');
+t.ok(/def _where\(use_level: bool, use_source: bool\)/.test(apiPy),
+  '后端 summary 走交叉筛选（各维度计数带"另一个维度"、不带自己）');
+t.ok(!/status = q1\(query, "status"\)/.test(apiPy),
+  '★ 后端不开 status 筛选（库里 status 恒为 active，开放即"恒 0 条"假入口）');
 
 const okAll = t.report();
 process.exit(okAll ? 0 : 1);

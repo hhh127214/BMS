@@ -16,6 +16,10 @@ const ICONS = {
   strategies: '<rect x="4" y="5" width="16" height="4" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="4" y="14" width="16" height="4" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/>',
   economics:  '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 10h6M9 14h6M13 8l-4 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
   report:     '<rect x="5" y="3" width="14" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+  /* 装配视图（爆炸图）：三个沿等轴测斜向错开的层板 —— 与图上"层层展开"的画法同构 */
+  structure:  '<rect x="3" y="14" width="12" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="7" y="8" width="12" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="2" width="12" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/>',
+  /* 一次接线图：一条主链上挂三个节点方块 —— 节点与连线一眼可辨 */
+  wiring:     '<path d="M2 12h4M18 12h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><rect x="6" y="8" width="5" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="8" width="5" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 12h2" stroke="currentColor" stroke-width="1.7"/>',
   sim:        '<path d="M5 8h9l5 4-5 4H5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M3 4v16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
   devices:    '<rect x="4" y="4" width="16" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
   users:      '<circle cx="9" cy="9" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 19c0-2.8 2.2-5 5-5s5 2.2 5 5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 8h4M18 6v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
@@ -29,6 +33,8 @@ const MENU = [
   { id: 'strategies', name: '策略配置',    render: Pages.strategies, sub: '九个策略 / 仲裁优先级' },
   { id: 'economics',  name: '收益分析',    render: Pages.economics,  sub: '经济性核算' },
   { id: 'report',     name: '报表系统',    render: Pages.report,     sub: '日 / 周 / 月' },
+  { id: 'structure',  name: '装配视图',    render: Pages.structure,  sub: '柜 → 舱 → 部件（爆炸图）' },
+  { id: 'wiring',     name: '一次接线图',  render: Pages.wiring,     sub: '电气连接与当前功率' },
   { id: 'sim',        name: '仿真',        render: Pages.sim,        sub: '日 / 周 / 月批量仿真' },
   { id: 'devices',    name: '设备管理',    render: Pages.devices,    sub: '台账与点表' },
   { id: 'users',      name: '用户与权限',  render: Pages.users,      sub: '账号 / 审计', minRole: 'admin' },
@@ -48,7 +54,10 @@ const LIVE_STATE = {
 /* 运行模式下会自动重刷的页面。
    ★ 刻意不含 策略配置 / 设备管理 / 用户与权限 —— 那三页有输入框与开关，
      定时重渲染会把正在敲的内容冲掉。 */
-const LIVE_PAGES = ['overview', 'realtime', 'curves', 'alarms', 'economics', 'report'];
+/* ★ 「装配视图」与「一次接线图」也在内：两页都是纯展示，没有输入框，
+     自动重渲染不会冲掉用户正在敲的东西 —— 判据是"有没有输入控件"，不是"重不重要"。 */
+const LIVE_PAGES = ['overview', 'realtime', 'curves', 'alarms', 'economics', 'report',
+                    'structure', 'wiring'];
 /* 重刷周期。数据粒度是 10 s（引擎 log_every=10），5 s 足够"看得见在长"，
    又不至于把接口按秒打满。 */
 const LIVE_REFRESH_MS = 5000;

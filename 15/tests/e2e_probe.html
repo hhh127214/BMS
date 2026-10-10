@@ -90,15 +90,15 @@ f.addEventListener('load', async () => {
     say('=== 2. admin 登录 ===');
     const okAdmin = await login('admin', 'admin123');
     say('app_visible=' + okAdmin);
-    say('nav_items=' + d.querySelectorAll('#nav button').length + ' (期望 9)');
+    say('nav_items=' + d.querySelectorAll('#nav button').length + ' (期望 12)');
     say('user=' + ($('#user-name') || {}).textContent + ' / ' + ($('#user-role') || {}).textContent);
     say('footer=' + (($('#foot-left') || {}).textContent || '').slice(0, 60));
 
     /* ---------- 3. 逐页渲染 ---------- */
     say('');
-    say('=== 3. 九页渲染（admin） ===');
+    say('=== 3. 十二页渲染（admin） ===');
     const PAGES = ['overview', 'realtime', 'curves', 'alarms', 'strategies',
-      'economics', 'report', 'devices', 'users'];
+      'economics', 'report', 'structure', 'wiring', 'sim', 'devices', 'users'];
     let badPages = 0, emptyPages = 0;
     for (const id of PAGES) {
       const r = await goto(id);

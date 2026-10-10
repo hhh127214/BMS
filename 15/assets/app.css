@@ -563,3 +563,85 @@ input:focus, select:focus {
   font-size: 12px; white-space: pre-wrap; word-break: break-all;
 }
 .sim-src { display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; line-height: 1.75; }
+
+/* =====================================================================
+   装配视图（爆炸图） / 一次接线图 —— 共用件
+   ===================================================================== */
+
+/* 部件详情里的"大数值"行：字号比正文大两档，一眼能读出当前值 */
+.kpi-v {
+  display: flex; align-items: center; min-height: 40px;
+  font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums;
+  letter-spacing: -.3px; line-height: 1.3; color: var(--text);
+  word-break: break-all;
+}
+.kpi-v.muted { font-size: 13px; font-weight: 600; }
+
+/* 图例：色块 + 说明。三个色块必须与图上部件的颜色语义一一对应，
+   改图上的配色就必须同步改这里 —— 否则图例变成第二个真相。 */
+.lgd { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); }
+.sw  { flex: 0 0 11px; width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.sw-live { background: var(--c-bat); }              /* 有实时数据源 */
+.sw-cfg  { background: var(--text-3); opacity: .45; }/* 无实时源（灰且半透，与图上一致） */
+.sw-bad  { background: var(--bad); }                /* 取不到值 / 告警 */
+
+/* 部件可点：悬停给反馈，否则用户不知道那些立方体能点 */
+.asm .asm-part { transition: opacity .15s; }
+.asm .asm-part:hover { opacity: .78; }
+@media (prefers-reduced-motion: reduce) {
+  .asm .asm-part { transition: none; }
+}
+
+/* =====================================================================
+   打印 / 导出 PDF（报表系统）
+   ---------------------------------------------------------------------
+   ★ 为什么用浏览器打印，而不是自己画一份 PDF：
+     自己画 = 另起一套排版真相（字体、分页、列宽都要重新对一遍），
+     报表页改一个字段就得同步两处，迟早对不上。@media print 是同一棵 DOM，
+     报表改了打印稿自动跟着改 —— 只有一份真相。
+
+   ★ 打印里必须把 overflow 全拆掉：.app-view 是 height:100vh + overflow:hidden，
+     .content 是 overflow-y:auto 的滚动容器。不拆的话打印只会吐出"第一屏"，
+     下面的表格全丢 —— 这是这类布局最典型的打印事故，而且不报任何错。
+   ===================================================================== */
+@media print {
+  @page { size: A4; margin: 12mm; }
+
+  html, body { height: auto; background: #fff; }
+  .app-view { height: auto; overflow: visible; display: block; }
+  .sidebar, .topbar, .page-head, .engine-banner, .foot, .toast,
+  .no-print { display: none !important; }
+  .main { display: block; }
+
+  .content {
+    overflow: visible !important; height: auto; padding: 0;
+    background: #fff; color: #000;
+  }
+
+  .card { box-shadow: none; border: 1px solid #ccd2dd; break-inside: avoid; }
+  .card-head { break-after: avoid; }
+  .grid { gap: 10px; }
+
+  table.tbl { font-size: 11.5px; }
+  table.tbl th, table.tbl td { padding: 5px 6px; }
+  table.tbl tr { break-inside: avoid; }
+  .tbl-wrap, .pm-wrap { max-height: none !important; overflow: visible !important; }
+
+  .print-head { display: block !important; }
+  a[href]::after { content: ''; }
+}
+
+/* 打印稿抬头：屏幕上不占地方，只在纸面上出现。
+   没有它，纸上看不出这份报表是哪个数据集、什么时点出的 —— 拿出去当不了凭据。 */
+.print-head {
+  display: none; margin: 0 0 12px; padding-bottom: 8px;
+  border-bottom: 2px solid #1b2432;
+}
+.print-head h1 { margin: 0 0 4px; font-size: 17px; }
+.print-head .ph-meta {
+  font-size: 11.5px; color: #5b6472;
+  display: flex; flex-wrap: wrap; gap: 3px 18px;
+}
+/* 数据边界说明：后端给的"这份数据能代表什么"。字号小但必须上纸，
+   否则打印出来的报表看着像真实运行数据。 */
+.print-head .ph-note { margin: 5px 0 0; font-size: 10.5px; color: #9aa3b2; }

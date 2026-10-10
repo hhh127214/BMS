@@ -16,6 +16,8 @@
   I. 实时入库      —— time_base=wall 的两套时间轴、增量幂等、台账兜底
   J. 引擎双模式    —— 运行/仿真两条数据链路：仿真调度端到端入库、
                     实时引擎真的被拉起/写数据/停掉、多日能量分摊不变量
+  K. 告警分类      —— 等级 × 来源 双维筛选：条数对独立 SQL、交叉计数的
+                    三条求和恒等式、以及"空串 = 不筛选"的静默失效防护
 
 运行：
     python 14/tests/selftest.py
@@ -203,7 +205,33 @@ def main() -> int:
     for k in ("out_of_interval", "over_limit", "gated_nonzero", "grid_breach",
               "tr_breach", "soc_violation"):
         t.eq(iv_n[k], 0, f"normal.{k} = 0")
-    t.eq(iv_f["all_ok"], 0, "fault 场景不变量**不过**（故障注入，预期）")
+
+    # ★ 2026-10-08 改写：这里原先断言的是 `iv_f["all_ok"] == 0`
+    #   （"故障注入 ⇒ 不变量必须不过"）。那是一条**负向不变量**：
+    #   只有安全层真的失效、红线被突破时它才会变绿 —— 谁为了让它转绿去改系统，
+    #   就是在把安全层改坏。
+    #
+    #   与设计意图对照，它是反的：
+    #     · 10/src/main.cpp:44-48 写明故障注入的目的是验证「安全响应」
+    #       —— 应门控到 0 / 降级 / 保守，而不是去突破红线；
+    #     · 10/ 自己的 T107 判据就是「故障窗非零 = 0（应全 0）」，同一语义。
+    #   且与本段紧邻上方的口径自相矛盾：本段叫「数据一致性（入库值 vs summary.json）」，
+    #   2 行之上要求 economics 必须等于 summary.json，而 summary.json 的
+    #   invariants.all_ok 就是 true —— 不可能既等于它、又是 0。
+    #
+    #   改为两件事，把原来想守的东西拆开守：
+    #     ① 不变量仍与 summary.json 逐项相符（含 all_ok）—— 守住"没抄错数"；
+    #     ② 故障注入确实生效（fault 告警显著多于 normal）—— 守住"黄瓜确实注进去了"。
+    #   第 ② 条不可省：只留 ① 的话，"故障窗变成空窗、什么都没发生"也能全绿，
+    #   那正是本项目最忌讳的静默失效。
+    iv_ref = fault_sum["invariants"]
+    t.eq(iv_f["all_ok"], 1 if iv_ref["all_ok"] else 0,
+         "fault.all_ok 与 summary.json 相符（故障下仍守住红线）")
+    for k in ("out_of_interval", "over_limit", "gated_nonzero", "grid_breach",
+              "tr_breach", "soc_violation"):
+        t.eq(iv_f[k], iv_ref[k], f"fault.{k} 与 summary.json 相符")
+    t.ok(al_f > al_n,
+         f"fault 告警多于 normal（故障注入确实生效：{al_f} > {al_n}）")
 
     # 时序明细抽查：首行数值与 csv 一致
     first = emsdb.query_one(
@@ -1410,6 +1438,79 @@ def main() -> int:
                         pass
     else:
         print("  [SKIP] 未找到 sim_live.exe，跳过实时引擎端到端（先跑 10/scripts/build.bat）")
+
+    # =================================================================
+    # K. 告警分类（等级 × 来源 双维筛选 + 交叉计数）
+    #
+    # 为什么值得单独一层：告警中心是"出事后第一个翻开的页面"，筛选错了就会漏看
+    # 故障。而这类 bug **静默** —— SQL 条件拼错不报错，只是条数为 0；界面上
+    # "筛选后没有"和"真的没有告警"长得一模一样，没人会发现。
+    #
+    # 断言一律**不写死条数**（数据集会随导入变），而是拿一条**独立 SQL** 当标尺：
+    #       处理器给出的 total  ==  直接查库数出来的行数
+    # 交叉筛选再用三条"求和恒等式"证明：每个维度的计数带的是**另一个**维度，
+    # 不带自己那份 —— 否则选中 FAULT 之后 WARNING 就变 0，用户再也点不回去。
+    # =================================================================
+    print("\n[K] 告警分类（等级 × 来源）")
+    LV_ALL = ("INFO", "WARNING", "DERATED", "FAULT", "EMERGENCY")
+
+    def _sql_n(sc, **cond):
+        """独立标尺：绕过 api.py，直接查库数行数。"""
+        w, a = "scenario_id = ?", [sc]
+        if cond.get("level"):
+            w += " AND level = ?"
+            a.append(cond["level"])
+        if cond.get("source"):
+            w += " AND source = ?"
+            a.append(cond["source"])
+        return emsdb.query_value(conn, f"SELECT COUNT(*) FROM alarm WHERE {w}", a, -1)
+
+    scs = [r["scenario_id"] for r in emsdb.query(
+        conn, "SELECT DISTINCT scenario_id FROM alarm ORDER BY scenario_id")]
+    t.ok(len(scs) > 0, f"alarm 表有数据可测（场景 {scs}）")
+
+    st_a, _ = call("GET", "/api/alarms", user=admin, scenario=scs[0] if scs else "normal")
+    t.eq(st_a, 200, "GET /api/alarms 状态码")
+    st_s, _ = call("GET", "/api/alarms/summary", user=admin, scenario=scs[0] if scs else "normal")
+    t.eq(st_s, 200, "GET /api/alarms/summary 状态码")
+
+    for sc in scs:
+        lvs = [r["level"] for r in emsdb.query(
+            conn, "SELECT DISTINCT level FROM alarm WHERE scenario_id=? ORDER BY level", (sc,))]
+        srcs = [r["source"] for r in emsdb.query(
+            conn, "SELECT DISTINCT source FROM alarm WHERE scenario_id=? ORDER BY source", (sc,))]
+        # 四个组合族：不筛 / 只等级 / 只来源 / 两者都筛
+        combos = ([{}] + [{"level": x} for x in lvs] + [{"source": y} for y in srcs]
+                  + [{"level": x, "source": y} for x in lvs for y in srcs])
+
+        for c in combos:
+            tag = f"[{sc}] {c or '不筛'}"
+            _, al = call("GET", "/api/alarms", user=admin, scenario=sc, limit=50, **c)
+            t.eq(al.get("total"), _sql_n(sc, **c), f"h_alarms total {tag} 与直接查库一致")
+
+            _, sm = call("GET", "/api/alarms/summary", user=admin, scenario=sc, **c)
+            # ① 全谱：五个等级必须都在（没发生的占 0）—— 否则界面上看不出
+            #    "这一档没告警"和"这一档没统计到"的区别，两者长得一模一样。
+            lvmap = {r["level"]: r["n"] for r in sm["by_level"]}
+            t.ok(all(x in lvmap for x in LV_ALL), f"by_level {tag} 五档齐全（含 0 值档）")
+
+            # ② 交叉恒等式：by_level 带的是**来源**，不带自己那份等级
+            t.eq(sum(r["n"] for r in sm["by_level"]),
+                 _sql_n(sc, **({"source": c["source"]} if "source" in c else {})),
+                 f"by_level 之和 {tag} = 只按来源筛的条数（交叉：不带自己）")
+            # ③ by_source 带的是**等级**（后端 SQL 有 LIMIT 20，超了会截断，故加前提）
+            if len(srcs) <= 20:
+                t.eq(sum(r["n"] for r in sm["by_source"]),
+                     _sql_n(sc, **({"level": c["level"]} if "level" in c else {})),
+                     f"by_source 之和 {tag} = 只按等级筛的条数（交叉：不带自己）")
+            # ④ 24h 分布是**结果视图**，两个维度都应用
+            t.eq(sum(r["n"] for r in sm["timeline"]), _sql_n(sc, **c),
+                 f"timeline 之和 {tag} = 两维都应用后的条数")
+
+        # 空串 = 不筛选。前端"全部"选项传的就是空串，若被当成条件会去匹配
+        # source='' 的行 —— 结果恒为 0，不报错，界面只是"什么都没有"。
+        _, b3 = call("GET", "/api/alarms", user=admin, scenario=sc, level="", source="", limit=1)
+        t.eq(b3.get("total"), _sql_n(sc), f"[{sc}] 空串筛选 = 不筛选（total 不变）")
 
     # 审计里应留痕（引擎模式切换 / 引擎启停 / 仿真发起）
     acts = {r["action"] for r in auth.list_audit(conn, 200)}
