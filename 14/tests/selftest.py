@@ -2,7 +2,7 @@
 
 沿用项目其余模块的纪律：断言式、有 PASS/FAIL 计数、内容缺失时显式 SKIP。
 
-覆盖十层：
+覆盖十一层：
   A. schema        —— 18 张表是否齐全（14 原有 + run_mode + 设备接入两张 + sim_run，schema v1.4）
   B. 导入          —— 行数是否与源产物一致
   C. 数据一致性    —— 入库值是否与 10/build/summary.json 逐项相符
@@ -18,6 +18,8 @@
                     实时引擎真的被拉起/写数据/停掉、多日能量分摊不变量
   K. 告警分类      —— 等级 × 来源 双维筛选：条数对独立 SQL、交叉计数的
                     三条求和恒等式、以及"空串 = 不筛选"的静默失效防护
+  L. 跨域(CORS)    —— 静态层（AST 扫 14/src 不许出现字面量 '*' 作 ACAO 实参）
+                    + 端到端层（真起服务发请求：默认无 ACAO、白名单回显指定源）
 
 运行：
     python 14/tests/selftest.py
@@ -25,8 +27,11 @@
 
 from __future__ import annotations
 
+import ast
 import csv
 import datetime
+import http.client
+import inspect
 import io
 import json
 import os
@@ -34,6 +39,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1517,6 +1523,120 @@ def main() -> int:
     for a in ("engine_mode", "sim_run_start", "sim_run_delete",
               "engine_live_start", "engine_live_stop", "engine_live_reset"):
         t.ok(a in acts, f"审计记录动作 {a}")
+
+    # =================================================================
+    # L. 跨域(CORS) 守卫 —— 静态层 + 端到端层
+    #
+    # 为什么值得单独一层：§61 把无条件的 `Access-Control-Allow-Origin: *`
+    # 收紧成了"默认不回 / 显式开白名单"，但**那次没有断言守着它** ——
+    # 自检全程走 api.dispatch，根本不经过 HTTP 层，所以 ACAO 头写成什么样
+    # 都不会有任何一条判据变红。
+    #   没有断言守着的收紧，等于没有收紧：下次有人为了"页面调不通"顺手改回
+    # `*`，全仓库一片绿，而洞已经开了。
+    #
+    # 两层是互补的，缺一层都不够：
+    #   静态层（AST）   —— 抓"源码里又出现了字面量 *"。无论写在哪个文件、
+    #                      是传给 send_header 还是赋给 allow_origin，都跑不掉。
+    #   端到端层（真起服务发请求）—— 抓"头到底有没有发出去"。这一层静态
+    #                      层证明不了：比如把 `if ao:` 改成恒真、或默认给个
+    #                      非空兜底值，源码里一个 `*` 都没有，洞却还在。
+    # =================================================================
+    print("\n[L] 跨域(CORS) 守卫（静态 + 端到端）")
+    import server as _srvmod
+
+    SERVER_PY = os.path.join(SRC, "server.py")
+
+    def _acao_literal_hits(path: str) -> list[tuple[str, str]]:
+        """AST 扫一个 .py，只收**字面量**，返回 [(出处, 字面量), ...]。
+
+        收两处：① send_header("Access-Control-Allow-Origin", X) 里的 X；
+                ② *.allow_origin = X 里的 X。
+        走变量的（正常实现就是变量 `ao`）不收 —— 那正是我们要的写法。
+        """
+        with io.open(path, encoding="utf-8") as f:
+            tree = ast.parse(f.read(), filename=path)
+        out: list[tuple[str, str]] = []
+        for nd in ast.walk(tree):
+            if isinstance(nd, ast.Call):
+                fn = nd.func
+                if (isinstance(fn, ast.Attribute) and fn.attr == "send_header"
+                        and len(nd.args) >= 2
+                        and isinstance(nd.args[0], ast.Constant)
+                        and nd.args[0].value == "Access-Control-Allow-Origin"
+                        and isinstance(nd.args[1], ast.Constant)
+                        and isinstance(nd.args[1].value, str)):
+                    out.append(("send_header", nd.args[1].value))
+            if isinstance(nd, ast.Assign):
+                for tg in nd.targets:
+                    if (isinstance(tg, ast.Attribute) and tg.attr == "allow_origin"
+                            and isinstance(nd.value, ast.Constant)
+                            and isinstance(nd.value.value, str)):
+                        out.append(("allow_origin", nd.value.value))
+        return out
+
+    t.ok(os.path.isfile(SERVER_PY), f"server.py 存在: {SERVER_PY}")
+
+    # 扫整个 14/src，不只是 server.py —— 换个文件再开一个洞同样要被抓到
+    star: list[str] = []
+    for _fn in sorted(os.listdir(SRC)):
+        if _fn.endswith(".py"):
+            for _where, _v in _acao_literal_hits(os.path.join(SRC, _fn)):
+                if _v == "*":
+                    star.append(f"{_fn}({_where})")
+    t.eq(star, [],
+         "★ 14/src 下没有任何一处把字面量 '*' 当 ACAO 实参或 allow_origin 赋值")
+
+    # 开关必须还在：想开能开，才不会有人去改源码
+    t.eq(inspect.signature(_srvmod.create_server).parameters["allow_origin"].default,
+         None, "create_server.allow_origin 默认 None（不传 = 同源模式）")
+    _srv_txt = io.open(SERVER_PY, encoding="utf-8").read()
+    t.ok('"--allow-origin"' in _srv_txt or "'--allow-origin'" in _srv_txt,
+         "server.py 仍保留 --allow-origin 开关（不必改源码也能开白名单）")
+
+    # ---- 端到端：真起服务、真发 HTTP 请求、真看响应头 ----
+    cors_db = os.path.join(tmpdir, "cors.db")
+
+    def _probe(srv) -> tuple[int, dict]:
+        th = threading.Thread(target=srv.serve_forever, daemon=True)
+        th.start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1",
+                                           srv.server_address[1], timeout=5)
+            c.request("GET", "/api/health")
+            r = c.getresponse()
+            r.read()
+            return r.status, {k.lower(): v for k, v in r.getheaders()}
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    srv_d = _srvmod.create_server("127.0.0.1", 0, db_path=cors_db, static_dir=tmpdir)
+    t.eq(getattr(srv_d, "allow_origin", None), None,
+         "默认起服务 = 同源模式（srv.allow_origin is None）")
+    st_d, hd_d = _probe(srv_d)
+    t.eq(st_d, 200, "同源模式下 GET /api/health 200（收紧没弄坏正常访问）")
+    t.ok("access-control-allow-origin" not in hd_d,
+         "★ 默认响应头**不带** ACAO（第三方页面无法直接调 /api/*）")
+
+    OA = "http://127.0.0.1:5173"
+    srv_o = _srvmod.create_server("127.0.0.1", 0, db_path=cors_db,
+                                  static_dir=tmpdir, allow_origin=OA)
+    t.eq(srv_o.allow_origin, OA, "带 --allow-origin 起服务时 srv.allow_origin 被记下")
+    st_o, hd_o = _probe(srv_o)
+    t.eq(st_o, 200, "白名单模式下 GET /api/health 200")
+    t.eq(hd_o.get("access-control-allow-origin"), OA,
+         f"白名单模式回显指定源 {OA}（且只此一个，不是 *）")
+    t.ok("access-control-allow-methods" in hd_o,
+         "白名单模式同时回 Allow-Methods（预检可用）")
+
+    # 临时库要清掉：tmpdir 后面要 os.rmdir，留文件会让它静默失败
+    for _sfx in ("", "-wal", "-shm"):
+        _p = cors_db + _sfx
+        if os.path.isfile(_p):
+            try:
+                os.remove(_p)
+            except OSError:
+                pass
 
     conn.close()
     # 清理临时库
