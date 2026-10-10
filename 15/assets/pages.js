@@ -793,26 +793,37 @@ const Pages = (() => {
       }
 
       const sumOf = arr => (arr || []).reduce((a, b) => a + b.n, 0);
+
+      // 按等级：逐行 + 合计行。★ 刻意拆成变量再拼 —— 原来把 map / concat / h('tbody')
+      // 全压在一行里，括号层层嵌套，多一个少一个看不出来（2026-10-11 正是因此
+      // 出过一个 SyntaxError：整个 pages.js 加载失败 ⇒ 登录按钮没有 JS 接管 ⇒
+      // 表单原生提交 ⇒ 页面刷新，表现为「登录进不去」且**没有任何报错**）。
+      const lvlRows = (sum.by_level || []).map(r => h('tr', {
+        style: 'cursor:pointer',
+        onclick: () => setLevel(r.level === level ? '' : r.level),
+      }, [
+        h('td', null, levelBadge(r.level)),
+        h('td', { class: 'num', text: String(r.n) }),
+      ]));
+      lvlRows.push(h('tr', null, [
+        h('td', { class: 'muted', text: '合计' }),
+        h('td', { class: 'num', text: String(sumOf(sum.by_level)) }),
+      ]));
+
+      const srcRows = (sum.by_source || []).slice(0, 8).map(r => h('tr', {
+        style: 'cursor:pointer',
+        onclick: () => setSource((r.source || '') === source ? '' : (r.source || '')),
+      }, [
+        h('td', { text: r.source || '—' }),
+        h('td', { class: 'num', text: String(r.n) }),
+      ]));
+
       clear(sumHost);
       sumHost.appendChild(h('div', { class: 'grid g3' }, [
-        card('按等级', '点一行即按该等级筛选', h('table', { class: 'tbl' }, h('tbody', null,
-          (sum.by_level || []).map(r => h('tr', {
-            style: 'cursor:pointer',
-            onclick: () => setLevel(r.level === level ? '' : r.level),
-          }, [
-            h('td', null, levelBadge(r.level)),
-            h('td', { class: 'num', text: String(r.n) }),
-          ])).concat([h('tr', null, [
-            h('td', { class: 'muted', text: '合计' }),
-            h('td', { class: 'num', text: String(sumOf(sum.by_level)) })]))))),
-        card('按来源', '点一行即按该来源筛选', h('table', { class: 'tbl' }, h('tbody', null,
-          (sum.by_source || []).slice(0, 8).map(r => h('tr', {
-            style: 'cursor:pointer',
-            onclick: () => setSource((r.source || '') === source ? '' : (r.source || '')),
-          }, [
-            h('td', { text: r.source || '—' }),
-            h('td', { class: 'num', text: String(r.n) }),
-          ]))))),
+        card('按等级', '点一行即按该等级筛选',
+          h('table', { class: 'tbl' }, h('tbody', null, lvlRows))),
+        card('按来源', '点一行即按该来源筛选',
+          h('table', { class: 'tbl' }, h('tbody', null, srcRows))),
         card('24 h 分布', '按小时 · 已应用当前筛选', h('div', {
           html: barChart({
             labels: (sum.timeline || []).map(r => `${String(r.hour).padStart(2, '0')}`),

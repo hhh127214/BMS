@@ -10,6 +10,11 @@
 
    另加 D 渲染纪律（不做危险的 DOM 注入）与 E 图表函数齐备。
 
+   ★ [L] 脚本语法守卫（2026-10-11 补）：上面那些全是**文本 / 正则**检查，
+     没有一条会真的解析 JS。而一个多余的括号就能让整个 .js 加载失败 ——
+     症状是登录按钮没反应、页面直接刷新，界面上**没有任何报错**。
+     所以最后一段用 `node --check` 逐个解析（只解析不执行）。
+
    跑法：
      node 15/tests/selftest.js
    退出码 0 = 全过。
@@ -685,6 +690,50 @@ t.ok(/def _where\(use_level: bool, use_source: bool\)/.test(apiPy),
   '后端 summary 走交叉筛选（各维度计数带"另一个维度"、不带自己）');
 t.ok(!/status = q1\(query, "status"\)/.test(apiPy),
   '★ 后端不开 status 筛选（库里 status 恒为 active，开放即"恒 0 条"假入口）');
+
+/* =====================================================================
+   [L] 脚本语法守卫 —— 每个 .js 都必须能被解析
+
+   ★ 为什么必须有这一段（2026-10-11 撞出来的）：
+     pages.js 里一个多余的括号 ⇒ **整个文件加载失败** ⇒ 登录按钮没有 JS 接管
+     ⇒ 表单走浏览器**原生提交** ⇒ 页面刷新。症状是「登录进不去」，
+     而且界面上**没有任何报错**，控制台之外完全看不出是脚本坏了。
+
+     更糟的是：在此之前本文件的 289 条断言全是**文本 / 正则**检查，
+     **没有一条会真的解析 JS**。于是全量构建一片绿，产品却是坏的 ——
+     典型的「测试全绿 ≠ 这条路走通了」。
+
+   判据用 `node --check`：只解析不执行，不依赖浏览器环境；
+   node 路径用 process.execPath（自检本来就是 Node 跑的），不引入新依赖。
+   ===================================================================== */
+t.head('[L] 脚本语法守卫');
+const { execFileSync } = require('child_process');
+const ASSETS = path.join(ROOT15, 'assets');
+const JS_FILES = ['api.js', 'ui.js', 'assembly.js', 'pages.js', 'app.js'];
+
+t.eq(JS_FILES.filter(f => fs.existsSync(path.join(ASSETS, f))).length,
+     JS_FILES.length, '五个前端脚本都在');
+
+const syntaxBad = [];
+for (const f of JS_FILES) {
+  const fp = path.join(ASSETS, f);
+  if (!fs.existsSync(fp)) continue;
+  try {
+    execFileSync(process.execPath, ['--check', fp], { stdio: 'pipe' });
+  } catch (e) {
+    const msg = String((e && e.stderr) || (e && e.message) || e);
+    syntaxBad.push(`${f}: ${msg.split('\n').filter(Boolean)[0] || msg}`);
+  }
+}
+t.eq(syntaxBad, [],
+     '★ 五个脚本全部能被解析（语法错误 = 整个文件加载失败 ⇒ 登录按钮没反应、页面刷新，且无任何报错）');
+
+// 新增脚本必须同步进上面的清单，否则这条守卫会漏掉它
+const idxHtmlText = read(path.join(ROOT15, 'index.html'));
+const scriptRefs = [...idxHtmlText.matchAll(/<script\s+src="assets\/([^"]+)"/g)].map(m => m[1]);
+t.ok(scriptRefs.length > 0, `index.html 引用了 ${scriptRefs.length} 个脚本`);
+t.eq(scriptRefs.filter(r => !JS_FILES.includes(r)), [],
+     'index.html 引用的脚本**全部**被语法守卫覆盖（新增脚本必须同步进 JS_FILES）');
 
 const okAll = t.report();
 process.exit(okAll ? 0 : 1);
