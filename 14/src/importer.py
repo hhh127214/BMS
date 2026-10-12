@@ -4,7 +4,9 @@
     10/build/timeseries.csv     8640 行 × 20 列（10 s 粒度 / 24 h）
     10/build/alarms.csv         告警与状态迁移
     10/build/summary.json       经济性 + 不变量 + 配置
-    10/build/fault/*            故障注入场景
+    10/build/fault/*            故障注入场景（--fault）
+    10/build/stress/*           异常工况日（--stress）：SOC/TEMP/TRANSFORMER
+                                三类告警的唯一数据来源，见 import_all()
 
 装进数据库之后，平台就能回答运维要问的问题：
 「这个站这一天发生了什么、赚了多少、有没有越限、指令卡在哪一步」。
@@ -391,7 +393,7 @@ def import_scenario(conn, sim_dir: str, scenario_id: str, name: str,
                 alarm_rows.append((
                     _f(a.get("t_s")), (a.get("time") or "").strip(),
                     (a.get("level") or "INFO").strip(), src,
-                    _source_to_device(src), src,
+                    _source_to_device(src, a.get("message")), src,
                     (a.get("message") or "").strip(), "active", scenario_id,
                 ))
     conn.executemany(
@@ -432,10 +434,51 @@ def import_scenario(conn, sim_dir: str, scenario_id: str, name: str,
     }
 
 
-def _source_to_device(source: str) -> str:
-    """告警来源 -> 设备号。来源是模块名（FSM/SAFETY/...），能对上就对上。"""
+# COMM 告警的设备部位：按**实际置位的是哪个故障位**判定。
+# 位序的真相源是 06/FaultFlags::bits()（state_machine.h），与
+#   10/src/sim_24h.h  fault_bits_desc()
+#   20/src/alarm_input.h  fault_view_from_bits()
+#   P2/src/observe.h      fault_source()/fault_code()
+# 同源。顺序不可随意调整：先匹配更具体的部位关键词。
+# 若将来新增故障位而这里没跟上，会静默退化成 DEV-BMS-01 ——
+#   所以 14/ 的"按设备筛选"必须靠断言守着，不能靠肉眼看。
+_FAULT_BIT_DEVICE = (
+    ("METER_",     "DEV-METER-01"),   # bit2 METER_COMM_LOST
+    ("BMS_",       "DEV-BMS-01"),     # bit0 BMS_COMM_LOST
+    ("PCS_",       "DEV-PCS-01"),     # bit1 PCS_COMM_LOST / bit3 PCS_FAULT
+    ("TEMP_",      "DEV-BMS-01"),     # bit6 TEMP_FAULT（电芯温度，BMS 管辖）
+    ("DEVICE_",    "DEV-PCS-01"),     # bit5 DEVICE_OFFLINE
+    ("DATA_",      "DEV-METER-01"),   # bit4 DATA_INVALID（采集层）
+    ("EMERGENCY_", "DEV-PCS-01"),     # bit7 急停：直接切 PCS 与断路器
+)
+
+
+def _comm_device(message: str) -> str:
+    """COMM 告警 -> 设备号。COMM 是唯一**跨部位**的告警源：别的 source 按
+    模块名就能定位，它必须按实际置位的故障位判断，否则全部退化成默认值，
+    界面上"按设备筛选"就成了恒等于总数的假入口。"""
+    m = (message or "").upper()
+    for key, dev in _FAULT_BIT_DEVICE:
+        if key in m:
+            return dev
+    return "DEV-BMS-01"
+
+
+def _source_to_device(source: str, message: str = "") -> str:
+    """告警来源 -> 设备号。来源是模块名（FSM/SAFETY/...），能对上就对上。
+
+    部位口径对齐 `链路协议清单.csv`：
+      FSM/SOC/TEMP -> 柜内·电池舱（BMS 三层 -> BAMS 出口）
+      SAFETY/TRANSFORMER -> 站内·一次（变压器温控器）
+      GRID -> 站内·一次（关口电表）
+      COMM -> 跨全部位，按故障位判定（见 _comm_device）
+    """
     s = (source or "").upper()
+    if "COMM" in s:
+        return _comm_device(message)
     if "FSM" in s or "STATE" in s:
+        return "DEV-BMS-01"
+    if "SOC" in s or "TEMP" in s:
         return "DEV-BMS-01"
     if "SAFETY" in s or "TRANSFORMER" in s:
         return "DEV-TR-01"
@@ -788,6 +831,14 @@ def import_all(build_dir: str, db_path: Optional[str] = None,
     fault_dir = os.path.join(build_dir, "fault")
     if os.path.isdir(fault_dir):
         scenes.append(("fault", fault_dir, "24h 故障注入场景"))
+    # 异常工况日（10/ --stress）。★ 这个场景是 SOC / TEMP / TRANSFORMER
+    # 三类告警**唯一**的数据来源：默认典型日里它们恒为 0，因为系统健康
+    # （关口被需量控制压在 400、变压器留 100 裕度、SOC 稳在带内）——
+    # 那是"调度有效"的证据，不是缺陷。要展示全谱告警分类，就得有这个场景。
+    # 目录不存在就跳过（没跑过 --stress 也能正常导入，不报错）。
+    stress_dir = os.path.join(build_dir, "stress")
+    if os.path.isdir(stress_dir):
+        scenes.append(("stress", stress_dir, "24h 异常工况日（压力工况）"))
 
     day = date or datetime.date.today().isoformat()
     results = []

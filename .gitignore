@@ -93,6 +93,8 @@ build_all.log
 15/tests/_*
 # 14/ 后端探针脚本
 14/tests/_probe_live.py
+# 14/ 告警维度探针（scripts/probe_alarm_dims.py）的输出：结论性文本，可随时重跑
+14/.probe_*
 # 全量构建的临时包装脚本
 scripts/_run_build_all_tmp.bat
 # 排查 / 验证用的一次性输出（根目录，点号开头）：

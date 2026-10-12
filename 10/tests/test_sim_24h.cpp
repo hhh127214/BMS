@@ -713,6 +713,102 @@ static void t113_multi_day() {
 }
 
 // =====================================================================
+// T114 异常工况日（--stress）与告警去抖
+//
+// 为什么单列一段：压力场景是**唯一**能让 SOC / TEMP / TRANSFORMER 三类
+// 告警产生的地方。默认日里它们恒为 0 —— 那不是缺陷，是系统健康的证据
+// （关口被需量控制压在 400、变压器留 100 裕度、SOC 稳在带内），
+// 论证见 main.cpp scenario_stress() 的注释。
+// 没有这段断言，这三路代码会退化成"改坏了也不红"的死代码。
+// =====================================================================
+static int count_src(const Sim24hResult& r, const char* src) {
+    int n = 0;
+    for (const auto& a : r.alarms) if (a.source == src) ++n;
+    return n;
+}
+static int count_src_lv(const Sim24hResult& r, const char* src, const char* lv) {
+    int n = 0;
+    for (const auto& a : r.alarms) if (a.source == src && a.level == lv) ++n;
+    return n;
+}
+
+static void t114_stress() {
+    std::cerr << "[T114] 异常工况日（--stress）与告警去抖...\n";
+
+    // ---------- ① 压力场景：三类告警必须真实产生 ----------
+    Sim24hConfig c = make_default_24h_config();
+    c.dt_s = 2.0;  c.log_every = 5;          // 加速（告警语义与步长无关）
+    c.title = "异常工况日（压力）";
+    c.plant.soc_init = 0.90;                 // 开局落在 [0.895, 0.902] 窗口
+    c.tr_check_cap_kw = 420.0;               // 变压器偏小（只改检查容量）
+    c.fault_windows = {
+        {17.5 * 3600.0, 19.5 * 3600.0, 7, "散热失效（柜内环境 50 ℃）"},
+    };
+    c.auto_restart_after_fault = true;
+    Sim24hResult r = run_sim_24h(c);
+    EXPECT(r.ok);
+
+    // 硬不变量：**任何工况**都不得破坏（架构级）。压力工况允许安全不变量
+    // 非零（那是场景结论），但硬不变量不行 —— 破了就是架构问题。
+    EXPECT(r.hard_invariants_ok());
+    EXPECT(r.out_of_interval == 0);
+    EXPECT(r.over_limit      == 0);
+    EXPECT(r.gated_nonzero   == 0);
+
+    // 三类告警各至少一条
+    EXPECT(count_src(r, "SOC")         >= 1);
+    EXPECT(count_src(r, "TEMP")        >= 1);
+    EXPECT(count_src(r, "TRANSFORMER") >= 1);
+
+    // 去抖守门：TEMP 在 4 h 散热窗内若未去抖会产生约 1440 条
+    // （360 行/h × 4 h）。去抖后应为"置位 + 解除"各一条。
+    EXPECT(count_src(r, "TEMP") <= 4);
+    EXPECT(count_src_lv(r, "TEMP", "WARNING") == 1);
+    EXPECT(count_src_lv(r, "TEMP", "INFO")    == 1);
+
+    // 散热失效必须把温度真的推过预警线，否则 TEMP 告警是空的
+    EXPECT(r.econ.max_temp_c >= c.safety.temp_warn_c);
+    // 但不能越过故障线 —— 那会置 bit6 进 EMERGENCY（锁存、需人工复位），
+    // 压力工况只演示"预警与降额"，不该走到"锁死"。
+    EXPECT(r.econ.max_temp_c < c.safety.temp_fault_c);
+
+    std::cerr << "       压力日：SOC=" << count_src(r, "SOC")
+              << " TEMP=" << count_src(r, "TEMP")
+              << " TRANSFORMER=" << count_src(r, "TRANSFORMER")
+              << " FSM=" << count_src(r, "FSM")
+              << "，最高温 " << r.econ.max_temp_c << " ℃\n";
+
+    // ---------- ② COMM 去抖：N 个窗 = 2N 条（置位 + 恢复各一条）----------
+    //
+    // 去抖前：故障位不变也每 10 s 记一条，30 min 窗 = 180 条同一句话；
+    // 三个窗共 270 条，把告警中心整个淹没。
+    Sim24hConfig c2 = make_default_24h_config();
+    c2.dt_s = 2.0;  c2.log_every = 5;
+    c2.fault_windows = {
+        {8.0 * 3600.0,  8.5 * 3600.0,  4, "PCS 故障"},
+        {14.0 * 3600.0, 14.25 * 3600.0, 1, "BMS 通信中断"},
+    };
+    Sim24hResult r2 = run_sim_24h(c2);
+    EXPECT(r2.ok);
+    EXPECT(r2.fault_ticks > 0);
+    // 2 个窗 → 恰好 4 条（2 置位 + 2 恢复）。差一条就说明去抖坏了。
+    EXPECT(count_src(r2, "COMM") == 4);
+    EXPECT(count_src_lv(r2, "COMM", "FAULT") == 2);
+    EXPECT(count_src_lv(r2, "COMM", "INFO")  == 2);
+    std::cerr << "       COMM 去抖：2 窗 → " << count_src(r2, "COMM") << " 条（期望 4）\n";
+
+    // ---------- ③ 默认场景不得被污染 ----------
+    //
+    // 压力配置必须**只**存在于压力场景。默认日里这四类恒为 0 是
+    // "调度有效"的证据；哪天它们冒出来了，说明压力配置泄漏进了默认场景。
+    ensure_normal_run();
+    EXPECT(count_src(g_res, "SOC")         == 0);
+    EXPECT(count_src(g_res, "TEMP")        == 0);
+    EXPECT(count_src(g_res, "TRANSFORMER") == 0);
+    EXPECT(count_src(g_res, "COMM")        == 0);
+}
+
+// =====================================================================
 int main() {
     std::cerr << "=== 10/ 周期 10 单元测试（EMS 24h 离线仿真）===\n";
     t101_curves();
@@ -728,6 +824,7 @@ int main() {
     t111_fault_energy_budget();
     t112_live_matches_batch();
     t113_multi_day();
+    t114_stress();
 
     std::cerr << "\n----------------------------------------\n";
     std::cerr << "PASS=" << g_pass << " FAIL=" << g_fail << "\n";

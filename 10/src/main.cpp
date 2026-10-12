@@ -12,6 +12,12 @@
 //   sim_demo.exe --csv <path> --out <dir>
 //   sim_demo.exe --fast                  加速模式（dt=2s，仅演示，不用于验收）
 //   sim_demo.exe --fault                 附加故障注入场景（PCS 故障 + 通信中断）
+//   sim_demo.exe --stress                异常工况日（满充 / 变压器偏小 / 散热失效）
+//                                        —— 让各类告警在真实工况下产生，
+//                                           用于验证告警分类；默认典型日
+//                                           **故意保持干净**（见 scenario_stress 注释）
+//
+//   ★ --fault 与 --stress 互斥，同时给出会报错而不是静默取一个。
 //   sim_demo.exe --duration-s 604800     跑一周（默认 86400 = 一天）
 //
 //   ★ --duration-s 是「日 / 周 / 月仿真」的入口（14/ 的仿真模式靠它）。
@@ -57,6 +63,81 @@ Sim24hConfig scenario_fault() {
     // 演示"上层保持运行许可"：故障恢复后重新带载，展示完整恢复路径。
     // 现场若要求人工确认，把这里置 false 即可（恢复后停在 READY 待机）。
     c.auto_restart_after_fault = true;
+    return c;
+}
+
+// ---- 内置场景：异常工况日（压力）----
+//
+// 目的：让 GRID / TRANSFORMER / SOC / SAFETY / TEMP 五类告警在**各自真实的
+//       物理工况**下产生，用于验证告警分类、部位映射与界面展示。
+//
+// ⚠️ 这是"压力工况"，不是"系统有病"。每一条改动都对应一个现场真实存在的
+//    工况，逐条说明见下方。**默认场景一个字节都不能动**：
+//    正常日没有这五类告警，是因为系统健康（关口被需量控制压在 400、
+//    变压器 500 留 100 裕度、SOC 稳稳控在 [0.11, 0.88]）—— 那是
+//    **调度有效的证据**。为了"让告警看起来全"去改默认场景，等于把健康
+//    系统改成病态系统来刷数据，汇报时"调度有效"与"告警全谱"自相矛盾。
+Sim24hConfig scenario_stress() {
+    Sim24hConfig c = make_default_24h_config();
+    c.title = "EMS 24h 离线仿真 · 异常工况日（压力工况）";
+
+    // ① SOC 上限告警：前一日满充未放，开局贴上限。
+    //    soc_init = 0.90 是算过的，卡在一个 7‰ 宽的窗口里：
+    //      · ≥ soc_max - 0.005 = 0.895  → 触发 SOC 上限告警
+    //      · ≤ soc_max + soc_tol = 0.902 → **不算**"越界"（安全不变量）
+    //
+    //    ★ 踩坑记录（三个值都实测过，结论与直觉相反，别再试第二遍）：
+    //
+    //      soc_init = 0.80 → SOC 告警**没有**。实测 soc_max 从 0.80 充到
+    //                        0.8801 就停了 —— 策略**充了电**，但它的规划
+    //                        终点就是 0.88，离告警线 0.895 恒差 0.015。
+    //                        策略不会主动把 SOC 送进告警区，这是对的。
+    //      soc_init = 0.88 → 同一条路，同样停在 0.8801，同样不告警。
+    //      soc_init = 0.90 → 开局就落在 [0.895, 0.902] 这个窗口里，
+    //                        第 10 s 记一条 SOC 告警。✓
+    //
+    //    所以 SOC 上限告警只能靠"开局就在告警区"产生，靠充电过程是充不
+    //    上去的 —— 因为策略的规划终点 0.88 < 告警线 0.895。
+    c.plant.soc_init = 0.90;
+
+    // ② 变压器偏小（420 kVA）：一条改动同时喂两个判据 ——
+    //
+    //    告警判据（10/collect_alarms）  tr_overload_th × tr_check_cap_kw × tr_check_tol
+    //                                 = 0.95 × 420 × 1.05 = 418.95 kW
+    //    安全层判据（05/check_transformer） 用 **limits.transformer_capacity_kw**
+    //
+    //    ★ 只改 tr_check_cap_kw，**不要动** limits.transformer_capacity_kw。
+    //      实测过：两个都改成 420 之后，安全层的并网/变压器约束跟着收紧，
+    //      把放电压了下去，关口峰值从 400 掉到 373.3 kW，
+    //      tr_load = 373.3 + 0.1×450 = 418.3 < 418.95 —— **差 0.65 kW 反而
+    //      不告警了**。这是"设计内的降级"：安全层成功防住了过载，于是
+    //      过载告警不触发。区分降级与故障，靠的就是这种差一点点的数字。
+    //      安全层防过载的手段是**限充**（充电推高关口），所以它只在充电
+    //      过程中才出手 —— 这也是 SAFETY 告警要靠 ① 的充电过程来带。
+    c.tr_check_cap_kw = 420.0;
+
+    // ③ 散热失效：柜内精密空调 / 液冷 CDU 停运 → 环境温度 25 → 50 ℃
+    //    电池温度 ≈ 50.3 ℃，越过 temp_warn_c = 45 ℃ 预警线：
+    //      · TEMP 告警
+    //      · 安全层高温降额（temp_warn_derate = 0.5，放电上限 250→125 kW）
+    //        → 若策略此时仍想满功率放电，指令被削 → SAFETY 告警
+    //    刻意不越过 temp_fault_c = 55 ℃ —— 那会置 bit6 进 EMERGENCY，
+    //    是**锁存**状态、需人工复位，压力工况不该走到"锁死"这一步。
+    //
+    // ★ 窗口为什么放在 17:30–19:30，而不是"最热的中午"：
+    //   降额要被**碰到**才会产生 safety_clip。查典型日曲线
+    //   （10/data/typical_day_96.csv）：光伏峰 12:00（pv=300，load=341），
+    //   中午策略本就不需要出力，降额落空；真正的放电需求在晚峰 ——
+    //   19:00 负荷 450 kW、尖峰电价 1.2 元，正常日实测 max|cmd| 到过
+    //   250 kW（满功率）。窗口压在晚峰，降额才会真的削到指令。
+    //   物理上也说得通：午后柜内热量累积到高位，此时空调失效后果最重。
+    c.fault_windows = {
+        {17.5 * 3600.0, 19.5 * 3600.0, 7,
+         "散热失效（空调/液冷停运，柜内环境 50 ℃，放电上限降额至 125 kW）"},
+    };
+    // 散热失效不是"故障停机"，恢复后应重新带载
+    c.auto_restart_after_fault = true;
+
     return c;
 }
 
@@ -179,6 +260,7 @@ int main(int argc, char** argv) {
     Sim24hConfig cfg = scenario_normal();
     std::string out_dir = "build";
     bool fault_mode = false;
+    bool stress_mode = false;
     bool fast = false;
 
     // ---- CLI 覆盖项：先记下来，**等场景选定后再套上去** ----
@@ -220,14 +302,27 @@ int main(int argc, char** argv) {
             ov.title = argv[++i];
         } else if (a == "--fault") {
             fault_mode = true;
+        } else if (a == "--stress") {
+            stress_mode = true;
         } else if (a == "--help" || a == "-h") {
             std::printf("usage: sim_demo [--csv <path>] [--out <dir>] [--fast] "
-                        "[--log-every N] [--duration-s SEC] [--title STR] [--fault]\n");
+                        "[--log-every N] [--duration-s SEC] [--title STR] "
+                        "[--fault] [--stress]\n"
+                        "  --fault   故障注入日（PCS 故障 / 通信中断），验证安全响应\n"
+                        "  --stress  异常工况日（满充 / 变压器偏小 / 散热失效），\n"
+                        "            让各类告警在真实工况下产生，用于验证告警分类\n");
             return 0;
         }
     }
 
-    if (fault_mode) cfg = scenario_fault();
+    // --fault 与 --stress 互斥（两者都是"换掉整份 cfg 的内置场景"）：
+    // 同时给就报错，不要静默取一个 —— 静默取一个是本项目反复踩过的坑。
+    if (fault_mode && stress_mode) {
+        std::printf("[FAIL] --fault 与 --stress 不能同时使用（两者都是内置场景）\n");
+        return 2;
+    }
+    if (fault_mode)  cfg = scenario_fault();
+    if (stress_mode) cfg = scenario_stress();
     if (fast) {
         cfg.dt_s = 2.0;
         cfg.log_every = 5;      // 10 s 日志

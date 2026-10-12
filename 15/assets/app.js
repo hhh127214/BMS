@@ -314,7 +314,7 @@ const App = (() => {
 
   /* 数据集分段：按引擎模式列出"现在能看的那些数据"。
      运行模式 → 只有 live（实时入库的那一份）；
-     仿真模式 → 最近几次仿真数据集（多的收进仿真页历史台账）+ 内置正常/故障日。 */
+     仿真模式 → 最近几次仿真数据集（多的收进仿真页历史台账）+ 全部内置场景。 */
   function buildScenarioSeg(engineInfo) {
     const seg = $('#scenario-seg');
     if (!seg) return;
@@ -353,6 +353,7 @@ const App = (() => {
     if (id === 'live') return { id, name: '实时数据', rows: 0 };
     if (id === 'normal') return { id, name: '内置·正常日', rows: (scn && scn.log_rows) || 0 };
     if (id === 'fault') return { id, name: '内置·故障日', rows: (scn && scn.log_rows) || 0 };
+    if (id === 'stress') return { id, name: '内置·异常日', rows: (scn && scn.log_rows) || 0 };
     // 入库时写的是「日仿真d001 · 典型日（正常）」这种长名，
     // 分段按钮只取前面的短名（' · ' 之前那段）。
     return {
@@ -374,8 +375,19 @@ const App = (() => {
                       .localeCompare(String(a.imported_at || '')))
                     .slice(0, SEG_SCENARIO_MAX)
                     .map(s => scenarioEntry(s, s.scenario_id));
-    const builtin = all.filter(s => ['normal', 'fault'].includes(s.scenario_id))
-                       .map(s => scenarioEntry(s, s.scenario_id));
+    // ★ 内置数据集 = 既不是实时流（live）、也不是仿真批次（sim-*）的那些。
+    //
+    //   原先这里硬编码 ['normal','fault'] —— 后果是：2026-10-11 新增的 stress
+    //   （异常工况日）在后端有数据、接口 ?scenario=stress 也照常返回 13 条，
+    //   界面上却**没有对应按钮**，用户根本点不到它。
+    //   全链路都通、唯独入口被白名单挡住，是最难发现的一类缺口。
+    //
+    //   改成按前缀排除后，以后新增的内置场景会自动出现在切换器上，
+    //   不用每次回头改这张名单。
+    const builtin = all.filter((s) => {
+      const id = String((s && s.scenario_id) || '');
+      return id !== 'live' && !id.startsWith('sim-');
+    }).map((s) => scenarioEntry(s, s.scenario_id));
     return sims.concat(builtin);
   }
 
@@ -560,11 +572,20 @@ const App = (() => {
     // 一段长表格根本没法看。
     const keepTop = o.keepScroll ? content.scrollTop : 0;
 
-    // 先清理上一轮页面留下的定时器 / 监听器
-    disposers.splice(0).forEach(fn => { try { fn(); } catch (e) { /* 忽略 */ } });
+    // ★ 静默刷新（自动重刷）绝不在取数前清屏：旧屏保持挂载、可交互，
+    //   新树在幕后建好后再一次性换上。原实现先 clear + 插"加载中…"再 await 取数
+    //   —— 两个任务之间浏览器把空屏画了出来，这就是运行模式每 5 s 闪一次的根源。
+    //   非 quiet（点菜单 / 切模式 / 切数据集）仍是用户主动换页，保留"加载中…"。
+    //   d0 = 入界时 disposers 的长度：quiet 时数组前段 [0,d0) 是旧屏的定时器，
+    //   本次构建新注册的在 [d0, end) —— 换屏 / 跳过 / 失败三条路各自只退该退的那段。
+    const d0 = o.quiet ? disposers.length : 0;
+    if (!o.quiet) {
+      // 先清理上一轮页面留下的定时器 / 监听器
+      disposers.splice(0).forEach(fn => { try { fn(); } catch (e) { /* 忽略 */ } });
 
-    clear(content);
-    content.appendChild(h('div', { class: 'empty', text: '加载中…' }));
+      clear(content);
+      content.appendChild(h('div', { class: 'empty', text: '加载中…' }));
+    }
 
     // 跨页面共享的「当前仿真时刻」：实时监控拖动/播放会更新它，
     // 总览据此取同一拍，消除「两页看的是不同时刻」的割裂。null = 未指定（默认最后一拍）。
@@ -600,16 +621,36 @@ const App = (() => {
 
     try {
       const node = await meta.render(ctx);
-      clear(content);
-      // 刷新失败时不要把上一屏数据清掉（本次已清，所以这里用"渲染中"占位更安全）
-      content.appendChild(node);
-      // ★ 页面里自带的 .seg（实时监控的倍速 / 报表系统的日报周报月报）在这里才
-      //   第一次有布局，指示条必须等挂载完再对位 —— 页面函数自己调的话读到的是 0。
-      placeSegs(content);
-      if (o.keepScroll) content.scrollTop = keepTop;
+      // 数据一字节没变就不换屏：保住悬停态 / 焦点 / 文本选区，肉眼完全无感
+      //（outerHTML 对比：树是我们自己 createElement 建的，属性顺序确定，可比）。
+      const old = content.firstElementChild;
+      const unchanged = o.quiet && old && node.outerHTML === old.outerHTML;
+      if (unchanged) {
+        // 旧屏原样保留（它的定时器 = 前段 [0,d0)，继续活着）；
+        // 这次幕后构建注册的（[d0,end)）随被丢弃的树一起退掉。
+        disposers.splice(d0).forEach(fn => { try { fn(); } catch (e) { /* 忽略 */ } });
+      } else {
+        // 只退旧屏的（quiet 时是 [0,d0)；非 quiet 已在前面清空 = 0 条）。
+        // 新树注册的定时器留着 —— 它们属于即将上屏的这一页，下一轮再退。
+        disposers.splice(0, d0).forEach(fn => { try { fn(); } catch (e) { /* 忽略 */ } });
+        clear(content);
+        content.appendChild(node);
+        // ★ 页面里自带的 .seg（实时监控的倍速 / 报表系统的日报周报月报）在这里才
+        //   第一次有布局，指示条必须等挂载完再对位 —— 页面函数自己调的话读到的是 0。
+        placeSegs(content);
+        if (o.keepScroll) content.scrollTop = keepTop;
+      }
     } catch (e) {
-      clear(content);
-      content.appendChild(h('div', { class: 'empty', text: `加载失败：${e.message}` }));
+      if (o.quiet) {
+        // 静默刷新失败：保留上一屏。一次网络抖动不该把整页打成一屏红字，
+        // 下一拍（5 s 后）会自动再试。这次半途构建可能注册过的定时器退掉，
+        // 旧屏自己的（[0,d0)）原样保留。
+        disposers.splice(d0).forEach(fn => { try { fn(); } catch (e2) { /* 忽略 */ } });
+        console.warn('自动刷新失败（保留上一屏）:', e);
+      } else {
+        clear(content);
+        content.appendChild(h('div', { class: 'empty', text: `加载失败：${e.message}` }));
+      }
     }
     syncLiveTimer();
   }

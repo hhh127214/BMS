@@ -247,12 +247,34 @@ function lineChart(cfg) {
       stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="4 3"/>`);
   }
   // x 轴标签
+  // ★ 刻度数按「最长标签的估算宽度」自适应，不再固定 ~8 个：
+  //   sim 场景标签是 "HH:MM"（5 字符），8~9 个刚好；run 模式（wall 口径）
+  //   是 "2026-10-11 22:03:12"（19 字符），同样 8~9 个必然两两重叠
+  //   （2026-10-12 用户截图实测：54 行实录 · 10 个刻度 · 相邻中心 ~92
+  //   单位 < 标签宽 ~118 单位，功率与 SOC 两张图同时中招）。
+  //   水平方向 preserveAspectRatio="none" 等比拉伸，viewBox 内不重叠
+  //   ⇒ 显示出来也不重叠，所以判据可以在 viewBox 坐标里做。
+  // 另：wall 标签通常共享同一个日期前缀，逐个重复既占地又挡视线 ——
+  //   全体一致时只保留时间部分，日期在右上角画一次；跨午夜（日期不一致）
+  //   时不动标签，靠降低刻度密度保不重叠。
   const labels = cfg.xLabels || [];
   if (labels.length) {
-    const step = Math.max(1, Math.floor(labels.length / 8));
-    for (let i = 0; i < labels.length; i += step) {
+    const ticksAll = labels.map(String);
+    const mDate = ticksAll[0].match(/^\d{4}-\d{2}-\d{2}(?= )/);
+    const sameDay = mDate && ticksAll.every(s => s.startsWith(mDate[0] + ' '));
+    const ticks = sameDay ? ticksAll.map(s => s.slice(mDate[0].length + 1)) : ticksAll;
+    const maxLen = ticks.reduce((m, s) => Math.max(m, s.length), 0);
+    // 6.2 ≈ 11px 字号下数字/冒号的平均字宽；+14 是刻度间最小呼吸空隙。
+    // 上限 9：短标签场景维持原有的 ~8-9 个刻度观感，不因装得下就铺满。
+    const maxFit = Math.min(9, Math.max(2, Math.floor(iw / (maxLen * 6.2 + 14))));
+    const step = Math.max(1, Math.ceil(ticks.length / maxFit));
+    for (let i = 0; i < ticks.length; i += step) {
       out.push(`<text x="${X(i).toFixed(1)}" y="${H - 8}" text-anchor="middle"
-        font-size="11" fill="var(--text-3)">${labels[i]}</text>`);
+        font-size="11" fill="var(--text-3)">${ticks[i]}</text>`);
+    }
+    if (sameDay) {
+      out.push(`<text x="${W - padR}" y="${padT - 1}" text-anchor="end"
+        font-size="10" fill="var(--text-3)">${mDate[0]}</text>`);
     }
   }
   // 曲线
@@ -975,31 +997,100 @@ function wiringDiagram(d) {
   s.push(`<svg viewBox="0 0 ${W} ${H}" class="chart wiring" role="img">`);
   s.push(`<title>一次接线图</title><desc>柜 → 舱 → 部件的电气连接与当前功率方向</desc>`);
 
-  /* ---- 连线先画（压在节点下面，接头才干净） ---- */
-  edges.forEach(e => {
+  /* ---- 三个几何工具：让线不进框、数不压字 ---- */
+
+  // 竖直段若落在某个节点框内（且 y 区间有交叠），线就会从框里穿出来
+  const hitsNode = (x, yA, yB) => nodes.some(n =>
+    x > n.x - 3 && x < n.x + n.w + 3 &&
+    !(Math.max(yA, yB) < n.y - 3 || Math.min(yA, yB) > n.y + n.h + 3));
+
+  // 折线的竖直段落点：从两节点中点起，向两侧找第一个不碰框的位置
+  function safeX(x1, x2, y1, y2) {
+    const mid = (x1 + x2) / 2;
+    if (!hitsNode(mid, y1, y2)) return mid;
+    const lo = Math.min(x1, x2), hi = Math.max(x1, x2);
+    for (let d = 6; d <= Math.abs(hi - lo); d += 6) {
+      if (mid + d <= hi && !hitsNode(mid + d, y1, y2)) return mid + d;
+      if (mid - d >= lo && !hitsNode(mid - d, y1, y2)) return mid - d;
+    }
+    return mid;
+  }
+
+  /* 功率数字：抬到节点上方（原来放在「中心 −8」，正落在节点名称那一行上）；
+     再加一圈卡片底色的描边，万一仍与线相交也读得清。 */
+  const label = (x, y, anchor, txt) => {
+    s.push(`<text x="${x}" y="${y}" text-anchor="${anchor}" fill="var(--text)"`
+         + ` font-size="10.5" font-weight="600" paint-order="stroke"`
+         + ` stroke="var(--card)" stroke-width="3.5" stroke-linejoin="round">${txt}</text>`);
+  };
+
+  /* ---- 辅助舱：共用一条「辅助母线」，各部件竖直挂上去 ----
+     原来每个部件一根折线拉到母线，竖直段必然落在主链某个节点框内
+     （消防那根就压在「交流断路器」框上），横向段还会穿过主链文字。
+     改成一条水平母线架在辅助行与主链之间，部件各自向上/下接。 */
+  const AUX_Y = 138;
+  const auxEdges = edges.filter(e => e.aux && idx[e.from] && idx[e.to]);
+  if (auxEdges.length) {
+    const bus = idx[auxEdges[0].from];
+    const bx = bus.x + bus.w / 2;
+    const tail = idx[auxEdges[auxEdges.length - 1].to];
+    const tx = tail.x + tail.w / 2;
+    s.push(`<path d="M${bx},${bus.y} L${bx},${AUX_Y} L${tx},${AUX_Y}" fill="none"`
+         + ` stroke="var(--text-3)" stroke-width="1.6" stroke-dasharray="6 4" opacity="0.5"/>`);
+    auxEdges.forEach(e => {
+      const n = idx[e.to];
+      const cx = n.x + n.w / 2;
+      s.push(`<path d="M${cx},${n.y + n.h} L${cx},${AUX_Y}" fill="none"`
+           + ` stroke="var(--text-3)" stroke-width="1.6" stroke-dasharray="6 4" opacity="0.5"/>`);
+    });
+  }
+
+  /* ---- 主链与分支：连线先画（压在节点下面，接头才干净） ---- */
+  edges.filter(e => !e.aux).forEach(e => {
     const a = idx[e.from], b = idx[e.to];
     if (!a || !b) return;
-    // 从 a 的右边出发，进 b 的左边；同 y 时画直线，不同 y 时走折线（先平后斜再平）
-    const x1 = a.x + a.w, y1 = a.y + a.h / 2;
-    const x2 = b.x,       y2 = b.y + b.h / 2;
-    const mid = (x1 + x2) / 2;
-    const path = Math.abs(y1 - y2) < 1
-      ? `M${x1},${y1} L${x2},${y2}`
-      : `M${x1},${y1} L${mid},${y1} L${mid},${y2} L${x2},${y2}`;
     const stroke = e.color || 'var(--line)';
     const wdt = e.active ? 3.2 : 1.6;
+    const dash = e.dashed ? ' stroke-dasharray="6 4"' : '';
+    const opac = e.active ? ' opacity="0.95"' : ' opacity="0.4"';
+
+    /* 出线侧自适应：
+       ★ 固定「a 右缘 → b 左缘」在 b 位于 a 左侧（或同列）时会绕回去、穿过 b 的框
+         —— 母线 → 厂区负荷就是这种情况，线从负荷框里横穿过去。 */
+    if (Math.abs(a.x - b.x) < 1) {              // 同一列 → 竖连（底 → 顶）
+      const down = b.y > a.y;
+      const x = a.x + a.w / 2;
+      const y1 = down ? a.y + a.h : a.y;
+      const y2 = down ? b.y : b.y + b.h;
+      s.push(`<path d="M${x},${y1} L${x},${y2}" fill="none" stroke="${stroke}"`
+           + ` stroke-width="${wdt}"${dash}${opac}/>`);
+      if (e.active) {
+        const sg = down ? -1 : 1;               // 箭头朝行进方向
+        s.push(`<polygon points="${x},${y2} ${x - 6.5},${y2 + 11 * sg} ${x + 6.5},${y2 + 11 * sg}"`
+             + ` fill="${stroke}"/>`);
+      }
+      if (e.label) label(x + 10, (y1 + y2) / 2 + 4, 'start', e.label);
+      return;
+    }
+
+    const right = b.x > a.x;                    // 从靠近的那一侧出线
+    const x1 = right ? a.x + a.w : a.x;
+    const x2 = right ? b.x : b.x + b.w;
+    const y1 = a.y + a.h / 2, y2 = b.y + b.h / 2;
+    const mx = safeX(x1, x2, y1, y2);
+    const path = Math.abs(y1 - y2) < 1
+      ? `M${x1},${y1} L${x2},${y2}`
+      : `M${x1},${y1} L${mx},${y1} L${mx},${y2} L${x2},${y2}`;
     s.push(`<path d="${path}" fill="none" stroke="${stroke}" stroke-width="${wdt}"`
-         + (e.dashed ? ' stroke-dasharray="6 4"' : '')
-         + (e.active ? ' opacity="0.95"' : ' opacity="0.4"') + '/>');
+         + `${dash}${opac}/>`);
     if (e.active) {
-      // 箭头：与 energyFlow 同规矩——7 点实心多边形，不用 <marker>
-      const ay = y2, ax = x2;
-      s.push(`<polygon points="${ax},${ay} ${ax - 11},${ay - 6.5} ${ax - 11},${ay + 6.5}" fill="${stroke}"/>`);
+      // 箭头：与 energyFlow 同规矩——实心多边形，不用 <marker>
+      const sg = right ? -1 : 1;
+      s.push(`<polygon points="${x2},${y2} ${x2 + 11 * sg},${y2 - 6.5} ${x2 + 11 * sg},${y2 + 6.5}"`
+           + ` fill="${stroke}"/>`);
     }
-    if (e.label) {
-      s.push(`<text x="${(x1 + x2) / 2}" y="${Math.min(y1, y2) - 8}" text-anchor="middle"`
-           + ` fill="var(--text)" font-size="10.5" font-weight="600">${e.label}</text>`);
-    }
+    // 节点高 50：中心到顶 25，再留 8 ⇒ 抬 33 才落在框外
+    if (e.label) label(mx, Math.min(y1, y2) - 33, 'middle', e.label);
   });
 
   /* ---- 节点 ---- */

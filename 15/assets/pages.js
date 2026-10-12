@@ -712,15 +712,26 @@ const Pages = (() => {
   }
 
   /* ======================= 4. 告警中心 =======================
-     ★ 分类维度开哪些，是拿真实数据定的，不是拍脑袋（实测 14/data/ems.db 290 行，
-       探针脚本 14/scripts/probe_alarm_dims.py，记录见 CHANGES.md §60）：
+     ★ 分类维度开哪些，是拿真实数据定的，不是拍脑袋
+       （探针脚本 14/scripts/probe_alarm_dims.py，每次改完导入都要重跑）：
+
+       —— 改前（只有 normal + fault 两个场景，290 行）——
          level      3 个取值（FAULT 272 / INFO 12 / DERATED 6）  → 可筛
          source     2 个取值（COMM 270 / FSM 20）               → 可筛
          status     1 个取值（active 290）                       → ★ 不开放
          device_id  1 个取值（DEV-BMS-01 290）                   → ★ 不开放
-       status / device_id 做进筛选就是"恒 0 条"的假入口：界面上看着能选，
-       选了却永远空 —— 比不提供这个选项更糟（"已恢复"至今一条都没有，
-       因为 importer.py:395 把所有行的 status 写死成 active）。
+
+       —— 改后（加入 --stress 场景 + COMM 去抖 + 部位映射，39 行）——
+         level      4 个取值（INFO 22 / DERATED 9 / FAULT 5 / WARNING 3）
+         source     5 个取值（FSM 29 / COMM 6 / TEMP 2 / TRANSFORMER 1 / SOC 1）
+         device_id  4 个取值（BMS 34 / PCS 2 / METER 2 / TR 1）
+         status     1 个取值（active 39）                       → ★ 仍不开放
+
+       ★ 行数从 290 掉到 39，是因为 COMM 从"逐拍刷屏 270 条"去抖成了 6 条
+         （故障位不变也每 10 s 记一遍同一句话）。少的是噪音，不是信息。
+       ★ status 至今仍只有 active：importer.py 把所有行写死成 active，
+         SET/CLEAR 配对要等接 20/ 装配器才有 —— 在拿到真实配对之前，
+         把它做成筛选项就是"恒 0 条"的假入口，比不给这个选项更糟。
      ============================================================ */
   async function alarms(ctx) {
     /* 等级全谱：与后端 h_alarm_summary 的 ALARM_LEVELS 同一份清单。
@@ -1324,10 +1335,12 @@ const Pages = (() => {
         color: 'var(--c-pv)' },
       { from: 'bus',  to: 'load', label: kw(p.load_kw), active: (p.load_kw || 0) > 0.5,
         color: 'var(--c-load)' },
-      // 辅助：只表示"挂在柜上"，不表示电流路径
-      { from: 'bus', to: 'fire', dashed: true, color: 'var(--text-3)' },
-      { from: 'bus', to: 'hvac', dashed: true, color: 'var(--text-3)' },
-      { from: 'bus', to: 'sec',  dashed: true, color: 'var(--text-3)' },
+      // 辅助：只表示"挂在柜上"，不表示电流路径。
+      // ★ aux: true ⇒ ui.js 把它们画成共用一条辅助母线、各自竖直挂上去，
+      //   而不是三根折线横穿主链（那会让线从「交流断路器」框里穿出来）。
+      { from: 'bus', to: 'fire', aux: true, dashed: true, color: 'var(--text-3)' },
+      { from: 'bus', to: 'hvac', aux: true, dashed: true, color: 'var(--text-3)' },
+      { from: 'bus', to: 'sec',  aux: true, dashed: true, color: 'var(--text-3)' },
     ];
 
     const linkRows = [
