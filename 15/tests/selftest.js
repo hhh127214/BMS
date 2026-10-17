@@ -88,7 +88,7 @@ const appJs = read(path.join(ROOT15, 'assets/app.js'));
    ★ 用来做"这个函数里必须/不许出现什么"的断言。
    ★ 必须同时认 `function` 与 `async function` —— 只认前者时，若后面紧跟的是
      `async function renderPage`，切片会一路吃到文件末尾，把**别处**的字符串也算进来
-     （2026-10-16 加 [M] 段时因此误判过一条否定断言：空状态里本来没有"加载失败"，
+     （2026-10-16 加该段时因此误判过一条否定断言：空状态里本来没有"加载失败"，
       却因为切到了 renderPage 的兜底文案而报红）。 */
 const sliceFn = (src, header) => {
   const i = src.indexOf(header);
@@ -709,6 +709,25 @@ t.ok(/def _where\(use_level: bool, use_source: bool\)/.test(apiPy),
 t.ok(!/status = q1\(query, "status"\)/.test(apiPy),
   '★ 后端不开 status 筛选（库里 status 恒为 active，开放即"恒 0 条"假入口）');
 
+/* ★ 数据集切换器的入口守卫（2026-10-11 撞出来的静默缺口）：
+   scenarioList() 里曾硬编码 ['normal','fault'] 当作"内置场景"名单。
+   新增 stress（异常工况日）后：后端有数据、?scenario=stress 也照常返回 13 条，
+   界面上却**没有对应按钮** —— 用户根本点不到它。
+   这类失效全链路都通、接口也 200，只有"入口被名单挡住"这一处，
+   是最难发现的一档。改成按前缀排除后，这里守的就是"名单不许复活"。 */
+//   ★ 匹配 `['normal','fault'].includes(` 这个**整体**，而不只是那个数组字面量：
+//     修复说明的注释里也会提到旧写法（保留历史是有价值的），只匹配数组会误伤注释。
+//     真正的缺陷特征是"把白名单当 includes 的参数用"，锚定它才既挡得住复活、
+//     又不惩罚写在注释里的前因后果。
+t.ok(!/\['normal',\s*'fault'\]\s*\.includes\(/.test(appJs),
+  '★ 数据集切换器不写死内置场景白名单（新增内置场景要自动出现，不能靠回头改名单）');
+t.ok(/id !== 'live' && !id\.startsWith\('sim-'\)/.test(appJs),
+  '内置场景改为按前缀排除（非 live、非 sim-* 即内置）');
+for (const id of ['normal', 'fault', 'stress']) {
+  t.ok(new RegExp("id === '" + id + "'").test(appJs),
+    '内置场景 ' + id + ' 在切换器上有短名（否则按钮显示原始 id）');
+}
+
 /* =====================================================================
    [L] 脚本语法守卫 —— 每个 .js 都必须能被解析
 
@@ -754,70 +773,462 @@ t.eq(scriptRefs.filter(r => !JS_FILES.includes(r)), [],
      'index.html 引用的脚本**全部**被语法守卫覆盖（新增脚本必须同步进 JS_FILES）');
 
 /* =====================================================================
-   [M] 「这一刻没有数据」≠「加载失败」—— 空状态 + 出路
+   [M] 一次接线图几何 —— 线不穿框 / 数不压字（2026-10-11 补）
 
-   ★ 为什么有这一段（2026-10-16 实跑撞出来的）：
-     §63.7 当时记的判断是「renderPage 没有 try-catch ⇒ 异常冒泡回 boot()
-     ⇒ 用户被锁在登录界面外」。用 jsdom 驱动**真前端 + 真后端**跑一遍
-     （运行模式 + 实时引擎未启动）后，这个判断被推翻：登录进得去，
-     12 个菜单都在，只是 6 个页面显示红字「加载失败：运行模式还没有实时数据…」。
-     —— 静态推断又一次把「呈现措辞不对」读成了「流程断了」。
+   ★ 为什么这一段要**真跑一遍渲染**：
+     前面 12 段全是文本 / 正则，能证明「代码里写了避让逻辑」，
+     证明不了「画出来真的不重叠」。而这次的问题偏偏是几何算错：
+       · label 放在「节点中心 − 8」，正落在节点名称那一行上 ⇒ 数字压文字；
+       · 出线固定「a 右缘 → b 左缘」，b 在 a 左侧时会绕回去横穿 b 的框
+         （母线 → 厂区负荷就是这么穿过负荷框的）；
+       · 辅助舱三根折线的竖直段落在主链节点框内 ⇒ 线从「交流断路器」里穿出来。
+     静态断言看不见这三类，只有把 SVG 真画出来、拆成盒子与线段两两求交才行。
 
-     真问题是**呈现**：404（数据未就绪）被当成「加载失败」，用户读到的是
-     「功能坏了」，排障方向被带偏。所以判据落在四件事上：
-       ① 错误对象必须带 HTTP 状态（不然前端只能猜文案，而文案是后端自由文本）；
-       ② 只有 404 走空状态；5xx / 网络错仍说「加载失败」；
-       ③ 空状态里**必须有出路**，且出路走既有接口（setEngine / liveStart）；
-       ④ 出路按钮按角色给（viewer 不该看到操作按钮）。
+   ★ 夹具口径：坐标抄自 pages.js:1282-1310，功率取一套典型工况
+     （购电 400 / 负荷 254.7 / 充电 143.3 / 光伏 0）。
+     那边改了常量，下面那条常量断言会红 —— 提醒同步本段，别让两边悄悄分叉。
    ===================================================================== */
-t.head('[M] 数据未就绪 ≠ 加载失败');
+t.head('[M] 一次接线图几何');
 
-t.ok(/err\.status = res\.status/.test(apiJs),
-     'api.js 把 HTTP 状态挂到错误对象上（前端据此分流，不猜后端文案）');
-t.ok(/e401\.status = 401/.test(apiJs),
-     '401 同样带状态（会话过期与"没数据"是两件事）');
+const vm = require('vm');
+const uiBox = { console, document: { querySelector: () => null, querySelectorAll: () => [] } };
+vm.createContext(uiBox);
+vm.runInContext(read(path.join(ASSETS, 'ui.js'))
+  + '\n;globalThis.__exp = { wiringDiagram, fmt, lineChart };', uiBox);
+const WD = uiBox.__exp && uiBox.__exp.wiringDiagram;
+const FMT = uiBox.__exp && uiBox.__exp.fmt;
+const LC = uiBox.__exp && uiBox.__exp.lineChart;
+t.ok(typeof WD === 'function' && !!FMT && typeof LC === 'function',
+     'ui.js 能在沙箱里取出 wiringDiagram() / fmt / lineChart()（供几何实测）');
 
-t.ok(/function isNotReady\(e\)/.test(appJs) && /e\.status === 404/.test(appJs),
-     'app.js 有「数据未就绪」判据，判据是 HTTP 404 而不是错误文案');
-t.ok(/isNotReady\(e\)/.test(appJs) && /renderNotReady\(e, ctx\)/.test(appJs),
-     '渲染失败时按 404 / 其他分流');
-t.ok(/加载失败：\$\{e\.message\}/.test(appJs),
-     '★ 真失败（5xx / 网络）仍保留「加载失败」措辞 —— 分流不能把两种错合成一种');
+const geo = pagesJs.match(/const NW = (\d+), NH = (\d+), ROW = (\d+)/) || [];
+t.eq([+geo[1], +geo[2], +geo[3]], [82, 50, 168],
+     '夹具的 NW / NH / ROW 与 pages.js 一致（那边改坐标要同步本段）');
 
-// 取一个顶层函数的源码片段用 sliceFn（定义在文件上方）。
-const nrBody = sliceFn(appJs, 'function renderNotReady');
-t.ok(nrBody.length > 0 && nrBody.length < appJs.length, '空状态渲染器 renderNotReady 能定位到');
-// 注意判据的精度：空状态里**不能有任何一段文字以「加载失败」开头**，
-// 但它可以（也应该）明说「这不是加载失败」—— 所以要按 `text: '…'` 的取值判，
-// 不能用 `/加载失败/` 一刀切（第一版就这么写错了，被自己的反向断言拦下）。
-t.ok(!/text:\s*['"`]加载失败/.test(nrBody),
-     '★ 空状态不把「加载失败」当作要显示的文字（措辞直接决定用户往哪查）');
-t.ok(/这不是加载失败/.test(nrBody),
-     '反过来要**显式**告诉用户「接口是通的、不是坏了」，否则他会继续查接口');
-t.ok(/switchEngine\('sim'\)/.test(nrBody),
-     '出路①「切到仿真模式」走既有接口，不是新造一套');
-t.ok(/API\.liveStart\(/.test(nrBody),
-     '出路②「启动实时引擎」走既有接口');
-t.ok(/canWrite\(\)/.test(nrBody),
-     '出路按钮按角色给（viewer 看不到操作入口）');
-t.ok(/goPage\('sim'\)/.test(nrBody),
-     '仿真模式下没有数据集时，出路是「去仿真页」而不是原地重试');
+const NW = 82, NH = 50, ROW = 168;
+const colX = (i) => 12 + i * (NW + 24);
+const wNode = (id, name, i, y, opt) => Object.assign(
+  { id, name, x: colX(i), y, w: NW, h: NH, live: false, value: null, unit: '' }, opt || {});
+const WP = { grid_kw: 400.0, load_kw: 254.7, pv_kw: 0.0, battery_kw: -143.3 };
+const wKw = (v) => `${FMT.num(v, 1)} kW`;
+const wNodes = [
+  wNode('grid', '电网', 0, ROW),
+  Object.assign(wNode('meter', '关口电表', 1, ROW), { live: true, value: 400.0, unit: 'kW' }),
+  wNode('tr', '变压器', 2, ROW),
+  wNode('bus', '站内母线', 3, ROW),
+  wNode('sw', '交流断路器', 4, ROW),
+  Object.assign(wNode('conv', 'PCS 变流器', 5, ROW), { live: true, value: -143.3, unit: 'kW' }),
+  wNode('contactor', '直流接触器', 6, ROW),
+  Object.assign(wNode('cluster', '电池簇', 7, ROW), { live: true, value: 23.8, unit: '%' }),
+  Object.assign(wNode('pv', '光伏逆变器', 2, ROW + 92, { branch: true }), { live: true, value: 0.0, unit: 'kW' }),
+  Object.assign(wNode('load', '厂区负荷', 3, ROW + 92, { branch: true }), { live: true, value: 254.7, unit: 'kW' }),
+  wNode('fire', '消防主机', 5, ROW - 96, { branch: true }),
+  wNode('hvac', '空调 / 液冷', 6, ROW - 96, { branch: true }),
+  wNode('sec', '门禁 / 安防', 7, ROW - 96, { branch: true }),
+];
+const wEdges = [
+  { from: 'grid', to: 'meter', label: wKw(WP.grid_kw), active: true, color: 'c-grid' },
+  { from: 'meter', to: 'tr', color: 'c-grid' },
+  { from: 'tr', to: 'bus', color: 'c-grid' },
+  { from: 'bus', to: 'sw', color: 'c-bat' },
+  { from: 'sw', to: 'conv', color: 'c-bat' },
+  { from: 'conv', to: 'contactor', color: 'c-bat' },
+  { from: 'contactor', to: 'cluster', label: wKw(WP.battery_kw), active: true, color: 'c-bat' },
+  { from: 'pv', to: 'bus', label: wKw(WP.pv_kw), active: false, color: 'c-pv' },
+  { from: 'bus', to: 'load', label: wKw(WP.load_kw), active: true, color: 'c-load' },
+  { from: 'bus', to: 'fire', aux: true, dashed: true, color: 'c-aux' },
+  { from: 'bus', to: 'hvac', aux: true, dashed: true, color: 'c-aux' },
+  { from: 'bus', to: 'sec', aux: true, dashed: true, color: 'c-aux' },
+];
 
-// 切模式必须成套（少一步就出「按钮切过去了、看的还是旧数据集」）
-const swBody = sliceFn(appJs, 'async function switchEngine');
-t.ok(swBody.length > 0, '切换引擎模式收成一个入口 switchEngine');
-t.ok(/state\.scenario = scenarioId \|\| ''/.test(swBody) && /await loadEngine\(\)/.test(swBody),
-     '★ 切模式必须重解析数据集（清空 / 换成指定那份）并重载引擎信息'
-     + '（不清就会「顶栏显示仿真模式、文案还是运行模式那句」）');
-t.ok((appJs.match(/API\.setEngine\(/g) || []).length === 1,
-     '★ setEngine 全文件只在一处调用（空状态与顶栏共用 —— 各写一遍必然漂移）');
+/* ---- 静态：三条避让逻辑必须还在（删了下面运行时也会红，这里是定位用） ---- */
+t.ok(/Math\.abs\(a\.x - b\.x\) < 1/.test(uiJs),
+     '★ 出线侧自适应：同列走竖连（固定右缘→左缘会绕回、横穿目标框）');
+t.ok(/function safeX\(/.test(uiJs) && /hitsNode/.test(uiJs),
+     '★ 折线竖直段避让：落点不碰任何节点框（否则线从框里穿出来）');
+t.ok(/e\.aux/.test(uiJs) && /AUX_Y/.test(uiJs) && /aux: true/.test(pagesJs),
+     '★ 辅助舱共用一条辅助母线（三根折线会横穿主链）');
+t.ok(/Math\.min\(y1, y2\) - 33/.test(uiJs),
+     '★ 功率数字抬到框外（放「中心 −8」正落在节点名称那一行）');
 
-// 登录入口不能在「登录框已隐藏」之后把异常抛回去（那会把用户扔进空白页且无处申诉）
-const enterBody = sliceFn(appJs, 'async function enterApp');
-t.ok(/classList\.add\('hidden'\)[\s\S]*try \{/.test(enterBody),
-     '★ enterApp 在隐藏登录框之后有 try 兜底（否则错误文案会写进看不见的 #login-err）');
-t.ok(/界面初始化失败/.test(enterBody),
-     '初始化失败时留在界面里说清楚，而不是弹回登录框');
+/* ---- 运行时：把 SVG 拆成文字盒子与线段，两两求交 ---- */
+const CJK = /[\u4e00-\u9fa5]/;
+const txtW = (s, f) => [...(s || '')].reduce((w, c) => w + (CJK.test(c) ? f : f * 0.56), 0);
+const txtBox = (t) => {
+  const w = txtW(t.s, t.fs);
+  const x0 = t.anchor === 'middle' ? t.x - w / 2 : t.anchor === 'end' ? t.x - w : t.x;
+  return { x0, x1: x0 + w, y0: t.y - t.fs * 0.8, y1: t.y + t.fs * 0.25, s: t.s };
+};
+const hit = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+const rOf = (n) => ({ x0: n.x, x1: n.x + n.w, y0: n.y, y1: n.y + n.h });
 
-const okAll = t.report();
-process.exit(okAll ? 0 : 1);
+const wSvg = WD({ nodes: wNodes, edges: wEdges });
+const wTexts = [];
+let mm;
+const reText = /<text x="([-\d.]+)" y="([-\d.]+)" text-anchor="(\w+)"[^>]*>([^<]*)<\/text>/g;
+while ((mm = reText.exec(wSvg))) {
+  const seg = wSvg.slice(mm.index, mm.index + 400);
+  const fm = seg.match(/font-size="([\d.]+)"/);
+  const it = { x: +mm[1], y: +mm[2], anchor: mm[3], s: mm[4], fs: fm ? +fm[1] : 11, kind: 'label' };
+  wNodes.forEach((n) => {                      // 落在节点的名称行 / 数值行 ⇒ 自带文字
+    if (Math.abs(it.y - (n.y + 20)) < 0.6 && Math.abs(it.x - (n.x + n.w / 2)) < 0.6) {
+      it.kind = 'name'; it.owner = n.id;
+    } else if (Math.abs(it.y - (n.y + n.h - 10)) < 0.6 && Math.abs(it.x - (n.x + n.w / 2)) < 0.6) {
+      it.kind = 'value'; it.owner = n.id;
+    }
+  });
+  wTexts.push(it);
+}
+const wSegs = [];
+const rePath = /<path d="([^"]+)"/g;
+while ((mm = rePath.exec(wSvg))) {
+  const num = mm[1].match(/[-\d.]+/g).map(Number);
+  for (let i = 2; i + 1 < num.length; i += 2) {
+    wSegs.push({ x1: num[i - 2], y1: num[i - 1], x2: num[i], y2: num[i + 1] });
+  }
+}
+t.eq([wTexts.filter(x => x.kind === 'label').length,
+      wTexts.filter(x => x.kind !== 'label').length], [4, wNodes.length * 2],
+     'SVG 解析正确：4 个功率数字 + 每个节点名称 / 数值各一行');
+
+const wBoxes = wTexts.map(txtBox);
+const pLabelOnRect = [], pTextOnText = [], pSegInRect = [];
+wTexts.forEach((t0, i) => {
+  if (t0.kind !== 'label') return;
+  wNodes.forEach((n) => {
+    if (hit(wBoxes[i], rOf(n))) pLabelOnRect.push(`「${t0.s}」压在「${n.name}」框上`);
+  });
+});
+for (let i = 0; i < wBoxes.length; i++) {
+  for (let j = i + 1; j < wBoxes.length; j++) {
+    if (wTexts[i].owner && wTexts[i].owner === wTexts[j].owner) continue;  // 同框文字不参与
+    if (hit(wBoxes[i], wBoxes[j])) {
+      pTextOnText.push(`「${wBoxes[i].s}」× 「${wBoxes[j].s}」`);
+    }
+  }
+}
+wSegs.forEach((sg) => wNodes.forEach((n) => {
+  for (let k = 1; k < 240; k++) {
+    const tt = k / 240;
+    const x = sg.x1 + (sg.x2 - sg.x1) * tt, y = sg.y1 + (sg.y2 - sg.y1) * tt;
+    if (x > n.x + 2 && x < n.x + n.w - 2 && y > n.y + 2 && y < n.y + n.h - 2) {
+      const d1 = Math.hypot(x - sg.x1, y - sg.y1), d2 = Math.hypot(x - sg.x2, y - sg.y2);
+      if (d1 > 3 && d2 > 3) {
+        pSegInRect.push(`(${sg.x1},${sg.y1})→(${sg.x2},${sg.y2}) 穿过「${n.name}」`);
+        return;
+      }
+    }
+  }
+}));
+
+t.eq(Array.from(new Set(pLabelOnRect)), [], '★ 运行时：功率数字不骑在任何一个节点框上');
+t.eq(Array.from(new Set(pTextOnText)), [], '★ 运行时：功率数字不压任何文字（含节点名称与数值）');
+t.eq(pSegInRect, [], '★ 运行时：没有一根线从节点框里穿出来');
+
+/* =====================================================================
+   [N] renderPage 静默刷新（2026-10-11 修「运行模式每 5 s 闪屏」）
+   原实现：自动重刷一进来就 clear(content) + 插「加载中…」再 await 取数 ——
+   清屏与换屏分属两个任务，中间浏览器把空屏画了出来，整页每 5 s 白一下。
+   修后契约（下面用最小 DOM 桩跑**真实函数体**，四条路径各自断言）：
+     1) quiet + 数据没变（outerHTML 相同）→ 一字节不动，旧屏定时器活着
+     2) quiet + 数据变了 → 幕后建好后原子换屏；退旧定时器、保新定时器、恢复滚动
+     3) quiet + 取数失败 → 保留上一屏（网络抖动不把数据页打成一屏红字）
+     4) 非 quiet（点菜单主动换页）→ 清屏 + 加载中… + 换屏（原有体验不变）
+   ★ 定时器记账用「入界快照 d0」：quiet 时 [0,d0) 是旧屏的、[d0,end) 是本次
+     幕后构建的 —— 谁该退谁不该退，三条路各不相同，这里逐条钉死。
+   ===================================================================== */
+t.head('[N] renderPage 静默刷新');
+
+(async () => {
+  const a = appJs.indexOf('async function renderPage(opts)');
+  const b = appJs.indexOf('function drawFooter()');
+  if (!t.ok(a > 0 && b > a, '能从 app.js 抽出 renderPage 函数体')) return;
+
+  /* —— 桩：renderPage 闭包里的每个自由变量都在这个 IIFE 作用域里 —— */
+  function fakeEl(html) {
+    return {
+      _kids: [], outerHTML: html || '<div></div>', scrollTop: 0, textContent: '',
+      appendChild(ch) { this._kids.push(ch); return ch; },
+      get firstElementChild() { return this._kids[0] || null; },
+    };
+  }
+  const content = fakeEl('<div id="content"></div>');
+  const side = {};
+  const $ = (sel) => (sel === '#content'
+    ? content : (side[sel] = side[sel] || fakeEl(`<x></x>`)));
+  const h = (tag, attrs) =>
+    fakeEl(`<${tag} class="${(attrs && attrs.class) || ''}">${(attrs && attrs.text) || ''}</${tag}>`);
+  const clear = (el) => { el._kids = []; return el; };
+  const placeSegs = () => {};
+  const highlightNav = () => {};
+  let syncCalls = 0;
+  const syncLiveTimer = () => { syncCalls++; };
+  const disposers = [];
+  const state = { page: 'overview', scenario: 'normal', user: { role: 'admin' },
+                  mode: null, modes: [], engine: 'run', engineInfo: null, t: null };
+  const MENU = [{ id: 'overview', name: '总览', sub: 'x', render: null }];
+
+  // ★ 2026-10-17 合并新增：renderPage 的 catch 现在按 HTTP 状态分流，
+  //   会调 isNotReady / renderNotReady 两个自由变量 —— 沙箱必须给桩，
+  //   否则 eval 出的函数体一进 catch 就 ReferenceError（第一次合并就撞上了）。
+  //   桩按真实语义打：只有 404 算「未就绪」，并把调用次数记下来供断言。
+  let notReadyRendered = 0;
+  const isNotReady = (e) => !!(e && e.status === 404);
+  const renderNotReady = (e) => {
+    notReadyRendered++;
+    return fakeEl(`<div class="empty">未就绪:${(e && e.message) || ''}</div>`);
+  };
+
+  // eval 出的函数表达式的闭包链 = 本 IIFE 作用域 → 上面的桩名全部可解析
+  const renderPage = eval('(' + appJs.slice(a, b) + ')');
+
+  let oldDisposed = 0, newDisposed = 0;
+  const oldNode = fakeEl('<div class="page">旧屏</div>');
+
+  async function scene(render, setup) {
+    disposers.length = 0; content._kids = []; content.scrollTop = 0; syncCalls = 0;
+    MENU[0].render = render;
+    if (setup) setup();
+    await renderPage({ keepScroll: true, quiet: true });
+  }
+
+  /* 路径 1：quiet + 数据没变 → 不换屏 */
+  await scene(async (ctx) => { ctx.onDispose(() => newDisposed++); return oldNode; },
+    () => { content.appendChild(oldNode); content.scrollTop = 321;
+            disposers.push(() => oldDisposed++); });
+  t.ok(content._kids.length === 1 && content._kids[0] === oldNode,
+       '★ 数据没变：旧屏原样保留（一个字节都不动，这就是不闪屏）');
+  t.eq(content.scrollTop, 321, '★ 数据没变：滚动位置未被扰动');
+  t.eq(oldDisposed, 0, '★ 数据没变：旧屏定时器仍活着');
+  t.eq(newDisposed, 1, '★ 数据没变：被丢弃的幕后构建的定时器已退（不泄漏）');
+  t.eq(syncCalls, 1, '静默刷新后 syncLiveTimer 已调');
+
+  /* 路径 2：quiet + 数据变了 → 原子换屏 */
+  const newNode = fakeEl('<div class="page">新屏</div>');
+  oldDisposed = 0; newDisposed = 0;
+  await scene(async (ctx) => { ctx.onDispose(() => newDisposed++); return newNode; },
+    () => { content._kids = [oldNode]; content.scrollTop = 100;
+            disposers.push(() => oldDisposed++); });
+  t.ok(content._kids.length === 1 && content._kids[0] === newNode,
+       '★ 数据变了：换上新树（幕后建好、一次性换，无空屏帧）');
+  t.eq(content.scrollTop, 100, '★ 数据变了：keepScroll 恢复滚动位置');
+  t.eq(oldDisposed, 1, '★ 数据变了：旧屏定时器已退');
+  t.eq(newDisposed, 0, '★ 数据变了：新屏定时器未误杀（d0 记账正确）');
+  t.eq(syncCalls, 1, '换屏后 syncLiveTimer 已调');
+
+  /* 路径 3：quiet + 取数失败 → 保留上一屏 */
+  oldDisposed = 0; newDisposed = 0;
+  const origWarn = console.warn; console.warn = () => {};   // 本段预期会 warn 一条
+  await scene(async (ctx) => { ctx.onDispose(() => newDisposed++);
+                               throw new Error('网络抖动'); },
+    () => { content._kids = [newNode]; disposers.push(() => oldDisposed++); });
+  console.warn = origWarn;
+  t.ok(content._kids.length === 1 && content._kids[0] === newNode,
+       '★ 取数失败：保留上一屏（错误页不覆盖数据，下一拍自动重试）');
+  t.eq(newDisposed, 1, '★ 取数失败：半途构建注册的定时器已退');
+  t.eq(oldDisposed, 0, '★ 取数失败：旧屏定时器保留');
+
+  /* 路径 4：非 quiet（主动换页）→ 清屏 + 加载中… + 换屏 */
+  oldDisposed = 0; newDisposed = 0; syncCalls = 0;
+  disposers.length = 0;
+  content._kids = [newNode];
+  let sawDuringFetch = '';
+  disposers.push(() => oldDisposed++);
+  MENU[0].render = async (ctx) => {
+    sawDuringFetch = content._kids.length ? String(content._kids[0].outerHTML) : 'EMPTY';
+    ctx.onDispose(() => newDisposed++);
+    return fakeEl('<div class="page">换页后的屏</div>');
+  };
+  await renderPage({});
+  t.ok(sawDuringFetch.includes('加载中'), '主动换页：取数前清屏并显示「加载中…」（原有体验不变）');
+  t.ok(String(content._kids[0] && content._kids[0].outerHTML).includes('换页后的屏'),
+       '主动换页：最终内容为新页');
+  t.eq(oldDisposed, 1, '主动换页：旧屏定时器已退');
+  t.eq(newDisposed, 0, '主动换页：新页定时器保留');
+  t.eq(syncCalls, 1, '主动换页后 syncLiveTimer 已调');
+
+  /* 路径 5：非 quiet + 404（用户主动点进一个"还没有数据"的页）→ 未就绪页
+     ★ 这条是合并时**显式定下**的语义：远端 §68 只区分 quiet / 非 quiet，
+       我们额外要求"404 ≠ 加载失败"必须对用户可见 —— 但只在**他要看的时候**。 */
+  oldDisposed = 0; newDisposed = 0; syncCalls = 0; notReadyRendered = 0;
+  disposers.length = 0; content._kids = [newNode];
+  MENU[0].render = async () => {
+    const err = new Error('运行模式还没有实时数据'); err.status = 404; throw err;
+  };
+  await renderPage({});
+  t.eq(notReadyRendered, 1, '★ 主动换页遇 404：走未就绪页（不是「加载失败」）');
+  t.ok(String((content._kids[0] || {}).outerHTML || '').includes('未就绪'),
+       '★ 主动换页遇 404：屏上确实是空状态，不是红字「加载失败」');
+
+  /* 路径 6：quiet + 404 + 还没有旧屏（首屏）→ 也要画未就绪
+     ★ 否则首屏会**永远停在「加载中…」** —— 远端策略"失败就保留上一屏"在这里没有上一屏可保留 */
+  oldDisposed = 0; newDisposed = 0; syncCalls = 0; notReadyRendered = 0;
+  disposers.length = 0; content._kids = [];
+  MENU[0].render = async () => {
+    const err = new Error('还没有任何数据集'); err.status = 404; throw err;
+  };
+  await renderPage({ quiet: true, keepScroll: true });
+  t.eq(notReadyRendered, 1, '★ 静默刷新但还没有旧屏：画未就绪（否则首屏永远停在「加载中…」）');
+
+  /* 路径 7：quiet + 404 + 有旧屏 → 保留旧屏，**不**覆盖成未就绪
+     ★ 与路径 6 合起来才是完整规则：静默刷新不抢用户的屏，首屏例外。 */
+  oldDisposed = 0; newDisposed = 0; notReadyRendered = 0;
+  disposers.length = 0; content._kids = [newNode]; disposers.push(() => oldDisposed++);
+  MENU[0].render = async () => {
+    const err = new Error('运行模式还没有实时数据'); err.status = 404; throw err;
+  };
+  const origWarn2 = console.warn; console.warn = () => {};
+  await renderPage({ quiet: true, keepScroll: true });
+  console.warn = origWarn2;
+  t.eq(notReadyRendered, 0, '★ 静默刷新遇 404 且已有旧屏：不打成未就绪页（不抢正在看的数据）');
+  t.ok(content._kids.length === 1 && content._kids[0] === newNode,
+       '★ 静默刷新遇 404：旧屏原样保留');
+
+  /* =====================================================================
+     [O] lineChart x 轴刻度：按标签宽度自适应 + 共享日期只画一次
+     起因（2026-10-12 用户截图）：run 模式（wall 口径）的历史曲线，x 轴是
+     "2026-10-11 22:03:12" 这样的完整日期时间；旧逻辑固定取 labels.length/8
+     ≈ 10 个刻度，相邻中心 ~92 单位 < 19 字符标签的 ~118 单位 ⇒ 两两重叠。
+     功率与 SOC 两张图同源（都走 lineChart），修一处、这里两处都验。
+     ★ 水平方向 preserveAspectRatio="none" 等比拉伸：中心距与字宽按同一
+       比例放大，viewBox 内不重叠 ⇔ 显示出来不重叠，判据可在 viewBox 做。
+     ===================================================================== */
+  t.head('[O] lineChart x 轴刻度不重叠');
+
+  const tickBoxes = (svg, H) => {
+    // x 轴刻度 = y 恰为 H-8 的 text（y 轴刻度固定 x=padL-8 且 y 带 1 位小数，不会混入）
+    const boxes = [];
+    const re = new RegExp('<text x="([\\d.]+)" y="' + (H - 8) + '"[^>]*>([^<]*)</text>', 'g');
+    let m;
+    while ((m = re.exec(svg))) boxes.push({ x: +m[1], s: m[2] });
+    return boxes;
+  };
+  const CHAR_W = 6.2;                                   // 与 ui.js 里同一个估算字宽
+  const noOverlap = (boxes) => {
+    const b = boxes.map(o => ({ l: o.x - o.s.length * CHAR_W / 2,
+                                r: o.x + o.s.length * CHAR_W / 2 }))
+                 .sort((p, q) => p.l - q.l);
+    return b.every((o, i) => i === 0 || o.l >= b[i - 1].r - 0.5);
+  };
+  const p2 = x => String(x).padStart(2, '0');
+  const mkChart = (labels, height) => LC({
+    series: [{ name: 'P', label: 'P', color: 'var(--ok)',
+               values: labels.map((_, i) => 100 + i) }],
+    xLabels: labels, height,
+  });
+
+  // ① 复现用户截图工况：wall 口径 54 点（22:03 起每 10 s），完整日期时间
+  const wallLabels = Array.from({ length: 54 }, (_, i) => {
+    const s = 22 * 3600 + 3 * 60 + i * 10;
+    return `2026-10-11 ${p2(Math.floor(s / 3600))}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)}`;
+  });
+  const svgWall = mkChart(wallLabels, 330);
+  const b1 = tickBoxes(svgWall, 330);
+  t.ok(b1.length >= 4, `wall 19 字符标签出多个刻度（实出 ${b1.length} 个）`);
+  t.ok(noOverlap(b1), `★ wall 长标签两两不重叠（${b1.length} 个刻度，旧逻辑 10 个必重叠）`);
+  t.ok(!b1.some(o => o.s.includes('2026-')), '刻度文本已剥掉共享日期前缀（只剩时刻）');
+  t.eq((svgWall.match(/>2026-10-11<\/text>/g) || []).length, 1,
+       '共享日期只画一次（右上角，不逐刻度重复）');
+
+  // ② sim 口径（HH:MM，5 字符）不回归：仍是 6~10 个刻度、不重叠
+  const simLabels = Array.from({ length: 288 }, (_, i) => {
+    const m = Math.floor(i * 10 / 60) % 1440;
+    return `${p2(Math.floor(m / 60))}:${p2(m % 60)}`;
+  });
+  const svgSim = mkChart(simLabels, 330);
+  const b2 = tickBoxes(svgSim, 330);
+  t.ok(b2.length >= 6 && b2.length <= 10, `sim 短标签刻度数不回归（实出 ${b2.length} 个）`);
+  t.ok(noOverlap(b2), 'sim HH:MM 标签两两不重叠');
+  t.ok(!/>\d{4}-\d{2}-\d{2}<\/text>/.test(svgSim),
+       'sim 标签无日期前缀时右上角不画日期');
+
+  // ③ 跨午夜（日期不一致）：不误剥前缀，靠降低刻度密度保不重叠
+  const crossLabels = wallLabels.map((s, i) => (i < 27 ? s : '2026-10-12' + s.slice(10)));
+  const b3 = tickBoxes(mkChart(crossLabels, 330), 330);
+  t.ok(b3.some(o => o.s.includes('2026-')), '日期不一致时保留完整标签（不误剥）');
+  t.ok(noOverlap(b3), `★ 跨午夜 19 字符标签靠降密度保不重叠（实出 ${b3.length} 个）`);
+
+  // ④ SOC 图（height=170）同源同修
+  const b4 = tickBoxes(mkChart(wallLabels, 170), 170);
+  t.ok(noOverlap(b4), `SOC 图（170 高）同样不重叠（实出 ${b4.length} 个刻度）`);
+
+  /* ===================================================================
+     [P] 「这一刻没有数据」≠「加载失败」—— 空状态 + 出路
+
+     ★ 段号说明（2026-10-17 合并）：本段原编号为 [M]，而远端 §65 已经把 [M]
+       用给了「一次接线图几何」、[N] 给了 renderPage 静默刷新、[O] 给了 lineChart
+       x 轴 —— 所以合进来时改到 [P]。断言内容未变。
+
+     ★ 为什么有这一段（2026-10-16 实跑撞出来的）：
+       当时记的判断是「renderPage 没有 try-catch ⇒ 异常冒泡回 boot()
+       ⇒ 用户被锁在登录界面外」。用 jsdom 驱动**真前端 + 真后端**跑一遍
+       （运行模式 + 实时引擎未启动）后，这个判断被推翻：登录进得去，
+       12 个菜单都在，只是 6 个页面显示红字「加载失败：运行模式还没有实时数据…」。
+       —— 静态推断又一次把「呈现措辞不对」读成了「流程断了」。
+
+       真问题是**呈现**：404（数据未就绪）被当成「加载失败」，用户读到的是
+       「功能坏了」，排障方向被带偏。所以判据落在四件事上：
+         ① 错误对象必须带 HTTP 状态（不然前端只能猜文案，而文案是后端自由文本）；
+         ② 只有 404 走空状态；5xx / 网络错仍说「加载失败」；
+         ③ 空状态里**必须有出路**，且出路走既有接口（setEngine / liveStart）；
+         ④ 出路按钮按角色给（viewer 不该看到操作按钮）。
+     =================================================================== */
+  t.head('[P] 数据未就绪 ≠ 加载失败');
+
+  t.ok(/err\.status = res\.status/.test(apiJs),
+       'api.js 把 HTTP 状态挂到错误对象上（前端据此分流，不猜后端文案）');
+  t.ok(/e401\.status = 401/.test(apiJs),
+       '401 同样带状态（会话过期与"没数据"是两件事）');
+
+  t.ok(/function isNotReady\(e\)/.test(appJs) && /e\.status === 404/.test(appJs),
+       'app.js 有「数据未就绪」判据，判据是 HTTP 404 而不是错误文案');
+  t.ok(/isNotReady\(e\)/.test(appJs) && /renderNotReady\(e, ctx\)/.test(appJs),
+       '渲染失败时按 404 / 其他分流');
+  t.ok(/加载失败：\$\{e\.message\}/.test(appJs),
+       '★ 真失败（5xx / 网络）仍保留「加载失败」措辞 —— 分流不能把两种错合成一种');
+
+  // 取一个顶层函数的源码片段用 sliceFn（定义在文件上方）。
+  const nrBody = sliceFn(appJs, 'function renderNotReady');
+  t.ok(nrBody.length > 0 && nrBody.length < appJs.length, '空状态渲染器 renderNotReady 能定位到');
+  // 注意判据的精度：空状态里**不能有任何一段文字以「加载失败」开头**，
+  // 但它可以（也应该）明说「这不是加载失败」—— 所以要按 `text: '…'` 的取值判，
+  // 不能用 `/加载失败/` 一刀切（第一版就这么写错了，被自己的反向断言拦下）。
+  t.ok(!/text:\s*['"`]加载失败/.test(nrBody),
+       '★ 空状态不把「加载失败」当作要显示的文字（措辞直接决定用户往哪查）');
+  t.ok(/这不是加载失败/.test(nrBody),
+       '反过来要**显式**告诉用户「接口是通的、不是坏了」，否则他会继续查接口');
+  t.ok(/switchEngine\('sim'\)/.test(nrBody),
+       '出路①「切到仿真模式」走既有接口，不是新造一套');
+  t.ok(/API\.liveStart\(/.test(nrBody),
+       '出路②「启动实时引擎」走既有接口');
+  t.ok(/canWrite\(\)/.test(nrBody),
+       '出路按钮按角色给（viewer 看不到操作入口）');
+  t.ok(/goPage\('sim'\)/.test(nrBody),
+       '仿真模式下没有数据集时，出路是「去仿真页」而不是原地重试');
+
+  // 切模式必须成套（少一步就出「按钮切过去了、看的还是旧数据集」）
+  const swBody = sliceFn(appJs, 'async function switchEngine');
+  t.ok(swBody.length > 0, '切换引擎模式收成一个入口 switchEngine');
+  t.ok(/state\.scenario = scenarioId \|\| ''/.test(swBody) && /await loadEngine\(\)/.test(swBody),
+       '★ 切模式必须重解析数据集（清空 / 换成指定那份）并重载引擎信息'
+       + '（不清就会「顶栏显示仿真模式、文案还是运行模式那句」）');
+  t.ok((appJs.match(/API\.setEngine\(/g) || []).length === 1,
+       '★ setEngine 全文件只在一处调用（空状态与顶栏共用 —— 各写一遍必然漂移）');
+
+  // 登录入口不能在「登录框已隐藏」之后把异常抛回去（那会把用户扔进空白页且无处申诉）
+  const enterBody = sliceFn(appJs, 'async function enterApp');
+  t.ok(/classList\.add\('hidden'\)[\s\S]*try \{/.test(enterBody),
+       '★ enterApp 在隐藏登录框之后有 try 兜底（否则错误文案会写进看不见的 #login-err）');
+  t.ok(/界面初始化失败/.test(enterBody),
+       '初始化失败时留在界面里说清楚，而不是弹回登录框');
+
+  // 合并后新增：404 与静默刷新交叉时的分流规则（两个分支的语义冲突，合并时显式定下）
+  const rpBody = sliceFn(appJs, 'async function renderPage');
+  t.ok(/o\.quiet && hasOld/.test(rpBody),
+       '★ 静默刷新 + 已有旧屏 → 保留旧屏（一次抖动不该把数据页打空）');
+  t.ok(/else if \(notReady\)/.test(rpBody),
+       '★ 其余情形下 404 才画「未就绪」（首屏/主动导航不会永远停在"加载中…"）');
+
+  const okAll = t.report();
+  process.exit(okAll ? 0 : 1);
+})();

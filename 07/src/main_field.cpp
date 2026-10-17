@@ -44,6 +44,9 @@
 #include "modbus_point_map.h"    // 13/  点表加载与「来源」如实区分
 #include "device_conn_conf.h"    // 13/  接入参数（配置通道②）
 
+#include "meter645_device_io.h"  // 21/  DL/T645 主站适配器（只读关口电表）
+#include "dlt645_tcp_link.h"     // 21/  TCP 透传链路
+
 #include "rtdb_device_io.h"      // 07/src/rtdb  共享内存实时库适配器
 
 #include <chrono>
@@ -289,6 +292,63 @@ int run_modbus(const field::Args& a) {
 }
 
 // ---------------------------------------------------------------------
+// 分支：DL/T645-2007 电表（EMS 为主站，经串口服务器 TCP 透传）
+//
+//   ★ 只读通道：645 电表没有"接收功率指令"的语义，--control 在
+//     field_args.h 的解析层已被拒，这里**必然**走 drive_inspect。
+//     这一点不靠"运行到 drive_control 里才写失败"来拦 —— 到那时
+//     现场看到的是"写失败"，像通信故障，其实是装错了通道。
+//
+//   ★ 点表不是 CSV：645 的 EMS 点 ↔ DI 绑定是代码常量
+//     （21/src/meter645_point_map.h，默认只有 EMS_P_GRID ← 0x02030000），
+//     因为一块电表能答出什么由协议附录 A.2 决定，不是现场能"配"出来的。
+//     启动时先跑 self_check_map，把"绑定表被改坏"拦在连接之前。
+// ---------------------------------------------------------------------
+int run_dlt645(const field::Args& a) {
+    const meter645::MapCheck mc = meter645::self_check_map();
+    std::printf("  绑定自检 : %s（检查了 %d 行）\n",
+                mc.total == 0 ? "通过" : "**不一致**", mc.checked);
+    if (mc.total != 0) {
+        std::printf("\n[FAIL] 645 点表绑定自检未通过：索引越界=%d 点名不符=%d "
+                    "DI未知=%d 重复绑定=%d\n"
+                    "  绑定表是代码常量（meter645_point_map.h），它坏了说明 21/ 或\n"
+                    "  07/ 的点表被改过而映射没跟上 —— 先修表再连现场。\n",
+                    mc.index_out_of_range, mc.name_mismatch,
+                    mc.di_unknown, mc.dup_index);
+        return 3;
+    }
+
+    dlt645::Address meter;
+    if (!meter.from_string(a.meter_addr)) {
+        // 解析层已校验"12 位数字"，走到这里说明校验被绕过 —— 按编程错误处理。
+        std::printf("\n[FAIL] 电表地址「%s」无法解析（应为 12 位十进制数字）\n",
+                    a.meter_addr.c_str());
+        return 3;
+    }
+
+    std::printf("  透传网关 : %s:%d\n", a.host.c_str(), a.port);
+    std::printf("  电表地址 : %s\n", meter.to_string().c_str());
+    std::printf("  绑定关系 : EMS_P_GRID ← DI 0x02030000（瞬时总有功功率）\n");
+    std::printf("  ★ 本通道只有关口功率一路量测；快照里 SOC/P_BAT 恒 0\n");
+    std::printf("    （= 没有值，不是读到 0），有效性见状态行的「电表通信」位。\n");
+
+    dlt645::TcpLink link(a.host, static_cast<unsigned short>(a.port));
+    if (!link.open()) {
+        std::printf("\n[FAIL] 连不上透传网关 %s:%d。\n", a.host.c_str(), a.port);
+        std::printf("  处置：① 网关是否上电、IP/端口是否正确；\n");
+        std::printf("        ② 想先验证程序本身，用 21\\build\\sim_tcp_server.exe 起一台仿真表。\n");
+        return 4;
+    }
+
+    dlt645::MasterOptions opt;
+    opt.timeout_ms = a.timeout_ms;
+    Meter645DeviceIO io(&link, meter, opt);
+
+    // 只读巡检（结构保证：control 在解析层已被拒）
+    return drive_inspect(io, a);
+}
+
+// ---------------------------------------------------------------------
 // 分支：共享内存实时库
 // ---------------------------------------------------------------------
 int run_rtdb(const field::Args& a) {
@@ -422,5 +482,6 @@ int main(int argc, char** argv) {
     }
 
     if (a.device == field::DeviceKind::kModbus) return run_modbus(a);
+    if (a.device == field::DeviceKind::kDlt645) return run_dlt645(a);
     return run_rtdb(a);
 }

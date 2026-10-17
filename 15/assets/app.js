@@ -295,6 +295,62 @@ const App = (() => {
     await loadEngine();
   }
 
+  /* ------------- 「这一刻没有数据」≠「加载失败」 -------------
+     运行模式下实时引擎还没启动时，后端会以 **404 + 一句人话原因**回绝
+     overview / realtime / series 等接口。这不是功能坏了，是**这条路此刻没数据**。
+
+     ★ 2026-10-16 实跑（真后端 + 运行模式 + 引擎未启动 + jsdom 驱动真前端）确认：
+       登录**进得去**、12 个菜单都在，坏的是**呈现** —— 6 个页面显示红字
+       「加载失败：…」，用户读到的是"功能坏了"，而不是"去哪拿数据"。
+       排障方向被这句措辞带偏，比报错本身更贵。
+
+     分流判据用 **HTTP 状态**（api.js 已把 res.status 挂到错误上），不猜文案：
+       404 → 空状态（+ 出路按钮）；其余（5xx / 网络）→ 才是「加载失败」。 */
+  function isNotReady(e) {
+    return !!e && e.status === 404;
+  }
+
+  function renderNotReady(e, ctx) {
+    const canAct = canWrite();
+    const acts = [];
+    if (canAct && state.engine === 'run') {
+      acts.push(h('button', {
+        class: 'btn-sm primary', text: '切到仿真模式看历史数据',
+        onclick: async () => {
+          try {
+            await switchEngine('sim');
+          } catch (err) { toast(err.message, 'bad'); return; }
+          await renderPage();
+        },
+      }));
+      acts.push(h('button', {
+        class: 'btn-sm', text: '启动实时引擎',
+        onclick: async () => {
+          try { await API.liveStart({}); } catch (err) { toast(err.message, 'bad'); return; }
+          await loadEngine();
+          await renderPage();
+        },
+      }));
+    } else if (state.engine === 'sim') {
+      // 仿真模式下还没有数据集：出路是去跑一次（或看已有的），不是原地重试
+      acts.push(h('button', {
+        class: 'btn-sm primary', text: '去仿真页',
+        onclick: () => { ctx.goPage('sim'); },
+      }));
+    }
+    return h('div', { class: 'empty' }, [
+      h('div', { text: '这个数据源此刻还没有数据' }),
+      h('div', { class: 'muted', style: 'margin-top:8px', text: e.message || '' }),
+      acts.length
+        ? h('div', { style: 'margin-top:16px;display:flex;gap:10px;justify-content:center' }, acts)
+        : null,
+      h('div', {
+        class: 'muted', style: 'margin-top:14px',
+        text: '接口是通的 —— 这不是加载失败，是「当前模式还没攒到数据」。',
+      }),
+    ]);
+  }
+
   function visibleMenu() {
     const lv = ROLE_LEVEL[state.user && state.user.role] || 0;
     return MENU.filter(m => !m.minRole || lv >= (ROLE_LEVEL[m.minRole] || 99));
@@ -338,7 +394,7 @@ const App = (() => {
 
   /* 数据集分段：按引擎模式列出"现在能看的那些数据"。
      运行模式 → 只有 live（实时入库的那一份）；
-     仿真模式 → 最近几次仿真数据集（多的收进仿真页历史台账）+ 内置正常/故障日。 */
+     仿真模式 → 最近几次仿真数据集（多的收进仿真页历史台账）+ 全部内置场景。 */
   function buildScenarioSeg(engineInfo) {
     const seg = $('#scenario-seg');
     if (!seg) return;
@@ -377,6 +433,7 @@ const App = (() => {
     if (id === 'live') return { id, name: '实时数据', rows: 0 };
     if (id === 'normal') return { id, name: '内置·正常日', rows: (scn && scn.log_rows) || 0 };
     if (id === 'fault') return { id, name: '内置·故障日', rows: (scn && scn.log_rows) || 0 };
+    if (id === 'stress') return { id, name: '内置·异常日', rows: (scn && scn.log_rows) || 0 };
     // 入库时写的是「日仿真d001 · 典型日（正常）」这种长名，
     // 分段按钮只取前面的短名（' · ' 之前那段）。
     return {
@@ -398,8 +455,19 @@ const App = (() => {
                       .localeCompare(String(a.imported_at || '')))
                     .slice(0, SEG_SCENARIO_MAX)
                     .map(s => scenarioEntry(s, s.scenario_id));
-    const builtin = all.filter(s => ['normal', 'fault'].includes(s.scenario_id))
-                       .map(s => scenarioEntry(s, s.scenario_id));
+    // ★ 内置数据集 = 既不是实时流（live）、也不是仿真批次（sim-*）的那些。
+    //
+    //   原先这里硬编码 ['normal','fault'] —— 后果是：2026-10-11 新增的 stress
+    //   （异常工况日）在后端有数据、接口 ?scenario=stress 也照常返回 13 条，
+    //   界面上却**没有对应按钮**，用户根本点不到它。
+    //   全链路都通、唯独入口被白名单挡住，是最难发现的一类缺口。
+    //
+    //   改成按前缀排除后，以后新增的内置场景会自动出现在切换器上，
+    //   不用每次回头改这张名单。
+    const builtin = all.filter((s) => {
+      const id = String((s && s.scenario_id) || '');
+      return id !== 'live' && !id.startsWith('sim-');
+    }).map((s) => scenarioEntry(s, s.scenario_id));
     return sims.concat(builtin);
   }
 
@@ -571,62 +639,6 @@ const App = (() => {
     $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.id === state.page));
   }
 
-  /* ------------- 「这一刻没有数据」≠「加载失败」 -------------
-     运行模式下实时引擎还没启动时，后端会以 **404 + 一句人话原因**回绝
-     overview / realtime / series 等接口。这不是功能坏了，是**这条路此刻没数据**。
-
-     ★ 2026-10-16 实跑（真后端 + 运行模式 + 引擎未启动 + jsdom 驱动真前端）确认：
-       登录**进得去**、12 个菜单都在，坏的是**呈现** —— 6 个页面显示红字
-       「加载失败：…」，用户读到的是"功能坏了"，而不是"去哪拿数据"。
-       排障方向被这句措辞带偏，比报错本身更贵。
-
-     分流判据用 **HTTP 状态**（api.js 已把 res.status 挂到错误上），不猜文案：
-       404 → 空状态（+ 出路按钮）；其余（5xx / 网络）→ 才是「加载失败」。 */
-  function isNotReady(e) {
-    return !!e && e.status === 404;
-  }
-
-  function renderNotReady(e, ctx) {
-    const canAct = canWrite();
-    const acts = [];
-    if (canAct && state.engine === 'run') {
-      acts.push(h('button', {
-        class: 'btn-sm primary', text: '切到仿真模式看历史数据',
-        onclick: async () => {
-          try {
-            await switchEngine('sim');
-          } catch (err) { toast(err.message, 'bad'); return; }
-          await renderPage();
-        },
-      }));
-      acts.push(h('button', {
-        class: 'btn-sm', text: '启动实时引擎',
-        onclick: async () => {
-          try { await API.liveStart({}); } catch (err) { toast(err.message, 'bad'); return; }
-          await loadEngine();
-          await renderPage();
-        },
-      }));
-    } else if (state.engine === 'sim') {
-      // 仿真模式下还没有数据集：出路是去跑一次（或看已有的），不是原地重试
-      acts.push(h('button', {
-        class: 'btn-sm primary', text: '去仿真页',
-        onclick: () => { ctx.goPage('sim'); },
-      }));
-    }
-    return h('div', { class: 'empty' }, [
-      h('div', { text: '这个数据源此刻还没有数据' }),
-      h('div', { class: 'muted', style: 'margin-top:8px', text: e.message || '' }),
-      acts.length
-        ? h('div', { style: 'margin-top:16px;display:flex;gap:10px;justify-content:center' }, acts)
-        : null,
-      h('div', {
-        class: 'muted', style: 'margin-top:14px',
-        text: '接口是通的 —— 这不是加载失败，是「当前模式还没攒到数据」。',
-      }),
-    ]);
-  }
-
   /* ------------------------------ 路由 ------------------------------ */
   async function renderPage(opts) {
     const o = opts || {};
@@ -640,11 +652,20 @@ const App = (() => {
     // 一段长表格根本没法看。
     const keepTop = o.keepScroll ? content.scrollTop : 0;
 
-    // 先清理上一轮页面留下的定时器 / 监听器
-    disposers.splice(0).forEach(fn => { try { fn(); } catch (e) { /* 忽略 */ } });
+    // ★ 静默刷新（自动重刷）绝不在取数前清屏：旧屏保持挂载、可交互，
+    //   新树在幕后建好后再一次性换上。原实现先 clear + 插"加载中…"再 await 取数
+    //   —— 两个任务之间浏览器把空屏画了出来，这就是运行模式每 5 s 闪一次的根源。
+    //   非 quiet（点菜单 / 切模式 / 切数据集）仍是用户主动换页，保留"加载中…"。
+    //   d0 = 入界时 disposers 的长度：quiet 时数组前段 [0,d0) 是旧屏的定时器，
+    //   本次构建新注册的在 [d0, end) —— 换屏 / 跳过 / 失败三条路各自只退该退的那段。
+    const d0 = o.quiet ? disposers.length : 0;
+    if (!o.quiet) {
+      // 先清理上一轮页面留下的定时器 / 监听器
+      disposers.splice(0).forEach(fn => { try { fn(); } catch (e) { /* 忽略 */ } });
 
-    clear(content);
-    content.appendChild(h('div', { class: 'empty', text: '加载中…' }));
+      clear(content);
+      content.appendChild(h('div', { class: 'empty', text: '加载中…' }));
+    }
 
     // 跨页面共享的「当前仿真时刻」：实时监控拖动/播放会更新它，
     // 总览据此取同一拍，消除「两页看的是不同时刻」的割裂。null = 未指定（默认最后一拍）。
@@ -683,19 +704,46 @@ const App = (() => {
 
     try {
       const node = await meta.render(ctx);
-      clear(content);
-      // 刷新失败时不要把上一屏数据清掉（本次已清，所以这里用"渲染中"占位更安全）
-      content.appendChild(node);
-      // ★ 页面里自带的 .seg（实时监控的倍速 / 报表系统的日报周报月报）在这里才
-      //   第一次有布局，指示条必须等挂载完再对位 —— 页面函数自己调的话读到的是 0。
-      placeSegs(content);
-      if (o.keepScroll) content.scrollTop = keepTop;
+      // 数据一字节没变就不换屏：保住悬停态 / 焦点 / 文本选区，肉眼完全无感
+      //（outerHTML 对比：树是我们自己 createElement 建的，属性顺序确定，可比）。
+      const old = content.firstElementChild;
+      const unchanged = o.quiet && old && node.outerHTML === old.outerHTML;
+      if (unchanged) {
+        // 旧屏原样保留（它的定时器 = 前段 [0,d0)，继续活着）；
+        // 这次幕后构建注册的（[d0,end)）随被丢弃的树一起退掉。
+        disposers.splice(d0).forEach(fn => { try { fn(); } catch (e) { /* 忽略 */ } });
+      } else {
+        // 只退旧屏的（quiet 时是 [0,d0)；非 quiet 已在前面清空 = 0 条）。
+        // 新树注册的定时器留着 —— 它们属于即将上屏的这一页，下一轮再退。
+        disposers.splice(0, d0).forEach(fn => { try { fn(); } catch (e) { /* 忽略 */ } });
+        clear(content);
+        content.appendChild(node);
+        // ★ 页面里自带的 .seg（实时监控的倍速 / 报表系统的日报周报月报）在这里才
+        //   第一次有布局，指示条必须等挂载完再对位 —— 页面函数自己调的话读到的是 0。
+        placeSegs(content);
+        if (o.keepScroll) content.scrollTop = keepTop;
+      }
     } catch (e) {
-      clear(content);
-      // 404 = 此刻没数据（空状态 + 出路）；其余才是真的加载失败。
-      content.appendChild(isNotReady(e)
-        ? renderNotReady(e, ctx)
-        : h('div', { class: 'empty', text: `加载失败：${e.message}` }));
+      // ★ 2026-10-17 合并时定的分流规则（两边的策略在这里交叉，必须显式定）：
+      //   · 静默刷新 + 已有旧屏   → 保留旧屏（一次抖动不该把数据页打空，下一拍自动重试）
+      //   · 静默刷新 + 还没有旧屏 → 画「未就绪」（否则首屏会永远停在"加载中…"）
+      //   · 用户主动换页          → 404 画「未就绪 + 出路」，其余才是「加载失败」
+      // 注意：只要**换掉了屏**，旧屏的定时器就必须一起退（[0,d0) 那段），否则泄漏。
+      const hasOld = !!content.firstElementChild;
+      const notReady = isNotReady(e);
+      if (o.quiet && hasOld) {
+        // 只退本次幕后构建注册的 [d0,end)，旧屏原样保留
+        disposers.splice(d0).forEach(fn => { try { fn(); } catch (e2) { /* 忽略 */ } });
+        console.warn(notReady ? '自动刷新：数据未就绪（保留上一屏）:' : '自动刷新失败（保留上一屏）:', e);
+      } else if (notReady) {
+        disposers.splice(0).forEach(fn => { try { fn(); } catch (e2) { /* 忽略 */ } });
+        clear(content);
+        content.appendChild(renderNotReady(e, ctx));
+      } else {
+        disposers.splice(0).forEach(fn => { try { fn(); } catch (e2) { /* 忽略 */ } });
+        clear(content);
+        content.appendChild(h('div', { class: 'empty', text: `加载失败：${e.message}` }));
+      }
     }
     syncLiveTimer();
   }

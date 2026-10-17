@@ -23,13 +23,14 @@
 namespace ems {
 namespace field {
 
-enum class DeviceKind { kSim, kRtdb, kModbus };
+enum class DeviceKind { kSim, kRtdb, kModbus, kDlt645 };
 
 inline const char* device_kind_name(DeviceKind k) {
     switch (k) {
     case DeviceKind::kSim:    return "sim";
     case DeviceKind::kRtdb:   return "rtdb";
     case DeviceKind::kModbus: return "modbus";
+    case DeviceKind::kDlt645: return "dlt645";
     }
     return "?";
 }
@@ -37,9 +38,11 @@ inline const char* device_kind_name(DeviceKind k) {
 struct Args {
     DeviceKind  device  = DeviceKind::kSim;   // ★ 默认仿真
     std::string host;                         // modbus：命令行给，或由接入参数文件补
+                                              // dlt645：命令行给（645 尚无接入参数文件通道）
     int         port    = 502;
     int         unit    = 1;
     int         timeout_ms = 1000;            // 单次请求超时（可由接入参数文件补）
+    std::string meter_addr;                   // dlt645：12 位电表地址（--addr）
     std::string map_path;                     // 空 = 按 13/ 的约定路径找
     std::string record_path;                  // 空 = 不写实录（--record 才写）
     bool        control = false;              // ★ 默认只读
@@ -59,17 +62,21 @@ inline std::string usage_text(const char* exe) {
         "07/ 现场进程入口 —— 设备接入与实时控制闭环\n"
         "\n"
         "用法：\n"
-        "  " + e + " [--device sim|rtdb|modbus] [选项]\n"
+        "  " + e + " [--device sim|rtdb|modbus|dlt645] [选项]\n"
         "\n"
         "设备来源（--device）：\n"
         "  sim     仿真（默认）。跑周期 7 演示场景，输出与 loop_demo.exe 逐字相同。\n"
         "  rtdb    共享内存实时库（RtDbDeviceIO）。要求设备侧另有进程往同一段里写。\n"
         "  modbus  Modbus TCP 主站（ModbusDeviceIO），直连 PCS / BMS / 电表。\n"
+        "  dlt645  DL/T645-2007 主站（Meter645DeviceIO），经串口服务器透传读关口电表。\n"
+        "          **只读**：电表没有接收功率指令的语义，--control 会被拒绝。\n"
         "\n"
         "选项：\n"
-        "  --host <ip>     设备地址。**不给时自动读接入参数文件**（见下）\n"
-        "  --port <n>      端口，默认 502\n"
-        "  --unit <n>      从站号，默认 1（范围 1..247）\n"
+        "  --host <ip>     设备地址。modbus 不给时自动读接入参数文件（见下）；\n"
+        "                  dlt645 只认命令行（645 尚无接入参数文件通道）\n"
+        "  --port <n>      端口，默认 502（dlt645 透传网关常用 4001/23 等，按现场）\n"
+        "  --unit <n>      从站号，默认 1（范围 1..247；仅 modbus 用）\n"
+        "  --addr <12位>   电表地址（仅 dlt645 用；电表铭牌/条码上的 12 位表号）\n"
         "  --map <path>    点表 CSV。不给则按约定路径找：\n"
         "                     $EMS_POINT_MAP_DIR\\active.csv\n"
         "                     或 <exe 上级两级>\\config\\point-map\\active.csv\n"
@@ -107,7 +114,9 @@ inline std::string usage_text(const char* exe) {
         "例：\n"
         "  " + e + "                                      仿真（与演示一致）\n"
         "  " + e + " --device rtdb --steps 20 -v            看实时库里的真实数据\n"
-        "  " + e + " --device modbus --host 10.0.0.7        现场只读核对\n";
+        "  " + e + " --device modbus --host 10.0.0.7        现场只读核对\n"
+        "  " + e + " --device dlt645 --host 10.0.0.8 --port 4001 --addr 000000000001\n"
+        "                                                  经透传网关读关口电表（只读）\n";
 }
 
 namespace detail {
@@ -178,9 +187,10 @@ inline bool parse_args(int argc, char** argv, Args& out, std::string& err) {
             if      (v == "sim")    out.device = DeviceKind::kSim;
             else if (v == "rtdb")   out.device = DeviceKind::kRtdb;
             else if (v == "modbus") out.device = DeviceKind::kModbus;
+            else if (v == "dlt645") out.device = DeviceKind::kDlt645;
             else {
                 err = "不认识的设备类型「" + v +
-                      "」。只接受 sim / rtdb / modbus 三者之一";
+                      "」。只接受 sim / rtdb / modbus / dlt645 四者之一";
                 return false;
             }
         } else if (k == "--host") {
@@ -193,6 +203,22 @@ inline bool parse_args(int argc, char** argv, Args& out, std::string& err) {
         } else if (k == "--unit") {
             if (!take()) return false;
             if (!detail::parse_int(v, 1, 247, out.unit, err, "--unit (从站号)")) return false;
+        } else if (k == "--addr") {
+            if (!take()) return false;
+            // 645 电表地址：12 位十进制数字（6 字节 BCD，低位在前传输）。
+            // 校验"全是数字且正好 12 位"放在这里做 —— 多一位少一位、
+            // 混进字母都是现场手敲的高发错误，必须当场拒。
+            if (v.size() != 12) {
+                err = "--addr (电表地址) 应为 12 位十进制数字，实际是「" + v + "」";
+                return false;
+            }
+            for (char c : v) {
+                if (c < '0' || c > '9') {
+                    err = "--addr (电表地址) 只能含数字 0-9，实际是「" + v + "」";
+                    return false;
+                }
+            }
+            out.meter_addr = v;
         } else if (k == "--map") {
             if (!take()) return false;
             if (v.empty()) { err = "--map 的取值为空"; return false; }
@@ -242,6 +268,15 @@ inline bool parse_args(int argc, char** argv, Args& out, std::string& err) {
               "真要向设备下发，请用 --device modbus --host <设备IP> --control";
         return false;
     }
+    // ★ 645 电表是**只读计量设备**：协议里没有"接收功率指令"的语义。
+    //   所以 645 + --control 不是"暂不支持"，是语义错误 —— 在解析层就拒掉，
+    //   不让它活到适配器那一层才报"写失败"（那时看起来像通信故障，其实是装错通道）。
+    if (out.device == DeviceKind::kDlt645 && out.control) {
+        err = "--device dlt645 下 --control 是语义错误：DL/T645 电表是只读计量设备，\n"
+              "      没有接收功率指令的语义。645 通道只用于只读巡检（核对关口计量）；\n"
+              "      要下发功率指令，请用 --device modbus（PCS 在那条通道上）。";
+        return false;
+    }
     return true;
 }
 
@@ -258,6 +293,25 @@ inline bool validate_target(const Args& a, std::string& err) {
               "      设备地址在设备铭牌或交换机上；想先探一下端口通不通，可用\n"
               "      13\\build\\modbus_probe.exe --host <ip> --port <n>";
         return false;
+    }
+    // dlt645：串口服务器透传的 TCP 地址 + 12 位电表地址，缺一不可。
+    // ★ 645 目前**没有**接入参数文件通道（那是 modbus 的配置通道②），
+    //   所以这里只有命令行一个来源 —— 故意不编默认地址/默认表地址：
+    //   编出来就会去连它，而连错表在界面上表现为"数据正常但全错"。
+    if (a.device == DeviceKind::kDlt645) {
+        if (a.host.empty()) {
+            err = "--device dlt645 需要串口服务器（透传网关）的 TCP 地址：\n"
+                  "        --host <网关IP> --port <端口>\n"
+                  "      想先对着仿真表核对，可用：\n"
+                  "        21\\build\\sim_tcp_server.exe 起一台仿真表，再连它";
+            return false;
+        }
+        if (a.meter_addr.empty()) {
+            err = "--device dlt645 需要电表地址：\n"
+                  "        --addr <12 位数字>（电表铭牌/条码上的 12 位表号）\n"
+                  "      多表共 485 总线时地址是唯一的寻址依据，不许猜。";
+            return false;
+        }
     }
     return true;
 }

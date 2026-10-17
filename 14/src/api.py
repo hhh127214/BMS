@@ -841,7 +841,9 @@ def h_export(conn, query, body, user, params) -> tuple[int, dict]:
         w.writerows(rows)
     auth.audit(conn, user["username"], "export", kind, f"{len(rows)} 行")
     return 200, {"__raw__": True, "content_type": "text/csv; charset=utf-8",
-                 "body": buf.getvalue(),
+                 # ★ 带 BOM：alarm.description / scenario.name 是中文，
+                 #   现场用 Excel 双击打开才不乱码（与 :1104 点表导出同一条纪律）。
+                 "body": "\ufeff" + buf.getvalue(),
                  "filename": f"{kind}_{sc}.csv"}
 
 

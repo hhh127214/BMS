@@ -27,6 +27,21 @@
 
 from __future__ import annotations
 
+# ---------------------------------------------------------------------
+# 内置场景数与每场景步数
+#
+# ★ 新增内置场景（在 14/src/importer.py import_all() 里加一个），必须同步
+#   这里的 N_SCENES —— 下面十几条行数断言全部以它为基准。用常量而不是
+#   散落的字面量，是为了让"加了场景却忘了改断言"只可能错一处，
+#   而且错的那一处会有明确的失败项，不会静默变成"少算一个场景"。
+#
+#   stress（异常工况日，10/ --stress）是 SOC / TEMP / TRANSFORMER 三类
+#   告警**唯一**的数据来源：默认典型日里它们恒为 0，因为系统健康
+#   （关口被需量控制压在 400、变压器留 100 裕度、SOC 稳在带内）。
+# ---------------------------------------------------------------------
+N_SCENES = 3            # normal / fault / stress
+STEPS_PER_SCENE = 8640  # 24 h × 10 s 日志粒度
+
 import ast
 import csv
 import datetime
@@ -174,12 +189,13 @@ def main() -> int:
     c = res["counts"]
     t.eq(c["device"], 6, "device 行数")
     t.eq(c["strategy_config"], 9, "strategy_config 行数")
-    t.eq(c["scenario"], 2, "scenario 行数（normal + fault）")
-    t.eq(c["step_record"], 8640 * 2, "step_record 行数（两场景各 8640）")
-    t.eq(c["control_command"], 8640 * 2, "control_command 行数")
-    t.eq(c["economics"], 2, "economics 行数")
-    t.eq(c["invariant"], 2, "invariant 行数")
-    t.eq(c["energy_statistics"], 2, "energy_statistics 行数")
+    t.eq(c["scenario"], N_SCENES, "scenario 行数（normal + fault + stress）")
+    t.eq(c["step_record"], STEPS_PER_SCENE * N_SCENES,
+         f"step_record 行数（{N_SCENES} 场景各 {STEPS_PER_SCENE}）")
+    t.eq(c["control_command"], STEPS_PER_SCENE * N_SCENES, "control_command 行数")
+    t.eq(c["economics"], N_SCENES, "economics 行数")
+    t.eq(c["invariant"], N_SCENES, "invariant 行数")
+    t.eq(c["energy_statistics"], N_SCENES, "energy_statistics 行数")
 
     sc_n = emsdb.query_one(conn, "SELECT * FROM scenario WHERE scenario_id='normal'")
     t.eq(sc_n["steps"], base["steps"], "normal.steps 与 summary 相符")
@@ -396,7 +412,8 @@ def main() -> int:
     st, p = call("GET", "/api/health")
     t.eq(st, 200, "GET /api/health 状态码")
     t.eq(p["module"], "14/", "health.module")
-    t.ok(p["scenarios"] and len(p["scenarios"]) == 2, "health 报出两个场景")
+    t.ok(p["scenarios"] and len(p["scenarios"]) == N_SCENES,
+         f"health 报出 {N_SCENES} 个场景")
 
     # ---- 引擎模式：本段断言看的是**仿真数据集**，所以先把引擎切到 sim ----
     # ★ v1.4 起，"不带 ?scenario= 的请求看哪个数据集"由引擎模式决定
@@ -581,10 +598,10 @@ def main() -> int:
 
     st, p = call("GET", "/api/economics", user=viewer_u)
     t.eq(st, 200, "GET /api/economics 200")
-    t.eq(len(p["items"]), 2, "economics 两场景")
+    t.eq(len(p["items"]), N_SCENES, f"economics {N_SCENES} 个场景")
     st, p = call("GET", "/api/energy", user=viewer_u)
     t.eq(st, 200, "GET /api/energy 200")
-    t.eq(len(p["items"]), 2, "energy_statistics 两条")
+    t.eq(len(p["items"]), N_SCENES, f"energy_statistics {N_SCENES} 条")
     t.ok(all(i["charge_kwh"] > 0 for i in p["items"]), "能量统计含充电量")
 
     st, p = call("GET", "/api/report", user=viewer_u, period="day")
@@ -598,7 +615,7 @@ def main() -> int:
 
     st, p = call("GET", "/api/invariants", user=viewer_u)
     t.eq(st, 200, "GET /api/invariants 200")
-    t.eq(len(p["items"]), 2, "invariants 两场景")
+    t.eq(len(p["items"]), N_SCENES, f"invariants {N_SCENES} 个场景")
 
     st, p = call("POST", "/api/control/command", {"target_power_kw": 100},
                  user=operator_u)
@@ -645,6 +662,8 @@ def main() -> int:
     st, p = call("GET", "/api/export/timeseries", user=viewer_u)
     t.eq(st, 200, "导出时序 200")
     t.ok(p.get("__raw__") and "t_s," in p["body"], "导出为 CSV 且含表头")
+    # ★ 数据导出与点表导出同一条纪律：带 BOM，Excel 双击中文不乱码。
+    t.ok(p["body"].startswith("\ufeff"), "数据导出体带 UTF-8 BOM")
     t.eq(len(p["body"].strip().splitlines()), 8641, "导出行数 = 8640 + 表头")
     st, p = call("GET", "/api/export/nope", user=viewer_u)
     t.eq(st, 400, "非法导出类型返回 400")

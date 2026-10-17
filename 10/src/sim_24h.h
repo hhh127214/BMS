@@ -60,13 +60,19 @@ struct FaultWindow {
     double t_end_s   = 0.0;
     // 1=comm_bms_off 2=comm_meter_off 3=comm_pcs_off
     // 4=pcs_fault    5=device_offline  6=data_invalid
+    // 7=cooling_loss 散热失效（精密空调 / 液冷 CDU 停运）：
+    //                把环境温度从 cfg.plant.temp_ambient_c 抬到
+    //                cfg.temp_ambient_fault_c。这是**环境**失效，不是
+    //                "电池自己发热" —— 见下方 apply_fault() 的说明。
     int    kind      = 0;
     std::string note;
 
     bool active(double t) const { return t >= t_begin_s && t < t_end_s; }
 };
 
-inline void apply_fault(EmsRuntime& rt, int kind, bool on) {
+inline void apply_fault(EmsRuntime& rt, int kind, bool on,
+                        double ambient_normal_c = 25.0,
+                        double ambient_fault_c  = 50.0) {
     switch (kind) {
         case 1: rt.plant().set_comm_bms(!on);      break;
         case 2: rt.plant().set_comm_meter(!on);    break;
@@ -74,6 +80,18 @@ inline void apply_fault(EmsRuntime& rt, int kind, bool on) {
         case 4: rt.plant().set_pcs_fault(on);      break;
         case 5: rt.plant().set_device_offline(on); break;
         case 6: rt.plant().set_data_valid(!on);    break;
+        // 散热失效：柜内环境温度失控。
+        //
+        // ★ 为什么是抬环境温度，而不是"调大发热系数"：
+        //   这台机器是 1000 kWh / 250 kW = 0.25C，按 17/ 那套注释可自复核的
+        //   高保真标定（0.95C/267A → 稳态温升 8 ℃）反推，满功率温升只有
+        //   0.55 ℃ 量级 —— 07/ 实测 0.3 ℃，两者同量级，**系数没错**。
+        //   所以"让温度越 45 ℃"只能靠**环境**失效（空调/液冷停运后柜内
+        //   逼近户外高温），这是现场真实存在的故障模式；
+        //   靠调大 heat_coef 让它触发，等于把魔数调到掩盖物理事实 ——
+        //   那只会把告警推远，问题还在原地。
+        case 7: rt.plant().set_temp_ambient(on ? ambient_fault_c
+                                               : ambient_normal_c); break;
         default: break;
     }
 }
@@ -108,6 +126,14 @@ struct Sim24hConfig {
 
     // ---- 故障注入（可空）----
     std::vector<FaultWindow> fault_windows;
+
+    // 散热失效（FaultWindow.kind == 7）时把柜内环境温度抬到多少。
+    // 取值刻意落在 (temp_warn_c, temp_fault_c) = (45 ℃, 55 ℃) 之间：
+    //   · 越过 45 ℃ → 安全层高温预警降额（temp_warn_derate）+ TEMP 告警
+    //   · 不越 55 ℃ → 不触发 temp_fault（bit6 → 状态机 EMERGENCY，**锁存**
+    //                  且需人工复位）。压力工况只演示"预警与降额"，
+    //                  不该走到"锁死"那一步 —— 那是另一类场景。
+    double temp_ambient_fault_c = 50.0;
 
     // 故障恢复后是否自动重新下发启动许可（模拟"上层运行许可保持"）。
     //   false（默认）= 严格按安全规程：故障恢复后停在 READY 待机，需人工确认
@@ -186,6 +212,28 @@ struct Sim24hResult {
 };
 
 // =====================================================================
+// 故障位解码：int -> 人话
+//
+// 位序的真相源只有一处：06/FaultFlags::bits()（state_machine.h）。
+//   20/src/alarm_input.h:72 fault_view_from_bits() 与
+//   P2/src/observe.h:477  fault_source()/fault_code() 都按同一张表解码。
+// 这里**不另造一张表**，而是回填 FaultFlags 再复用它的 to_string() ——
+//   否则将来加一个故障位就要改四处，且四处不一致时不会有任何报错。
+// =====================================================================
+inline std::string fault_bits_desc(int bits) {
+    FaultFlags f;
+    f.bms_comm_lost   = (bits & (1 << 0)) != 0;
+    f.pcs_comm_lost   = (bits & (1 << 1)) != 0;
+    f.meter_comm_lost = (bits & (1 << 2)) != 0;
+    f.pcs_fault       = (bits & (1 << 3)) != 0;
+    f.data_invalid    = (bits & (1 << 4)) != 0;
+    f.device_offline  = (bits & (1 << 5)) != 0;
+    f.temp_fault      = (bits & (1 << 6)) != 0;   // ≥ temp_fault_c(55℃) → EMERGENCY
+    f.emergency_stop  = (bits & (1 << 7)) != 0;
+    return f.to_string();
+}
+
+// =====================================================================
 // 告警采集
 // =====================================================================
 inline void collect_alarms(EmsRuntime& rt,
@@ -206,7 +254,8 @@ inline void collect_alarms(EmsRuntime& rt,
 
     // ---- ② 采集层/安全层异常（按"事件"去抖，连续拍只记首次与恢复）----
     bool in_reverse = false, in_tr_over = false, in_soc_hi = false, in_soc_lo = false;
-    bool in_clip = false;
+    bool in_clip = false, in_temp_hi = false;
+    int  prev_bits = 0;      // COMM 去抖：故障位的上一拍值（见下方 COMM 分支）
     const double eps = 1e-6;
 
     for (size_t i = 0; i < log.size(); ++i) {
@@ -271,15 +320,47 @@ inline void collect_alarms(EmsRuntime& rt,
             in_clip = false;
         }
 
-        // 高温
+        // 高温 —— 同样按**事件**去抖
+        //
+        // ★ 与 COMM 同构的第二个漏网分支：原写法无去抖，压力工况下
+        //   4 h 散热失效窗 × 360 行/h = 1440 条同一句话，刚把 COMM 修好
+        //   转头就被 TEMP 淹没。**每一条分支都要问一遍"持续期间记几次"**，
+        //   只修看到的那一条是不够的。
+        //   解除回差沿用安全层的 temp_hysteresis_c —— 告警与安全层同口径，
+        //   避免出现"安全层已解除降额、告警还挂着"的不一致。
         if (s.temp >= cfg.safety.temp_warn_c) {
-            out.push_back({t, "WARNING", "TEMP",
-                "电池温度偏高 " + std::to_string(s.temp) + " °C"});
+            if (!in_temp_hi) {
+                out.push_back({t, "WARNING", "TEMP",
+                    "电池温度偏高 " + std::to_string(s.temp) + " °C（≥ "
+                    + std::to_string(cfg.safety.temp_warn_c)
+                    + " ℃ 预警线，安全层已降额）"});
+                in_temp_hi = true;
+            }
+        } else if (in_temp_hi &&
+                   s.temp < cfg.safety.temp_warn_c - cfg.safety.temp_hysteresis_c) {
+            out.push_back({t, "INFO", "TEMP", "电池温度回到预警线以下，降额解除"});
+            in_temp_hi = false;
         }
-        // 故障位
-        if (s.fault_bits != 0) {
-            out.push_back({t, "FAULT", "COMM",
-                "故障位 bits=" + std::to_string(s.fault_bits)});
+        // 故障位 —— 按**变化沿**去抖（与上面几类同口径）
+        //
+        // ★ 这里曾是一个真实缺陷：原写法 `if (fault_bits != 0)` 逐拍记录，
+        //   而其余 5 类都用 in_xxx 沿检测，唯独这条漏了。后果：
+        //     故障窗 30 min × 日志每 10 s = 一条故障刷 180 遍同一句话，
+        //     故障日三个窗共 270 条 FAULT，把告警中心整个淹没 ——
+        //     告警分类做得再全，界面上也只看到一片 bits=8。
+        //   现在按位变化沿记：置位一条、位组合变化一条、全清一条。
+        if (s.fault_bits != prev_bits) {
+            if (s.fault_bits != 0) {
+                out.push_back({t, "FAULT", "COMM",
+                    "故障位置位 bits=" + std::to_string(s.fault_bits)
+                    + "（" + fault_bits_desc(s.fault_bits) + "）"});
+            } else {
+                // 恢复消息带上"刚恢复的是哪些位"：否则 COMM 告警到了
+                // 14/ 侧无法判断它属于哪个部位（设备号会全部退化成默认值）。
+                out.push_back({t, "INFO", "COMM",
+                    "故障位全部恢复（" + fault_bits_desc(prev_bits) + "）"});
+            }
+            prev_bits = s.fault_bits;
         }
     }
     (void)eps;
@@ -302,7 +383,8 @@ inline bool apply_step_env(EmsRuntime& rr, const ForecastSeries& fc,
     bool any_fault = false;
     for (const auto& w : cfg.fault_windows) {
         const bool on = w.active(t);
-        apply_fault(rr, w.kind, on);
+        apply_fault(rr, w.kind, on,
+                    cfg.plant.temp_ambient_c, cfg.temp_ambient_fault_c);
         if (on) any_fault = true;
     }
     if (any_fault && fault_ticks) ++(*fault_ticks);
