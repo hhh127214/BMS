@@ -191,6 +191,11 @@ echo 23/43 10\ 周期10 EMS 24h 离线仿真测试 (g++)
 echo ============================================
 if "%BUILD_TESTS%"=="1" (
     call 10\scripts\build_test.bat || set FAIL=1
+    rem  ★ 必须在这里重编演示程序：build_test.bat 只编测试程序，磁盘上的 sim_demo.exe
+    rem    一旦是旧的，新加的开关就会**被静默忽略**。2026-10-17 实测踩到：
+    rem    旧二进制的 --stress 产出与 normal 一模一样（同为 7 条告警、净收益 574.07），
+    rem    而正确产出是 13 条告警、695.66 元 —— 不报错，只是数据不对。
+    call 10\scripts\build.bat || set FAIL=1
 )
 
 echo.
@@ -278,6 +283,14 @@ echo 34/43 14\ 平台层后端（Python 标准库：导入 + 接口自检）
 echo ============================================
 rem  14/ 不是 C/C++ 组件（是平台层后端服务 + SQLite），但同样进全量回归。 
 rem  依赖 10\build 的仿真产物；产物不存在时自检显式 SKIPPED 并以 0 退出。 
+rem  ★ 但 stress 场景不同：14/ 的自检**硬性要求**它在库（SOC / TEMP / TRANSFORMER
+rem    三类告警的唯一来源），缺了直接判红。而 10\build 是 gitignore 的产物，
+rem    干净检出里没有 —— 远端那次"全绿"其实是靠磁盘上残留的旧目录。
+rem    这里补跑一次，实测 0.8 s，让这个前置条件可复现。
+if exist 10\build\sim_demo.exe (
+    if not exist 10\build\stress mkdir 10\build\stress
+    call 10\build\sim_demo.exe --stress --out 10\build\stress >nul || set FAIL=1
+)
 call 14\scripts\run_all.bat || set FAIL=1
 
 echo.

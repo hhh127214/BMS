@@ -528,7 +528,7 @@ EMS 看到的这些点是**从未收到过**（值 = RT_DB 默认值）。
    本模块没有走。B3 的原始描述是"Python 模拟器不存在"，
    17/ 给的是 **C++ 侧设备物理模型**（`meter/bms/pcs_sim.h`），
    Python 侧仍是 `13/sim/modbus_slave.py`，两者没有接起来。
-2. ✅ **已挂进 `scripts/build_all.bat`（第 37/41 步）** —— 这条边界已解除：
+2. ✅ **已挂进 `scripts/build_all.bat`（第 37/43 步）** —— 这条边界已解除：
    全量构建会依次 `call 17\scripts\build_test.bat` 与 `call 17\scripts\build.bat`，
    因此 17/ 不再是"只在自己目录下跑"的孤岛。
 3. **107 点是"常用全点表"，不是某个厂家的完整点表。**
