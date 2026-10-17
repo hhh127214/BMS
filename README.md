@@ -285,6 +285,21 @@ P2/                                           ← 产品化 P2：可观测性（
     ├── tests/*.cpp                            ← 三个（397 断言）
     ├── scripts/                               ← build.bat / build_test.bat
     └── docs/README.md                         ← 六类故障源与 11\§4 的逐条对齐表 / 容量算式 / 6 个坑
+
+21/                                           ← DL/T 645-2007 主站（老式电能表接入，第三条设备侧协议通道）
+    ├── src/dlt645_frame.h                     ← 帧层：地址 BCD 反序 / CS / +0x33 / DI 传输序（只有字节）
+    ├── src/dlt645_codec.h                     ← 数据项：DI 表 / BCD / 符号位 / PT-CT 变比（才变成"数"）
+    ├── src/dlt645_transport.h                 ← 传输抽象 + 内存回环
+    ├── src/dlt645_master.h                    ← 事务：清缓冲 → 发 → 收 → 判（四条静默失败防线）
+    ├── src/dlt645_tcp_link.h / dlt645_serial_link.h  ← 串口服务器透传 / Win32 串口（**串口未实测**）
+    ├── src/fake_meter_slave.h                 ← 进程内假表 + 6 类故障注入
+    ├── src/main_meter645.cpp                  ← CLI（--sim / --tcp / --serial）
+    ├── src/sim_tcp_server.cpp                 ← TCP 仿真从站（联调对端，非交付物）
+    ├── src/meter645_point_map.h               ← EMS↔DI 绑定表（编译期：EMS_P_GRID ← DI 0x02030000）
+    ├── src/meter645_device_io.h               ← IDeviceIO 第五实现，编译进 07/main_field.exe --device dlt645
+    ├── tests/*.cpp                            ← 三层（471 断言：301 + 64 + 106）
+    ├── scripts/                               ← build.bat / build_test.bat
+    └── docs/README.md + design.md             ← 四条静默失败防线 / DI 表边界 / 接进 EMS 的结构决定
 ```
 
 > **为什么周期 5~8 拆成 4 个模块**：`05/06/07/08` 与设计方案 §7 的四个周期**一一对应**，
@@ -377,6 +392,8 @@ vendor\lib60870\build\lib60870.a              IEC 60870-5-104 协议栈静态库
 19\src\log_rotator.py                         19/ SOE 与 metrics 落盘 + 轮转
 20\build\soe_dump.exe                         20/ SOE 落盘文件读取 / 过滤 / 导出（--dump）
 20\build\alarm_demo.exe                       20/ 告警能力 + 持久化端到端演示
+21\build\meter645.exe                         21/ DL/T645 主站 CLI（--sim / --tcp / --serial）
+21\build\sim_tcp_server.exe                   21/ TCP 仿真从站（联调对端，非交付物）
 ```
 
 **全量回归：16643 断言（齐备口径）**—— 这是**齐备口径**：`python` + `pymodbus` + Node
@@ -420,9 +437,26 @@ vendor\lib60870\build\lib60870.a              IEC 60870-5-104 协议栈静态库
 >
 > `16531 + 34 = 16565` ✓ 与 `baseline.py` 实测一致（本次实跑 `18/` 仍读 90，见下）。
 > 缺 Node / 两者都缺两个口径**不变**（那两个口径里 `15/` 本就不跑）：
-> 齐备 **16643** / 缺 pymodbus **16565** / 缺 Node **16306** / 两者都缺 **16228**。
+> 齐备 **16643** / 缺 pymodbus **16565** / 缺 Node **16306** / 两者都缺 **16228**。（以上为 §70 及更早快照；§70 把缺 pymodbus 抬至 16931、§71 再抬至 **17062**，见下方 2026-10-17 注）
 
-`[BUILD ALL OK] All 41 components built.`
+> ★ **2026-10-17 全量实跑（§71，43 步，缺 pymodbus 口径）**：
+> `{"steps": 43, "denom": 43, "counted": 24, "total": 17062, "consistent": true}`
+> —— `21/` 贡献 **471**（301 + 64 + **106**，106 来自 §71 新增 `test_meter645_io.cpp`）；
+> 本机仍是**缺 pymodbus 口径**（步 33 `13/` = 735）。
+> **相对 §70（+131，均经 `baseline.py` 实测，非手加）**：
+>
+> | 项 | §70 实测 | 本次 | 差 | 归因 |
+> | --- | --- | --- | --- | --- |
+> | `21/` | 365 | **471** | **+106** | §71 `Meter645DeviceIO` 接进 EMS（`test_meter645_io.cpp` T50~T63） |
+> | `14/` | 725 | **726** | **+1** | A1：四个数据导出体补 UTF-8 BOM + 对应断言 |
+> | `07-field` | 124 | **148** | **+24** | `test_field_entry.cpp` 新增 T-F10（dlt645 参数校验） |
+>
+> ⚠️ **对账差额仍在**：§70 实测 16931 已比 `16565+365` 多 1 条（落 `21/` 外既有模块）；
+> §71 增 131 后得 17062，差额仍是那 1 条，**未消除也未恶化**（不影响任何判据）。
+> ⚠️ 其余三档（齐备 / 缺 Node / 两者都缺）**本次未重测**，不按加法推算写入 ——
+> 需要时换有 pymodbus / Node 的环境重跑 `baseline.py`。详见 `CHANGES.md` §71.6。
+
+`[BUILD ALL OK] All 43 components built.`
 
 > **不要再手工加总** —— 用 `python scripts/baseline.py` 从 `build_all.log` 直接算。
 > 它逐行解**混合编码**（见下文告警），并按「每步取汇总行；没有汇总行就加总各 exe」
@@ -619,7 +653,7 @@ vendor\lib60870\build\lib60870.a              IEC 60870-5-104 协议栈静态库
 >
 > ⚠️ **9503 / 9581 已作废**：那是**合并远程之前**写的，当时仓库里还没有
 > `11/ 12/ 13/ vendor/`。合并后模块构成从 26 涨到 33 组件（再补 `16/`~`20/` 后为 **39**，
-> 再加 `07/` 现场入口一步后为 **41 步**），
+> 再加 `07/` 现场入口一步后为 **41 步**，2026-10-17 新增 `21/`（DL/T645）两步后为 **43 步**），
 > `13/`（597+133+83）与 `11/`（152）、`12/`（114）都是新的，`P3/` 的测试组织也被远程改过
 > （646 → 408 + 121）。
 > 两个数字**不能再引用**；基线一律以本章节上面的**四口径表**为准
@@ -1463,6 +1497,45 @@ SChannel 客户端配 SChannel 服务端，双方共享同一个 bug 时测试�
 
 详见 [`13/docs/链路中间人_link_tap.md`](./13/docs/链路中间人_link_tap.md)。
 
+### 2.27 DL/T645 主站：老式电能表这条通道，以前一行代码都没有（`21/` 产出）
+
+```bat
+21\build\meter645.exe --sim --count 3              :: 零硬件（内存回环 + 进程内假表）
+21\build\sim_tcp_server.exe --port 8899           :: 终端 1：假串口服务器
+21\build\meter645.exe --tcp 127.0.0.1:8899        :: 终端 2：真 winsock 收发
+21\build\meter645.exe --serial COM3 --baud 2400 --parity even
+```
+
+`链路协议清单.csv` 里"关口电表"那行写着「现场多为 RTU/RS485，老表常为 DL/T 645」，
+而全仓此前**没有任何 645 实现** —— 老站改造时这是硬门槛，不是可选协议。
+
+**三条设备侧协议通道，互不共享代码**：`13/` Modbus、`P3/` IEC104、`21/` 645。
+共用解析会把三种协议的边界揉在一起，所以宁可重复"打开链路 / 超时重试"这层薄壳。
+
+**四条静默失败防线**（少任何一条，现场都是"通信正常但数据不对"）：
+
+| # | 防线 | 不做会怎样 |
+| --- | --- | --- |
+| ① | 发请求前清接收缓冲 | 上一轮迟到的应答被当本轮 → 值全对但全是旧的 |
+| ② | 校验应答地址 | 多表共总线时，隔壁表的电压被当自己的 |
+| ③ | 校验应答 DI | 表回了目录帧，被按请求的格式解码 |
+| ④ | 异常应答（`0xD1`）优先判 | 只有 1 字节数据域，会误报"线路坏了" |
+
+**反证实验**（每条都必须变红，否则判据没牙）：删 `flush_input` → FAIL=2；
+删地址校验 → FAIL=3；删 DI 校验 → FAIL=2；删 BCD 半字节校验 → FAIL=1。
+
+★ **实测抓到的边界**：3 字节 BCD 功率带符号位后上限只有 `9.9999`（未乘 PT/CT 变比）。
+`--sim` 灌 10.29 kW 时表直接回 `0xD1 0x01` —— 而**单元测试全绿**（测试值 1.2345 恰在上限内）。
+说明"测试数据的取值范围"本身也是覆盖度。
+
+**本模块已接进 EMS 现场进程**（2026-10-17 §71）：`Meter645DeviceIO` 是 `IDeviceIO` 的
+第五个实现，经 `07/main_field.exe --device dlt645` 把电表 DI 直达 `MEAS.P_GRID` 快照
+（三条结构性决定见 `21/docs/README.md` §9）。仍**未做**：写数据（0x14）/ 读后续（0x12）/
+广播校时（0x08）、DI 表外置 CSV、多表轮询、真实 485 硬件验证；未做项在
+`21/docs/README.md` §7 列成表。
+
+详见 [`21/docs/README.md`](./21/docs/README.md) 与 [`21/docs/design.md`](./21/docs/design.md)。
+
 
 ---
 
@@ -1573,6 +1646,7 @@ PCS / BMS
 | `18/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` `../09/src` `../10/src` `../11/src` `../13/src` `../17/src` `../20/src` `../P1/src` `../P2/src` + `../07/src/rtdb` `../07/vendor/rt_db` | 仪器层：**对上游全部只读**（只用 `-I` 引用头文件，不改任何一行）。自己编 `07/` 的三个 `.c` 到 `18/build/`（RT_DB 是 C 链接，不能只在 C++ 侧链头文件） |
 | `19/` | —（Python，无 `-I`） | 部署运维层：只**调用**其他模块产物（`P1/build/ems_config.exe --capture`、`11/` 三进程、`13/sim`）。缺产物时相关用例显式 SKIP |
 | `20/` | `src` `../04/src` `../05/src` `../06/src` `../07/src` `../08/src` `../07/src/rtdb` `../10/src` `../P2/src` | 告警与持久化层：`-I` 包含 `06/` 的 `StateMachine` 等既有头文件**复用**（不改它们）；等级/事件码复用 `P2/` 与 `14/schema.sql` 的既有定义，不另造 |
+| `21/` | `src` `../04/src` `../07/src/rtdb` | 设备协议层（DL/T645-2007 **主站**）：**header-only**，只链 `-lws2_32`（TCP 透传）/ Win32 串口 API。`meter645.exe` / `sim_tcp_server.exe` 仍**零依赖独立编译**；但接进 EMS 的 `meter645_device_io.h` 必须 include `04/src/device_io.h`（`IDeviceIO` 契约）与 `07/src/rtdb/ems_point_table.h`（绑定 `EMS_P_GRID` 索引）。它经 `07/main_field.exe --device dlt645` 编译进现场进程，且 `07/` **反向** include 了 `21/src/meter645_device_io.h` 与 `21/src/dlt645_tcp_link.h` —— **不再是 `16/` 那种无依赖叶子层**：21/ ↔ 04/、21/ ↔ 07/ 双向引用，绑定是编译期钉死的，不是运行时白名单 |
 | `vendor/lib60870/` | 自含（`config` `src/inc/api` `src/inc/internal` `src/common/inc` `src/hal/inc` `src/file-service`） | C99 静态库。**必须 `gcc -std=gnu99`**（不是 g++）；链接需 `-lws2_32 -liphlpapi -lbcrypt`。上游源码一行未改 |
 
 > **一个反直觉的 include 顺序约束**：`07/vendor/rt_db/rt_db_structs.h` 定义了

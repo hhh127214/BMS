@@ -12,6 +12,7 @@
 //   T-F7: --help（且帮助文本必须写出两条安全约束）
 //   T-F8: steps_or 的默认拍数
 //   T-F9: --record（实录 CSV 路径；只在 --control 下有意义）
+//   T-F10: --device dlt645（--addr 12 位校验；645 + --control 解析层拒绝）
 //
 //   ★ 「输出等价性」不在本文件里测：那要跑两个可执行文件。
 //     由 scripts/build_test_field.bat 的 P-F1 用 findstr + fc 完成 ——
@@ -357,9 +358,60 @@ static void test_f9_record() {
 }
 
 // =====================================================================
+// T-F10  --device dlt645：--addr 校验 + 只读通道的结构性拦截
+// =====================================================================
+static void test_f10_dlt645() {
+    std::cout << "\n[T-F10] dlt645：电表地址校验与「只读」的结构保证\n";
+
+    // 合法组合：--host + --addr（12 位数字）
+    P({"--device", "dlt645", "--host", "10.0.0.8", "--port", "4001",
+       "--addr", "000000000001"});
+    EXPECT(g_ok);
+    EXPECT(g_a.device == field::DeviceKind::kDlt645);
+    EXPECT(g_a.meter_addr == "000000000001");
+    EXPECT(field::validate_target(g_a, g_err));
+    EXPECT(std::string(field::device_kind_name(g_a.device)) == "dlt645");
+
+    // ★ 645 + --control 是**语义错误**，解析层就拒（不是适配器层报"写失败"）
+    P({"--device", "dlt645", "--host", "h", "--addr", "000000000001", "--control"});
+    EXPECT(!g_ok);
+    EXPECT(has(g_err, "只读计量设备"));
+
+    // --addr 的边界：不是 12 位 / 混进字母 / 缺取值 / 空取值，逐个拒
+    P({"--device", "dlt645", "--host", "h", "--addr", "123"});
+    EXPECT(!g_ok);
+    EXPECT(has(g_err, "12 位"));
+    P({"--device", "dlt645", "--host", "h", "--addr", "00000000001A"});
+    EXPECT(!g_ok);
+    EXPECT(has(g_err, "只能含数字"));
+    P({"--device", "dlt645", "--host", "h", "--addr"});
+    EXPECT(!g_ok);
+    EXPECT(has(g_err, "缺少取值"));
+    P({"--device", "dlt645", "--host", "h", "--addr", ""});
+    EXPECT(!g_ok);
+
+    // validate_target：缺 host / 缺 addr 分别给出可执行的处置
+    P({"--device", "dlt645", "--addr", "000000000001"});
+    EXPECT(g_ok);
+    EXPECT(!field::validate_target(g_a, g_err));
+    EXPECT(has(g_err, "--host"));
+    EXPECT(has(g_err, "sim_tcp_server.exe"));   // 仿真表入口要写进帮助
+    P({"--device", "dlt645", "--host", "h"});
+    EXPECT(g_ok);
+    EXPECT(!field::validate_target(g_a, g_err));
+    EXPECT(has(g_err, "--addr"));
+    EXPECT(has(g_err, "12 位"));
+
+    // 帮助文本必须把新通道写出来
+    const std::string u = field::usage_text("main_field.exe");
+    EXPECT(has(u, "dlt645"));
+    EXPECT(has(u, "--addr"));
+}
+
+// =====================================================================
 int main() {
     std::cout << "=========================================================\n"
-              << " 07/ 现场进程入口单元测试（T-F1 ~ T-F9）\n"
+              << " 07/ 现场进程入口单元测试（T-F1 ~ T-F10）\n"
               << "=========================================================\n";
 
     test_f1_defaults();
@@ -371,6 +423,7 @@ int main() {
     test_f7_help();
     test_f8_steps_or();
     test_f9_record();
+    test_f10_dlt645();
 
     std::cout << "\n=========================================\n"
               << " PASS=" << g_pass << "  FAIL=" << g_fail << "\n"

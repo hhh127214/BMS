@@ -662,6 +662,8 @@ def main() -> int:
     st, p = call("GET", "/api/export/timeseries", user=viewer_u)
     t.eq(st, 200, "导出时序 200")
     t.ok(p.get("__raw__") and "t_s," in p["body"], "导出为 CSV 且含表头")
+    # ★ 数据导出与点表导出同一条纪律：带 BOM，Excel 双击中文不乱码。
+    t.ok(p["body"].startswith("\ufeff"), "数据导出体带 UTF-8 BOM")
     t.eq(len(p["body"].strip().splitlines()), 8641, "导出行数 = 8640 + 表头")
     st, p = call("GET", "/api/export/nope", user=viewer_u)
     t.eq(st, 400, "非法导出类型返回 400")
