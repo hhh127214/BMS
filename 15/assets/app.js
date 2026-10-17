@@ -150,12 +150,7 @@ const App = (() => {
       if (eng === state.engine) return;
       if (!canWrite()) { toast('当前角色为只读，无法切换引擎模式（需 operator 及以上）', 'bad'); return; }
       try {
-        await API.setEngine(eng);
-        state.engine = eng;
-        // 切模式必须重新解析默认数据集：运行模式看 live、仿真模式看最近一次成功仿真
-        state.scenario = '';
-        state.t = null;
-        await loadEngine();
+        await switchEngine(eng);
         toast(eng === 'run'
           ? '已切到运行模式：数据由实时引擎产生（需在状态条里点「启动引擎」）'
           : '已切到仿真模式：数据来自离线批量仿真结果', 'ok');
@@ -257,18 +252,47 @@ const App = (() => {
     $('#user-avatar').textContent = (user.display_name || user.username || 'U').slice(0, 1).toUpperCase();
 
     buildNav();
-    try { state.health = await API.health(); } catch (e) { state.health = null; }
-    await loadEngine();          // 引擎模式 + 数据集清单（决定顶栏两个分段器）
-    await loadModes();
-    drawFooter();
+    // ★ 2026-10-16：登录框此刻**已经隐藏**了。这一段只要有一处抛错，
+    //   异常就会冒泡回登录处理器的 catch —— 而错误文案是写进 #login-err 的，
+    //   那时它在一个 hidden 的容器里，用户看到的是「进了个空白页、什么都没说」。
+    //   所以：初始化失败**不弹回登录框**（口令是对的，问题不在登录），
+    //   留在界面里画出「出了什么事」，并 toast 一声。
+    try {
+      try { state.health = await API.health(); } catch (e) { state.health = null; }
+      await loadEngine();          // 引擎模式 + 数据集清单（决定顶栏两个分段器）
+      await loadModes();
+      drawFooter();
 
-    // 校验 hash 里的页面是否有权限
-    const want = location.hash.replace('#/', '');
-    const visible = visibleMenu();
-    state.page = visible.some(m => m.id === want) ? want : 'overview';
-    if (!location.hash) location.hash = '#/' + state.page;
+      // 校验 hash 里的页面是否有权限
+      const want = location.hash.replace('#/', '');
+      const visible = visibleMenu();
+      state.page = visible.some(m => m.id === want) ? want : 'overview';
+      if (!location.hash) location.hash = '#/' + state.page;
 
-    await renderPage();
+      await renderPage();
+    } catch (e) {
+      try {
+        const content = $('#content');
+        clear(content);
+        content.appendChild(h('div', { class: 'empty', text: `界面初始化失败：${e.message}` }));
+      } catch (e2) { /* 连兜底都画不出来时，至少还有 toast */ }
+      toast(`界面初始化遇到问题：${e.message}`, 'bad');
+    }
+  }
+
+  // 切引擎模式必须**成套**做：写后端 → 改本地 → **清空 scenario 让它重解析** → 重载引擎信息。
+  // 少做一步就出"按钮已经切过去了、页面看的还是旧数据集"。
+  // ★ 这条是实跑撞出来的：空状态里的「切到仿真模式」第一次只写了 setEngine，
+  //   结果顶栏显示「仿真模式(当前)」，页面上的提示却还是**运行模式**那句
+  //   （scenario 仍钉在 live）—— 所以这里收成一个入口，两处调用不再各写一遍。
+  async function switchEngine(eng, scenarioId) {
+    await API.setEngine(eng);
+    state.engine = eng;
+    // 切模式必须重新解析默认数据集：运行模式看 live、仿真模式看最近一次成功仿真。
+    // 指定了 scenarioId 就直接用它（"打开某份数据集来看"那条路）。
+    state.scenario = scenarioId || '';
+    state.t = null;
+    await loadEngine();
   }
 
   function visibleMenu() {
@@ -547,6 +571,62 @@ const App = (() => {
     $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.id === state.page));
   }
 
+  /* ------------- 「这一刻没有数据」≠「加载失败」 -------------
+     运行模式下实时引擎还没启动时，后端会以 **404 + 一句人话原因**回绝
+     overview / realtime / series 等接口。这不是功能坏了，是**这条路此刻没数据**。
+
+     ★ 2026-10-16 实跑（真后端 + 运行模式 + 引擎未启动 + jsdom 驱动真前端）确认：
+       登录**进得去**、12 个菜单都在，坏的是**呈现** —— 6 个页面显示红字
+       「加载失败：…」，用户读到的是"功能坏了"，而不是"去哪拿数据"。
+       排障方向被这句措辞带偏，比报错本身更贵。
+
+     分流判据用 **HTTP 状态**（api.js 已把 res.status 挂到错误上），不猜文案：
+       404 → 空状态（+ 出路按钮）；其余（5xx / 网络）→ 才是「加载失败」。 */
+  function isNotReady(e) {
+    return !!e && e.status === 404;
+  }
+
+  function renderNotReady(e, ctx) {
+    const canAct = canWrite();
+    const acts = [];
+    if (canAct && state.engine === 'run') {
+      acts.push(h('button', {
+        class: 'btn-sm primary', text: '切到仿真模式看历史数据',
+        onclick: async () => {
+          try {
+            await switchEngine('sim');
+          } catch (err) { toast(err.message, 'bad'); return; }
+          await renderPage();
+        },
+      }));
+      acts.push(h('button', {
+        class: 'btn-sm', text: '启动实时引擎',
+        onclick: async () => {
+          try { await API.liveStart({}); } catch (err) { toast(err.message, 'bad'); return; }
+          await loadEngine();
+          await renderPage();
+        },
+      }));
+    } else if (state.engine === 'sim') {
+      // 仿真模式下还没有数据集：出路是去跑一次（或看已有的），不是原地重试
+      acts.push(h('button', {
+        class: 'btn-sm primary', text: '去仿真页',
+        onclick: () => { ctx.goPage('sim'); },
+      }));
+    }
+    return h('div', { class: 'empty' }, [
+      h('div', { text: '这个数据源此刻还没有数据' }),
+      h('div', { class: 'muted', style: 'margin-top:8px', text: e.message || '' }),
+      acts.length
+        ? h('div', { style: 'margin-top:16px;display:flex;gap:10px;justify-content:center' }, acts)
+        : null,
+      h('div', {
+        class: 'muted', style: 'margin-top:14px',
+        text: '接口是通的 —— 这不是加载失败，是「当前模式还没攒到数据」。',
+      }),
+    ]);
+  }
+
   /* ------------------------------ 路由 ------------------------------ */
   async function renderPage(opts) {
     const o = opts || {};
@@ -586,13 +666,16 @@ const App = (() => {
       // 若当前在运行模式，必须先切引擎模式再选数据集（否则被 resolve_scenario
       // 按 live 覆盖掉，用户会看到"点了查看结果，界面没变"）。
       openDataset: async (scenarioId) => {
+        // 看点必须成套：当前在运行模式就**先切引擎模式再选数据集**
+        // （否则被 resolve_scenario 按 live 覆盖掉，用户会看到"点了查看结果，界面没变"）。
+        // 走 switchEngine 而不是自己再写一遍，是为了让"切模式该做哪几件事"只有一个定义。
         if (state.engine !== 'sim') {
-          await API.setEngine('sim');
-          state.engine = 'sim';
+          await switchEngine('sim', scenarioId);
+        } else {
+          state.scenario = scenarioId;
+          state.t = null;
+          await loadEngine();
         }
-        state.scenario = scenarioId;
-        state.t = null;
-        await loadEngine();
         if (state.page !== 'overview') location.hash = '#/overview';
         else await renderPage();
       },
@@ -609,7 +692,10 @@ const App = (() => {
       if (o.keepScroll) content.scrollTop = keepTop;
     } catch (e) {
       clear(content);
-      content.appendChild(h('div', { class: 'empty', text: `加载失败：${e.message}` }));
+      // 404 = 此刻没数据（空状态 + 出路）；其余才是真的加载失败。
+      content.appendChild(isNotReady(e)
+        ? renderNotReady(e, ctx)
+        : h('div', { class: 'empty', text: `加载失败：${e.message}` }));
     }
     syncLiveTimer();
   }

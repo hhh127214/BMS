@@ -84,6 +84,23 @@ const asmJs = read(path.join(ROOT15, 'assets/assembly.js'));
 const pagesJs = read(path.join(ROOT15, 'assets/pages.js'));
 const appJs = read(path.join(ROOT15, 'assets/app.js'));
 
+/* 取一个顶层函数的源码片段：从它的头部到下一个顶层函数声明（或下一个顶层块注释）为止。
+   ★ 用来做"这个函数里必须/不许出现什么"的断言。
+   ★ 必须同时认 `function` 与 `async function` —— 只认前者时，若后面紧跟的是
+     `async function renderPage`，切片会一路吃到文件末尾，把**别处**的字符串也算进来
+     （2026-10-16 加 [M] 段时因此误判过一条否定断言：空状态里本来没有"加载失败"，
+      却因为切到了 renderPage 的兜底文案而报红）。 */
+const sliceFn = (src, header) => {
+  const i = src.indexOf(header);
+  if (i < 0) return '';
+  const cuts = [
+    src.indexOf('\n  function ', i + header.length),
+    src.indexOf('\n  async function ', i + header.length),
+    src.indexOf('\n  /* ', i + header.length),
+  ].filter(k => k > 0);
+  return src.slice(i, cuts.length ? Math.min(...cuts) : src.length);
+};
+
 /* 静态扫描用的"裸源码"（剥掉注释）。
    ★ 为什么必须有这一层：本文大量断言是"源码里出没出现某个写法"，而正则不认注释 ——
      注释里提到 `<marker>`、`html:` 都会被当成一处真实使用点，报出来的却是
@@ -465,8 +482,9 @@ t.head('I 引擎双模式（run / sim）');
 t.ok(/id="engine-seg"/.test(indexHtml), 'index.html 有引擎分段器 #engine-seg');
 t.ok(/engines\.forEach|list\.forEach\(e =>/.test(appJs) && /data-engine/.test(appJs),
   'app.js 按 /api/engine 的 engines[] 生成引擎按钮');
-t.ok(/state\.scenario = '';\s*\n\s*state\.t = null;\s*\n\s*await loadEngine\(\)/.test(appJs),
-  '切引擎模式后清空数据集与时刻并重新解析（不沿用旧数据集）');
+t.ok(/state\.scenario = scenarioId \|\| '';\s*\n\s*state\.t = null;\s*\n\s*await loadEngine\(\)/
+     .test(sliceFn(appJs, 'async function switchEngine')),
+  '切引擎模式后重新解析数据集与时刻并重载引擎信息（不沿用旧数据集）');
 t.ok(/await API\.setEngine\(eng\)/.test(appJs), 'app.js 调 POST /api/engine 切换模式');
 t.ok(/function canWrite\(\)/.test(appJs) && /if \(!canWrite\(\)\)/.test(appJs),
   '引擎切换与会话写操作共用一道角色闸门');
@@ -507,8 +525,8 @@ t.ok(/典型日/.test(pagesJs), '仿真页写明「典型日重复」的诚实�
 t.ok(/只发生在第 0 天|故障窗/.test(pagesJs), '仿真页写明故障注入只覆盖第 0 天');
 t.ok(/ctx\.openDataset\(/.test(pagesJs) && /openDataset: async \(/.test(appJs),
   '「查看结果」走 openDataset（会顺带切到仿真模式，不会出现点了没反应）');
-t.ok(/if \(state\.engine !== 'sim'\) \{\s*\n\s*await API\.setEngine\('sim'\)/.test(appJs),
-  'openDataset 在看仿真结果前先确保引擎在仿真模式');
+t.ok(/if \(state\.engine !== 'sim'\) \{\s*\n\s*await switchEngine\('sim', scenarioId\)/.test(appJs),
+  'openDataset 在看仿真结果前先确保引擎在仿真模式（与顶栏、空状态共用 switchEngine）');
 
 // ⑤ 数据源插拔 + 不假装接真机
 const enginePy = fs.existsSync(path.join(ROOT, '14', 'src', 'engine.py'))
@@ -734,6 +752,72 @@ const scriptRefs = [...idxHtmlText.matchAll(/<script\s+src="assets\/([^"]+)"/g)]
 t.ok(scriptRefs.length > 0, `index.html 引用了 ${scriptRefs.length} 个脚本`);
 t.eq(scriptRefs.filter(r => !JS_FILES.includes(r)), [],
      'index.html 引用的脚本**全部**被语法守卫覆盖（新增脚本必须同步进 JS_FILES）');
+
+/* =====================================================================
+   [M] 「这一刻没有数据」≠「加载失败」—— 空状态 + 出路
+
+   ★ 为什么有这一段（2026-10-16 实跑撞出来的）：
+     §63.7 当时记的判断是「renderPage 没有 try-catch ⇒ 异常冒泡回 boot()
+     ⇒ 用户被锁在登录界面外」。用 jsdom 驱动**真前端 + 真后端**跑一遍
+     （运行模式 + 实时引擎未启动）后，这个判断被推翻：登录进得去，
+     12 个菜单都在，只是 6 个页面显示红字「加载失败：运行模式还没有实时数据…」。
+     —— 静态推断又一次把「呈现措辞不对」读成了「流程断了」。
+
+     真问题是**呈现**：404（数据未就绪）被当成「加载失败」，用户读到的是
+     「功能坏了」，排障方向被带偏。所以判据落在四件事上：
+       ① 错误对象必须带 HTTP 状态（不然前端只能猜文案，而文案是后端自由文本）；
+       ② 只有 404 走空状态；5xx / 网络错仍说「加载失败」；
+       ③ 空状态里**必须有出路**，且出路走既有接口（setEngine / liveStart）；
+       ④ 出路按钮按角色给（viewer 不该看到操作按钮）。
+   ===================================================================== */
+t.head('[M] 数据未就绪 ≠ 加载失败');
+
+t.ok(/err\.status = res\.status/.test(apiJs),
+     'api.js 把 HTTP 状态挂到错误对象上（前端据此分流，不猜后端文案）');
+t.ok(/e401\.status = 401/.test(apiJs),
+     '401 同样带状态（会话过期与"没数据"是两件事）');
+
+t.ok(/function isNotReady\(e\)/.test(appJs) && /e\.status === 404/.test(appJs),
+     'app.js 有「数据未就绪」判据，判据是 HTTP 404 而不是错误文案');
+t.ok(/isNotReady\(e\)/.test(appJs) && /renderNotReady\(e, ctx\)/.test(appJs),
+     '渲染失败时按 404 / 其他分流');
+t.ok(/加载失败：\$\{e\.message\}/.test(appJs),
+     '★ 真失败（5xx / 网络）仍保留「加载失败」措辞 —— 分流不能把两种错合成一种');
+
+// 取一个顶层函数的源码片段用 sliceFn（定义在文件上方）。
+const nrBody = sliceFn(appJs, 'function renderNotReady');
+t.ok(nrBody.length > 0 && nrBody.length < appJs.length, '空状态渲染器 renderNotReady 能定位到');
+// 注意判据的精度：空状态里**不能有任何一段文字以「加载失败」开头**，
+// 但它可以（也应该）明说「这不是加载失败」—— 所以要按 `text: '…'` 的取值判，
+// 不能用 `/加载失败/` 一刀切（第一版就这么写错了，被自己的反向断言拦下）。
+t.ok(!/text:\s*['"`]加载失败/.test(nrBody),
+     '★ 空状态不把「加载失败」当作要显示的文字（措辞直接决定用户往哪查）');
+t.ok(/这不是加载失败/.test(nrBody),
+     '反过来要**显式**告诉用户「接口是通的、不是坏了」，否则他会继续查接口');
+t.ok(/switchEngine\('sim'\)/.test(nrBody),
+     '出路①「切到仿真模式」走既有接口，不是新造一套');
+t.ok(/API\.liveStart\(/.test(nrBody),
+     '出路②「启动实时引擎」走既有接口');
+t.ok(/canWrite\(\)/.test(nrBody),
+     '出路按钮按角色给（viewer 看不到操作入口）');
+t.ok(/goPage\('sim'\)/.test(nrBody),
+     '仿真模式下没有数据集时，出路是「去仿真页」而不是原地重试');
+
+// 切模式必须成套（少一步就出「按钮切过去了、看的还是旧数据集」）
+const swBody = sliceFn(appJs, 'async function switchEngine');
+t.ok(swBody.length > 0, '切换引擎模式收成一个入口 switchEngine');
+t.ok(/state\.scenario = scenarioId \|\| ''/.test(swBody) && /await loadEngine\(\)/.test(swBody),
+     '★ 切模式必须重解析数据集（清空 / 换成指定那份）并重载引擎信息'
+     + '（不清就会「顶栏显示仿真模式、文案还是运行模式那句」）');
+t.ok((appJs.match(/API\.setEngine\(/g) || []).length === 1,
+     '★ setEngine 全文件只在一处调用（空状态与顶栏共用 —— 各写一遍必然漂移）');
+
+// 登录入口不能在「登录框已隐藏」之后把异常抛回去（那会把用户扔进空白页且无处申诉）
+const enterBody = sliceFn(appJs, 'async function enterApp');
+t.ok(/classList\.add\('hidden'\)[\s\S]*try \{/.test(enterBody),
+     '★ enterApp 在隐藏登录框之后有 try 兜底（否则错误文案会写进看不见的 #login-err）');
+t.ok(/界面初始化失败/.test(enterBody),
+     '初始化失败时留在界面里说清楚，而不是弹回登录框');
 
 const okAll = t.report();
 process.exit(okAll ? 0 : 1);

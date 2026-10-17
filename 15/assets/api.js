@@ -52,10 +52,19 @@ const API = (() => {
     if (res.status === 401) {
       setSession('', null);
       if (onUnauthorized) onUnauthorized(data && data.error ? data.error : '会话已过期');
-      throw new Error((data && data.error) || '未登录');
+      const e401 = new Error((data && data.error) || '未登录');
+      e401.status = 401;
+      throw e401;
     }
     if (!res.ok) {
-      throw new Error((data && data.error) || `HTTP ${res.status}`);
+      // ★ 把 HTTP 状态挂到错误对象上（2026-10-16 补）。
+      //   调用方必须能区分「这一刻没有数据（404）」与「真的坏了（5xx）」：
+      //   两者该说的话完全不同 —— 前者要告诉用户"去哪拿数据"，后者才是"加载失败"。
+      //   没有 status 时前端只能按 error 文案猜，而后端文案是自由文本，
+      //   改一个字判断就错 —— 这正是本项目反复踩过的"靠字符串当契约"。
+      const err = new Error((data && data.error) || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
     }
     return data;
   }

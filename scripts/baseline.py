@@ -10,10 +10,20 @@
   再退 CP936。
 
 口径规则（"每步一项"）：
-  · 每步取**末条** `PASS=n`；若该值小于同一步内各 exe 汇总行之和，则说明这一步
-    **没有打汇总行**（13/ 打印 3 层、P3 打印 2 组、20/ 打印 3 个 exe 各自一行），
+  · 每步先看有没有**模块自报的总数** `TOTAL_ASSERTIONS=n`（20/ 会打，由它的 .bat 从
+    三个 exe 各自落的**状态文件**算出）—— 有就用它，这是**权威口径**。
+  · 否则每步取**末条** `PASS=n`；若该值小于同一步内各 exe 汇总行之和，则说明这一步
+    **没有打汇总行**（13/ 打印 3 层、P3 打印 2 组），
     此时取**去重后各 exe 汇总行之和**。
   · 步骤号集合必须恰好 1..N 无缺号（与 12/ 验收器 A7-04 同一条纪律）。
+
+★ 为什么优先 `TOTAL_ASSERTIONS`（2026-10-17 踩到）：
+  20/ 那一步的"加总"依赖**三个子进程的 stdout 全部落进日志**，实测会偶发丢掉某一段
+  —— 一次全量构建里 `test_soe_store.exe` 的整段 stdout（含 `PASS=144`）**一个字节都没进日志**
+  （同一次构建里另外两个 exe 正常；单独跑 20/ 两次都完整）。于是"加总"只剩 77+176=253，
+  而它的 `TOTAL_ASSERTIONS=397`、`BY_SUITE=176+144+77`、`TOTAL_FAIL=0` 全都正常 ——
+  **断言确实跑了、也确实全过**，丢的只是给人看的 stdout。
+  这与本项目的既有纪律一致：**别去 grep stdout，读 exe 落的纯 ASCII 状态文件**。
 
 用法：
   python scripts/baseline.py                 # 读 build_all.log
@@ -74,6 +84,18 @@ def step_values(seg):
 
 def step_count(seg):
     """按口径规则算一步的断言数；返回 (值, 说明)。"""
+    # ① 模块自报的总数优先（20/ 的 `TOTAL_ASSERTIONS=397`，来自它的 .bat 读状态文件）。
+    #    它不依赖子进程 stdout 是否完整落进日志，故比"给各 exe 加总"更权威（见文件头）。
+    m = re.search(r"TOTAL_ASSERTIONS\s*=\s*(\d+)", seg)
+    if m:
+        tot = int(m.group(1))
+        note = "取汇总行 TOTAL_ASSERTIONS"
+        by = re.search(r"BY_SUITE\s*=\s*([0-9+]+)", seg)
+        if by:
+            parts = [int(x) for x in by.group(1).split("+") if x]
+            if sum(parts) != tot:
+                note += " [!! BY_SUITE=%s 与总计 %d 不符]" % (by.group(1), tot)
+        return tot, note
     lines = [l.strip() for l in seg.split("\n") if re.search(r"PASS=\d+|通过\s*\d+", l)]
     vals = step_values(seg)
     if not vals:

@@ -32,7 +32,7 @@
 │   ├── assembly.js         柜体装配数据（**派生产物**，由 gen_assembly.py 生成，302 行）
 │   ├── pages.js            12 个页面（2108 行）
 │   └── app.js              路由 / 登录 / 引擎与场景切换 / 菜单权限 / 实时刷新（638 行）
-├── tests/selftest.js       静态契约自检（293 断言，A~L 十二段）
+├── tests/selftest.js       静态契约自检（310 断言，A~M 十三段）
 ├── scripts/
 │   ├── run_ui.bat          起后端 + 托管界面
 │   ├── run_selftest.bat    静态契约自检
@@ -165,7 +165,7 @@ REM  浏览器打开 http://127.0.0.1:8765/
 15\scripts\run_selftest.bat
 ```
 
-293 条断言，十二段：
+310 条断言，十三段：
 
 | 段 | 内容 |
 |---|---|
@@ -268,7 +268,7 @@ G 段守的是"**改回去了也不会有人发现**"的那类画法约定：老
 | `15/assets/assembly.js` | 柜体装配数据（**派生产物**：4 部位 / 14 部件 / 78 测点，带 CSV 原值 `src`） |
 | `15/assets/pages.js` | 12 个页面，每页一个 `async function(ctx)` 返回 DOM 节点 |
 | `15/assets/app.js` | `MENU` 表 + hash 路由 + 登录流 + 场景/运行模式切换（滑动指示条对位） |
-| `15/tests/selftest.js` | 静态契约自检（293 断言，A~L 十二段） |
+| `15/tests/selftest.js` | 静态契约自检（310 断言，A~M 十三段） |
 | `15/scripts/*.bat` | 界面启动 / 自检 / 构建入口 |
 | `15/scripts/gen_assembly.py` | 从 `docs/规划/部件测点映射表.csv` 生成 `assembly.js`（`--check` 只比对不写盘） |
 | `14/src/server.py` | 后端服务；`--static 15` 把本目录发布出去 |

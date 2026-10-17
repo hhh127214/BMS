@@ -95,6 +95,8 @@ build_all.log
 14/tests/_probe_live.py
 # 全量构建的临时包装脚本
 scripts/_run_build_all_tmp.bat
+# 18/ 基准的多次重复验证脚本（编译 + 连跑 4 次，抽 P4/R8c/R13 明细）
+scripts/_run18.py
 # 排查 / 验证用的一次性输出（根目录，点号开头）：
 # .bl*.txt（baseline 明细）、.st1*.txt（自检输出）、.port*.txt（端口探测）、
 # .gs/.gitstat.txt（git 状态）、.pid*.txt、.srv*.err

@@ -32,7 +32,7 @@
 | `src/auth.py` | 口令（pbkdf2）、会话（token）、三角色权限、审计 |
 | `src/api.py` | REST 路由与业务逻辑（41 个端点，含引擎与仿真调度） |
 | `src/server.py` | HTTP 服务（标准库 `http.server`，同时托管 `15/` 静态页） |
-| `tests/selftest.py` | 断言式自检，**624 断言** |
+| `tests/selftest.py` | 断言式自检，**664 断言**（`[K]` 段随告警数据集变化，非常量） |
 | `scripts/*.bat` | 导入 / 启服务 / 自检 / live 入库 / 一键 |
 
 **零第三方依赖** —— 只用 Python 标准库（`sqlite3` / `http.server`）。
@@ -210,12 +210,12 @@ curl -X POST http://127.0.0.1:8765/api/login -H "Content-Type: application/json"
 14\scripts\run_selftest.bat
 ```
 
-十二个段、**624 断言**：
+十二个段、**664 断言**（2026-10-17 实测；`[K]` 段按库里 distinct `level` × `source` 组合出断言，故此数随告警数据而变）：
 
 | 段 | 内容 |
 | :--- | :--- |
 | A schema | 18 张业务表齐全（v1.1 加 `run_mode`，v1.2 加设备接入两张 + `scenario.time_base`，v1.4 加 `sim_run` 仿真台账） |
-| B 导入 | 行数（两场景各 8640 拍 / 17280 条指令 / **290** 条告警：normal 7 + fault 283） |
+| B 导入 | 行数（两场景各 8640 拍 / 17280 条指令 / **296** 条告警：normal 7 + fault 289） |
 | **C 数据一致性** | **入库值逐项对照 `summary.json`** —— 证明平台展示的不是编造的数字；<br>含**电量交叉验证**（关口电量 = `e_import − e_export`，见 §7.1）。<br>★ 2026-10-11 改：原先断言「fault 场景不变量**不过**」(`iv_f["all_ok"] == 0`)，<br>那是条**负向不变量** —— 只有安全层真失效才变绿。现改为「与 summary.json 逐项相符」<br>+「fault 告警 > normal 告警（证明注入确实生效）」，详见 `CHANGES.md` §60.6 |
 | D 幂等 | 重复导入不产生重复行、不漂移；含**跨日重导**（见 §7.2） |
 | E 认证与权限 | 口令哈希、token 生命周期、三角色边界 |

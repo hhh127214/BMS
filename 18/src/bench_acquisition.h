@@ -12,6 +12,9 @@
 //
 // 反向守卫（约定 §3.2）：先断言 contended 下 collisions>0，
 // 否则"重试吸收率"这条相对判据两边都是 0，骗得过任何断言。
+// ★ 2026-10-17 补：光有守卫不够 —— 守卫本身会因"写者还没被调度"而假红。
+//   故 run_acquisition_bench 在 start() 后**握手**等写者完成 ≥1 次全表写
+//   （`PointWriterThread::batches`），把"夹具空转"从"随机假红"变成"不可能"。
 //
 // 注意：本基准是**有意**让一个写者线程占满一个核 —— 这不是"并发编译"，
 // 而是被测对象的负载条件本身。报告里必须写清 p99 是在何种竞争下取得的。
@@ -89,11 +92,15 @@ struct RtdbEnv {
 // 写者线程：模拟设备/SCADA 进程每拍写全点表（含时间戳更新 → 拉长临界区）
 struct PointWriterThread {
     std::atomic<bool> stop{false};
+    // 已完成的「全表写」批次数 —— **活进度**，供 run_acquisition_bench 握手用
+    // （下面的 `writes` 只在退出时写一次，外部读不到中间态）
+    std::atomic<long long> batches{0};
     std::thread       th;
     long long         writes = 0;
 
     void start() {
         stop.store(false);
+        batches.store(0);
         th = std::thread([this]() {
             long long n = 0;
             double phase = 0.0;
@@ -106,6 +113,7 @@ struct PointWriterThread {
                     rt_db_set_value(handle, i, v, ems::rtdb_quality::kGood);
                 }
                 ++n;
+                batches.store(n, std::memory_order_release);
             }
             writes = n;
         });
@@ -144,6 +152,17 @@ inline AcqBenchResult run_acquisition_bench(const RtdbEnv& env,
     if (a.contended) {
         writer.handle = const_cast<rt_db_handle_t*>(&env.handle);
         writer.start();
+        // ★ 握手：等写者线程**真的开始写**再进计时循环（2026-10-17）。
+        //   原先 start() 后立刻开读 —— 机器被限频/繁忙时写者可能还没被调度，
+        //   20000 次读跑完它一次都没写 ⇒ collisions==0 ⇒ SLA-A2 分母为 0
+        //   （`[denom<=0 -> INVALID]`）、SLA-A3 的「竞争下确有碰撞」守卫失守。
+        //   实测 8 次里出过 1 次（假红）。等到至少完成 1 次全表写，就把
+        //   "竞争条件根本没被触发"这种**空转夹具**变成不可能。
+        const double w0 = now_us();
+        while (writer.batches.load(std::memory_order_acquire) < 1 &&
+               now_us() - w0 < 2.0e6) {
+            std::this_thread::yield();
+        }
     }
 
     r.read_us.reserve((size_t)a.reads);
