@@ -337,11 +337,14 @@ static void test_f9_record() {
     EXPECT(g_ok);
     EXPECT(g_a.record_path.empty());
 
-    // 只有 --control 下 --record 才有意义（只读不建 EmsRuntime，没记录可写）
+    // ★ 2026-10-18 起改语义：**只读巡检也写实录**（原先是"只读不许 --record"）。
+    //   原因：接上真实设备「只看不动」跑得通、却**一行数据都不入库** —— 平台页面全空，
+    //   而现场看到的是「读到了、数值对」。这是最难查的一类（数据不对但不报错）。
+    //   所以这里断言的是**反过来**的那条：只读 + --record 合法，且 control 仍为假。
     P({"--device", "modbus", "--host", "h", "--record", "out.csv"});
-    EXPECT(!g_ok);
-    EXPECT(has(g_err, "--record"));
-    EXPECT(has(g_err, "--control"));
+    EXPECT(g_ok);
+    EXPECT(g_a.record_path == "out.csv");
+    EXPECT(!g_a.control);              // 只读：不下发指令，只落量测
 
     // --control + --record 合法
     P({"--device", "modbus", "--host", "h", "--control", "--record", "out.csv"});
@@ -408,10 +411,52 @@ static void test_f10_dlt645() {
     EXPECT(has(u, "--addr"));
 }
 
+// ---------------------------------------------------------------------
+// T-F11  --mirror-rtdb：默认关，且只与 --device modbus 同用
+//
+// 为什么这条要单独测：它是**上端 IEC104 唯一的数据来源**。开关写错
+// （比如默认开、或允许 rtdb 同用）不会当场报错，只会让主站收到错数。
+// ---------------------------------------------------------------------
+static void test_f11_mirror_rtdb() {
+    std::cout << "\n[T-F11] --mirror-rtdb：默认关，且只与 --device modbus 同用\n";
+
+    // 默认关：没人要求时不能改变进程行为
+    P({});
+    EXPECT(g_ok);
+    EXPECT(!g_a.mirror_rtdb);
+
+    // 正规用法
+    P({"--device", "modbus", "--host", "10.0.0.7", "--mirror-rtdb"});
+    EXPECT(g_ok);
+    EXPECT(g_a.mirror_rtdb);
+
+    // 与 --control 并立：闭环时连自己算出的 CMD 一起发布
+    P({"--device", "modbus", "--host", "10.0.0.7", "--control", "--mirror-rtdb"});
+    EXPECT(g_ok);
+    EXPECT(g_a.mirror_rtdb && g_a.control);
+
+    // rtdb：那条路径本身就是实时库的读方，再镜像就是自己写自己读
+    P({"--device", "rtdb", "--mirror-rtdb"});
+    EXPECT(!g_ok);
+    EXPECT(has(g_err, "--device modbus"));
+
+    // dlt645：只有关口功率一路量测，其余点写进去只能是 0
+    P({"--device", "dlt645", "--host", "h", "--addr", "000000000001", "--mirror-rtdb"});
+    EXPECT(!g_ok);
+
+    // sim：没有真实设备可镜像
+    P({"--mirror-rtdb"});
+    EXPECT(!g_ok);
+
+    // 帮助文本必须写出来 —— 现场靠 --help 才知道有这个开关
+    const std::string u = field::usage_text("main_field.exe");
+    EXPECT(has(u, "--mirror-rtdb"));
+}
+
 // =====================================================================
 int main() {
     std::cout << "=========================================================\n"
-              << " 07/ 现场进程入口单元测试（T-F1 ~ T-F10）\n"
+              << " 07/ 现场进程入口单元测试（T-F1 ~ T-F11）\n"
               << "=========================================================\n";
 
     test_f1_defaults();
@@ -424,6 +469,7 @@ int main() {
     test_f8_steps_or();
     test_f9_record();
     test_f10_dlt645();
+    test_f11_mirror_rtdb();
 
     std::cout << "\n=========================================\n"
               << " PASS=" << g_pass << "  FAIL=" << g_fail << "\n"

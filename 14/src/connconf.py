@@ -55,21 +55,38 @@ FORMAT_TAG = "ems-device-conn/1"
 
 # 文件的键。顺序 = 落盘顺序（现场肉眼比对时稳定，不随 dict 顺序漂移）。
 KEYS = [
-    "format", "device_id", "protocol", "host", "port", "unit_id",
+    "format", "device_id", "protocol", "source_kind",
+    "host", "port", "unit_id", "sim_host", "sim_port",
     "poll_period_ms", "timeout_ms", "auto_reconnect", "enabled",
     "saved_at", "username",
 ]
 
 # 必填键。少了任何一个，端侧都无法确定"连哪台设备" —— 一律拒绝。
 REQUIRED = [
-    "format", "device_id", "protocol", "host", "port", "unit_id",
+    # ★ host 不在 REQUIRED 里（v1.5 起）：它的必填性由形态决定 ——
+    #   真实源必须有地址，模拟源可以没有（连的是模拟器）。这里若继续列着，
+    #   接模拟源的文件会被判成"缺必填键"，而它其实完全合法。
+    "format", "device_id", "protocol", "port", "unit_id",
     "poll_period_ms", "timeout_ms", "auto_reconnect", "enabled",
 ]
+# ★ v1.5 的 source_kind / sim_host / sim_port **刻意不进 REQUIRED**：
+#   老文件（v1.2 写出来的）里没有这三个键，缺了只能理解为 'real' ——
+#   那时候不可能有人配过模拟源。把它们列为必填会让所有存量文件当场失效。
+#   反方向是安全的：新文件写出的新键，老端侧会**硬失败**（未知键），
+#   不会静默按默认值连到一台没人以为在连的设备上。
 
 # 只给人看的元信息，端侧不解析（缺了不影响连接）
 META = ["saved_at", "username"]
 
 PROTOCOLS = ("modbus_tcp",)
+
+# 对端形态（v1.5）。与 13/src/device_conn_conf.h 的 source_kind_code() 逐条对齐。
+#   real = 现场设备（host/port/unit 有意义，sim_* 不参与）
+#   sim  = 模拟源（sim_host/sim_port 是端侧实际连的地址，host 可以为空 ——
+#          调试期常见"模拟器已经能跑、真机还没到货"）
+SOURCE_KINDS = ("real", "sim")
+SIM_HOST_DEFAULT = "127.0.0.1"
+SIM_PORT_DEFAULT = 1502          # 17/ 高保真设备模拟器的默认监听口
 
 PORT_MIN, PORT_MAX = 1, 65535
 UNIT_ID_MIN, UNIT_ID_MAX = 1, 247      # 0 是广播地址，不能作为正常从站
@@ -136,12 +153,24 @@ def normalize(conn: dict) -> dict:
     三种来源的字段类型不一样（DB 是 INTEGER、前端是 int/float/bool、
     文件全是字符串），所以按类型分派，不强行 str()。**幂等**。
     """
+    # 形态先定，因为它决定 host 是不是必填（sim 时端侧连的是模拟器）。
+    kind = str(conn.get("source_kind") or "real").strip().lower()
+    if kind not in SOURCE_KINDS:
+        raise ConnConfError(
+            f"对端形态(source_kind)应为 {'/'.join(SOURCE_KINDS)}，实际是「{kind}」")
+
     host = str(conn.get("host") or "").strip()
-    if not host:
-        raise ConnConfError("设备地址(host)为空 —— 没有它端侧无法确定连哪台设备")
-    if not _RE_HOST.match(host):
+    if kind == "real" and not host:
+        raise ConnConfError(
+            "设备地址(host)为空 —— 真实源没有地址，端侧无法确定连哪台设备")
+    if host and not _RE_HOST.match(host):
         raise ConnConfError(
             f"设备地址应是 IPv4 或主机名（只允许字母数字与 . _ -），实际是「{host}」")
+
+    sim_host = str(conn.get("sim_host") or "").strip() or SIM_HOST_DEFAULT
+    if not _RE_HOST.match(sim_host):
+        raise ConnConfError(
+            f"模拟源地址(sim_host)应是 IPv4 或主机名，实际是「{sim_host}」")
 
     proto = str(conn.get("protocol") or "modbus_tcp").strip().lower()
     if proto not in PROTOCOLS:
@@ -155,10 +184,14 @@ def normalize(conn: dict) -> dict:
         "format": FORMAT_TAG,
         "device_id": device_id,
         "protocol": proto,
+        "source_kind": kind,
         "host": host,
         "port": _as_int(conn.get("port", 502), PORT_MIN, PORT_MAX, "端口(port)"),
         "unit_id": _as_int(conn.get("unit_id", 1), UNIT_ID_MIN, UNIT_ID_MAX,
                            "从站号(unit_id)"),
+        "sim_host": sim_host,
+        "sim_port": _as_int(conn.get("sim_port") or SIM_PORT_DEFAULT,
+                            PORT_MIN, PORT_MAX, "模拟源端口(sim_port)"),
         "poll_period_ms": _as_int(conn.get("poll_period_ms", 100),
                                   POLL_MIN_MS, POLL_MAX_MS, "轮询周期(poll_period_ms)"),
         "timeout_ms": _as_int(conn.get("timeout_ms", 1000),
@@ -168,6 +201,29 @@ def normalize(conn: dict) -> dict:
         "saved_at": str(conn.get("saved_at") or "").strip(),
         "username": str(conn.get("username") or "").strip(),
     }
+
+
+def target(conn: dict) -> dict:
+    """端侧**实际会去连**的地址：real → host:port，sim → sim_host:sim_port。
+
+    单独抽成一个函数，是因为「界面上显示的地址」与「端侧连的地址」必须是
+    同一个结论。两处各算一遍，迟早会分叉 —— 而分叉的表现是"界面写着 .10、
+    设备连的是 .1，两边都不报错"，正是本模块存在的理由。
+    """
+    c = conn
+    # 已经是 normalize() 的产物就直接用；DB 行 / 前端 JSON 先归一化。
+    if c.get("format") != FORMAT_TAG or "source_kind" not in c:
+        c = normalize(conn)
+    kind = str(c.get("source_kind") or "real").strip().lower()
+    if kind == "sim":
+        return {"source_kind": "sim",
+                "host": str(c.get("sim_host") or SIM_HOST_DEFAULT).strip(),
+                "port": int(c.get("sim_port") or SIM_PORT_DEFAULT),
+                "unit_id": int(c.get("unit_id") or 1)}
+    return {"source_kind": "real",
+            "host": str(c.get("host") or "").strip(),
+            "port": int(c.get("port") or 502),
+            "unit_id": int(c.get("unit_id") or 1)}
 
 
 # =====================================================================
@@ -180,12 +236,15 @@ def dumps(conn: dict) -> str:
     端侧从哪儿读它、以及「别手工改这个文件」。
     """
     c = normalize(conn)
+    tgt = target(c)
+    is_sim = c["source_kind"] == "sim"
     lines = [
         "# " + "=" * 68,
         "#  设备接入参数  ——  由 14/ 平台自动生成，请勿手工修改",
         "#",
         f"#  设备      {c['device_id']}",
-        f"#  地址      {c['host']}:{c['port']}  从站 {c['unit_id']}",
+        f"#  形态      {'模拟源（★ 读到的不是现场设备）' if is_sim else '现场设备'}",
+        f"#  对端      {tgt['host']}:{tgt['port']}  从站 {tgt['unit_id']}",
         f"#  保存时刻  {c['saved_at'] or '-'}",
         f"#  保存人    {c['username'] or '-'}",
         "#",
@@ -302,5 +361,9 @@ def summary(conn: dict) -> dict:
         c = normalize(conn)
     except ConnConfError as e:
         return {"ok": False, "error": e.message}
-    return {"ok": True, "host": c["host"], "port": c["port"],
+    tgt = target(c)
+    return {"ok": True, "source_kind": c["source_kind"],
+            "host": c["host"], "port": c["port"],
+            "sim_host": c["sim_host"], "sim_port": c["sim_port"],
+            "target_host": tgt["host"], "target_port": tgt["port"],
             "unit_id": c["unit_id"], "enabled": bool(c["enabled"])}

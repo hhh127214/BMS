@@ -47,6 +47,7 @@ struct Args {
     std::string record_path;                  // 空 = 不写实录（--record 才写）
     bool        control = false;              // ★ 默认只读
     bool        force   = false;              // 跳过闭环前的预读体检
+    bool        mirror_rtdb = false;          // 每拍把采集值镜像写进 RT_DB（上端 104 的数据源）
     int         steps   = 0;                  // 0 = 用该模式的默认拍数
     double      dt      = 0.1;
     bool        help    = false;
@@ -83,11 +84,20 @@ inline std::string usage_text(const char* exe) {
         "                  两者都没有 → 内置默认表（32 点），进程照样能起来\n"
         "  --steps <n>     跑多少拍。默认：只读 10 拍 / 闭环 6000 拍\n"
         "  --dt <s>        控制周期，默认 0.1\n"
-        "  --record <path> 闭环时把每拍追加写成 CSV（20 列，与 10/ timeseries.csv\n"
-        "                  同构；t_s 是 Unix 墙钟秒，time 是完整日期时间）。\n"
+        "  --record <path> 把每拍追加写成 CSV（20 列，与 10/ timeseries.csv 同构；\n"
+        "                  t_s 是 Unix 墙钟秒，time 是完整日期时间）。\n"
         "                  供 14/ 平台做实时入库（scenario.time_base='wall'）。\n"
-        "                  只在 --control 下有意义。\n"
+        "                  ★ 只读巡检**也写**（2026-10-18 起）：不写的话，接上真实设备\n"
+        "                    只看不动时，平台页面一行数据都没有 —— 而现场看到的是\n"
+        "                    「读到了、数值对」，没有任何地方提示「没入库」。\n"
+        "                    只读写的行 state 恒为 INIT、reason 写明只读，p_cmd 恒 0。\n"
         "  --force         跳过闭环前的预读体检（默认会先读一拍，读不到就拒绝下发）\n"
+        "  --mirror-rtdb   每拍把读到的量测/状态/配置写进共享内存实时库（MEAS/STA/CFG），\n"
+        "                  并把自己算出的指令写进 CMD。这是**上端 IEC104 的数据源**：\n"
+        "                  不写的话，网关照常上送 24 点，但值全是实时库初值\n"
+        "                  （0 kW / SOC 50% / 25℃），品质还是 GOOD，不报错。\n"
+        "                  ★ 仅 --device modbus：rtdb 模式自己就是读写方（会双写），\n"
+        "                    dlt645 只有关口功率一路量测（其余写 0 = 假数据）。\n"
         "  -v, --verbose   打印限值与状态位明细\n"
         "  -h, --help      显示本帮助\n"
         "\n"
@@ -237,6 +247,8 @@ inline bool parse_args(int argc, char** argv, Args& out, std::string& err) {
             out.control = true;
         } else if (k == "--force") {
             out.force = true;
+        } else if (k == "--mirror-rtdb") {
+            out.mirror_rtdb = true;
         } else if (k == "-v" || k == "--verbose") {
             out.verbose = true;
         } else {
@@ -257,11 +269,22 @@ inline bool parse_args(int argc, char** argv, Args& out, std::string& err) {
         err = "--force 只在 --control 下有意义（它跳过的正是闭环前的预读体检）";
         return false;
     }
-    if (!out.control && !out.record_path.empty()) {
-        err = "--record 只在 --control 下有意义：只读模式不创建 EmsRuntime，"
-              "没有闭环记录可写。想边控制边实录，请加 --control。";
+
+    // --mirror-rtdb 只对 modbus 成立。
+    //   rtdb：那条路径本身就是实时库的读方，再镜像就是自己写自己读；
+    //   dlt645：只有关口功率一路量测，其余点写进去只能是 0 —— 假数据；
+    //   sim：没有真实设备，镜像出来的还是模型值，且 sim 路径不需要上端。
+    if (out.mirror_rtdb && out.device != DeviceKind::kModbus) {
+        err = "--mirror-rtdb 只能与 --device modbus 同用"
+              "（rtdb 模式会双写、dlt645 只有一路量测、sim 没有真实设备）";
         return false;
     }
+    // ★ `--record` 在只读巡检下**是允许的**（2026-10-18 改）。
+    //   原先这里挡着，理由是「只读不创建 EmsRuntime，没有闭环记录可写」——
+    //   技术上成立，产品上是个坑：现场第一次接设备必然是只读核对，
+    //   此时平台页面一行数据都没有，而现场看到的是「读到了、数值对」，
+    //   没有任何地方提示「没入库」。所以只读路径自己也写实录，
+    //   state 记 INIT、reason 写「只读巡检」、p_cmd 恒 0 —— 能看出来不是闭环数据。
     if (out.device == DeviceKind::kSim && out.control) {
         err = "--device sim 下 --control 没有意义：仿真本来就在跑闭环，"
               "不存在「只读」一说（这也是它不接真实设备的证明）。"

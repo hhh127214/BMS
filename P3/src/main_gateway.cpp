@@ -53,6 +53,7 @@
 #include "rtdb_ext_sink.h"      // 只写 EXT.* 的适配器（A3.1）
 
 #include "iec104_server.h"
+#include "access_link_conf.h"   // 上端链路参数（配置通道②，v1.5）
 
 #include <chrono>
 #include <cstdio>
@@ -172,6 +173,15 @@ void usage() {
         "  --dump-raw       打印前 200 个原始报文帧（现场排障）\n"
         "  --point-map F    转发表 CSV（9 列：ioa,kind,group,name,src,scale,offset,unit,note）。\n"
         "                   加载失败回退到内置默认表并报错；格式见 iec104_point_map.h。\n"
+        "                   ★ 不给本开关时，按约定路径找 active.pointmap.csv\n"
+        "                     （15/ 界面「② IOA 转发表」保存的文件）；它也不在才用内置默认表。\n"
+        "                     存在的那份若是坏的，**直接退出而不回退** ——\n"
+        "                     回退会把「界面一套 IOA、网关另一套」藏起来。\n"
+        "  --link F         上端链路参数文件（默认按约定路径找 active.upstream）。\n"
+        "                   它记的是「监听口 / 公共地址 / 接真实调度还是模拟调度」，\n"
+        "                   由 15/ 界面「上端接入」保存时写出。命令行给了 --port/--ca/--bind\n"
+        "                   时**以命令行为准**（临时核对用）。\n"
+        "  --dump-link      打印当前生效的上端链路参数后退出（不发报文、不连段）\n"
         "  --self-check-only  只跑自检就退出（上电首查）\n");
 }
 
@@ -187,13 +197,19 @@ int main(int argc, char** argv) {
     double ext_stale_s = 300.0;      // 外部设定空闲超时（秒）；0 = 本进程不做
     bool   check_only = false;
     const char* point_map = nullptr; // 转发表 CSV（可选，null = 内置默认表）
+    std::string link_path_arg;       // 上端链路参数文件（空 = 约定路径）
+    bool   dump_link  = false;
+    // 命令行是否**显式**给了监听三件套 —— 决定了配置文件能不能顶掉它们。
+    bool   port_given = false;
+    bool   ca_given   = false;
+    bool   bind_given = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         const bool has_next = (i + 1 < argc);
-        if      (a == "--port"      && has_next) cfg.port = std::atoi(argv[++i]);
-        else if (a == "--ca"        && has_next) cfg.ca   = std::atoi(argv[++i]);
-        else if (a == "--bind"      && has_next) cfg.bind_addr = argv[++i];
+        if      (a == "--port"      && has_next) { cfg.port = std::atoi(argv[++i]); port_given = true; }
+        else if (a == "--ca"        && has_next) { cfg.ca   = std::atoi(argv[++i]); ca_given = true; }
+        else if (a == "--bind"      && has_next) { cfg.bind_addr = argv[++i]; bind_given = true; }
         else if (a == "--seconds"   && has_next) seconds  = std::atof(argv[++i]);
         else if (a == "--periodic"  && has_next) cfg.periodic_s = std::atof(argv[++i]);
         else if (a == "--deadband"  && has_next) cfg.change_deadband = std::atof(argv[++i]);
@@ -204,10 +220,54 @@ int main(int argc, char** argv) {
         else if (a == "--ext-stale" && has_next) ext_stale_s = std::atof(argv[++i]);
         else if (a == "--dump-raw")  cfg.dump_raw = true;
         else if (a == "--point-map" && has_next) point_map = argv[++i];
+        else if (a == "--link"      && has_next) link_path_arg = argv[++i];
+        else if (a == "--dump-link")  dump_link = true;
         else if (a == "--self-check-only") check_only = true;
         else if (a == "-h" || a == "--help") { usage(); return 0; }
         else { std::printf("未知参数：%s\n", a.c_str()); usage(); return 2; }
     }
+
+    // ---------- 上端链路参数（v1.5，配置通道②）----------
+    // ★ 必须放在启动横幅**之前**：横幅要打印的是"实际生效的监听口"，
+    //   而不是命令行里那串可能被配置文件顶掉的默认值 —— 两者不一致正是
+    //   这一版要消灭的东西（调度连 2405、我们听 2404，两边都不报错）。
+    std::string link_state;
+    iec104::UpstreamLink up_link;
+    {
+        const std::string lp = link_path_arg.empty() ? iec104::default_link_path()
+                                                     : link_path_arg;
+        std::string why;
+        const iec104::LinkLoad ls = iec104::load_upstream_link_path(lp, &up_link, &why);
+        if (ls == iec104::LinkLoad::kOk) {
+            if (!port_given) cfg.port      = up_link.listen_port;
+            if (!ca_given)   cfg.ca        = up_link.common_addr;
+            if (!bind_given) cfg.bind_addr = up_link.bind_host;
+            link_state = "约定路径 ← " + lp + "\n                    " +
+                         iec104::format_upstream_link(up_link);
+            if (!up_link.enabled) {
+                std::printf("[FAIL] 平台把上端这一端标记为**未启用**（enabled=0）：\n"
+                            "       %s\n"
+                            "       处置：在 15/ 界面「上端接入」里启用它。\n"
+                            "       ★ 不自动降级去监听 —— 「不接」是一个明确的意图，\n"
+                            "         不该被「命令行没给参数」悄悄改写。\n", lp.c_str());
+                return 2;
+            }
+        } else if (ls == iec104::LinkLoad::kInvalid) {
+            std::printf("[FAIL] 上端链路参数非法：\n%s\n", why.c_str());
+            std::printf("       ★ 不降级到默认端口：拿默认值监听会让调度连到另一个口，\n"
+                        "         而屏幕上一切正常。处置：在 15/ 界面重存，或修这个文件。\n");
+            return 2;
+        } else {
+            link_state = "无（" + lp + "）—— 用命令行 / 默认值";
+        }
+    }
+    if (dump_link) {
+        std::printf("上端链路   : %s\n", link_state.c_str());
+        std::printf("实际监听   : %s:%d   公共地址 CA %d\n",
+                    cfg.bind_addr.c_str(), cfg.port, cfg.ca);
+        return 0;
+    }
+
     iec104::set_utc_offset_seconds(utc_hours * 3600);
 
     // 「请求的模式」与「实际生效的模式」是两个变量。
@@ -219,6 +279,7 @@ int main(int argc, char** argv) {
     std::printf("=========================================================\n");
     std::printf(" EMS IEC 60870-5-104 从站网关（P3）\n");
     std::printf(" 监听            : %s:%d\n", cfg.bind_addr.c_str(), cfg.port);
+    std::printf(" 上端链路        : %s\n", link_state.c_str());
     std::printf(" 公共地址 CA     : %d\n", cfg.ca);
     std::printf(" 时标时区        : %s  (CP56Time2a 按本地时间上送)\n",
                 iec104::utc_offset_text());
@@ -247,6 +308,17 @@ int main(int argc, char** argv) {
     // ★ 时序：RtDbReadOnlySource::open_owned() 会 resolve() 上送表、Iec104Server
     //   构造会 capture upload_table() 的指针 —— CSV 加载必须在这两者之前完成，
     //   否则「已加载」的表不会被用上。
+    //
+    // 三级优先（2026-10-18 起，见 CHANGES.md §84）：
+    //   ① 命令行 `--point-map F`        —— 临时核对用
+    //   ② 约定路径 active.pointmap.csv —— 平台界面保存出来的那份（正规途径）
+    //   ③ 都没有                        —— 内置默认表（编译进去的 24 上送 + 6 下行）
+    //
+    // ★ ② 与 ① 的失败处置**故意不同**，这不是不一致：
+    //   ① 是命令行临时敲的，路径打错不该让网关起不来 → 回退并报错；
+    //   ② 是平台按校验规则写出来的，它坏了说明"界面显示的表"不再是
+    //      "网关在用的表" —— 回退到内置默认等于把这个分叉藏起来，
+    //      所以存在但非法时**直接退出**，让人看见。
     if (point_map != nullptr) {
         std::string pm;
         if (iec104::load_point_map_csv(point_map, &pm)) {
@@ -259,6 +331,35 @@ int main(int argc, char** argv) {
             std::printf("[FAIL] 转发表 CSV 加载失败：\n%s", pm.c_str());
             std::printf("       ★ 已回退到内置默认表。\n");
             if (check_only) return 1;      // 上电首查：表坏必须暴露成非零退出码
+        }
+    } else {
+        const std::string pm_default = iec104::default_point_map_path();
+        if (iec104::file_exists(pm_default.c_str())) {
+            std::string pm;
+            if (iec104::load_point_map_csv(pm_default.c_str(), &pm)) {
+                std::size_t un = 0, dn = 0;
+                iec104::upload_table(&un);
+                iec104::download_table(&dn);
+                std::printf("[OK  ] 转发表取自平台：%s（上送 %zu / 下行 %zu）\n",
+                            pm_default.c_str(), un, dn);
+                std::printf("       （15/ 界面「设备管理 → 一 · 调度主站接入 → "
+                            "② IOA 转发表」保存后写出）\n");
+            } else {
+                std::printf("[FATAL] 转发表 %s 加载失败：\n%s",
+                            pm_default.c_str(), pm.c_str());
+                std::printf("        ★ 不回退内置默认表：这份是平台写出来的，"
+                            "它有错意味着「界面上一套 IOA、网关跑另一套」，"
+                            "这必须让人看见。\n");
+                std::printf("        处置：到平台「② IOA 转发表」重新保存一次；"
+                            "或临时用 --point-map <另找一份好表> 先跑起来\n");
+                std::printf("        （只想用内置默认表就先把这个文件删掉。）\n");
+                return 1;
+            }
+        } else {
+            std::printf("[INFO] 没有平台转发表文件：%s\n", pm_default.c_str());
+            std::printf("       → 用内置默认表（上送 24 / 下行 6）。"
+                        "要改 IOA 就到平台「设备管理 → 一 · 调度主站接入 → "
+                        "② IOA 转发表」编辑保存，该文件由平台原子写出。\n");
         }
     }
 

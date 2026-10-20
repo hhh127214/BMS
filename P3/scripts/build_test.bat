@@ -47,7 +47,7 @@ if errorlevel 1 (
 )
 echo === [2/3] running test_iec104.exe ===
 build\test_iec104.exe
-if errorlevel 1 ( echo [FAIL] test_iec104 not passed & set FAIL=1 )
+if errorlevel 1 ( echo [FAIL] test_iec104 not passed & set "FAIL=1" )
 
 REM ---------- [3/3] EXT setpoint sink over RT_DB ----------
 REM  Why a separate exe: test_iec104's data source is an in-memory stub,
@@ -69,7 +69,7 @@ g++ -std=c++17 -Wall -O2 -DNOMINMAX %INC% -I ..\07\vendor\rt_db ^
     build\ems_rt_db_setup.o -lws2_32 -o build\test_ext_rtdb.exe
 if errorlevel 1 ( echo [FAIL] test_ext_rtdb compile error & exit /b 1 )
 build\test_ext_rtdb.exe
-if errorlevel 1 ( echo [FAIL] test_ext_rtdb not passed & set FAIL=1 )
+if errorlevel 1 ( echo [FAIL] test_ext_rtdb not passed & set "FAIL=1" )
 
 echo.
 if "%FAIL%"=="1" ( echo [FAIL] P3 tests failed & endlocal & exit /b 1 )

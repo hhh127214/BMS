@@ -1,11 +1,15 @@
 /* =====================================================================
    15/ — 平台界面外壳
-   路由（hash）/ 登录 / 引擎模式 / 数据集切换 / 菜单与权限
+   路由（hash）/ 登录 / 数据源 / 菜单与权限
 
-   两种正交的"模式"，别混（这是本文件最容易看错的地方）：
-     engine    数据维度：run 运行模式（引擎按墙钟实时跑）/ sim 仿真模式（离线批量）
-     run_mode  业务维度：峰谷套利 / 削峰填谷 / 辅助服务 / 保电备电
-   前者决定"这些数字从哪来"，后者决定"电池在干哪种生意"。
+   ★ 数据源只有一个：平台库的"当前数据集"，由后端 `/api/engine` 的
+     `scenario` 字段给出（后端按采集状态决定：实时在跑就是实时那套，
+     否则是最近一次入库的数据）。界面**不提供**切换器 ——
+     "选哪份演示场景 / 切运行还是仿真"是研发调试用的概念，
+     一旦摆到产品界面上，用户就分不清"这是现场的数"还是"这是演示的数"。
+
+   与它正交的是"运行模式"（业务维度：峰谷套利 / 削峰填谷 / 辅助服务 /
+   保电备电）—— 那个是真正的产品功能，顶栏右侧保留。
    ===================================================================== */
 
 const ICONS = {
@@ -20,14 +24,13 @@ const ICONS = {
   structure:  '<rect x="3" y="14" width="12" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="7" y="8" width="12" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="2" width="12" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/>',
   /* 一次接线图：一条主链上挂三个节点方块 —— 节点与连线一眼可辨 */
   wiring:     '<path d="M2 12h4M18 12h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><rect x="6" y="8" width="5" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="8" width="5" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 12h2" stroke="currentColor" stroke-width="1.7"/>',
-  sim:        '<path d="M5 8h9l5 4-5 4H5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M3 4v16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
   devices:    '<rect x="4" y="4" width="16" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
   users:      '<circle cx="9" cy="9" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 19c0-2.8 2.2-5 5-5s5 2.2 5 5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 8h4M18 6v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>',
 };
 
 const MENU = [
   { id: 'overview',   name: '总览',        render: Pages.overview,   sub: '全站实时态势' },
-  { id: 'realtime',   name: '实时监控',    render: Pages.realtime,   sub: '按仿真时标回放' },
+  { id: 'realtime',   name: '实时监控',    render: Pages.realtime,   sub: '逐拍快照' },
   { id: 'curves',     name: '历史曲线',    render: Pages.curves,     sub: '功率 / SOC' },
   { id: 'alarms',     name: '告警中心',    render: Pages.alarms,     sub: '事件与状态迁移' },
   { id: 'strategies', name: '策略配置',    render: Pages.strategies, sub: '九个策略 / 仲裁优先级' },
@@ -35,23 +38,13 @@ const MENU = [
   { id: 'report',     name: '报表系统',    render: Pages.report,     sub: '日 / 周 / 月' },
   { id: 'structure',  name: '装配视图',    render: Pages.structure,  sub: '柜 → 舱 → 部件（爆炸图）' },
   { id: 'wiring',     name: '一次接线图',  render: Pages.wiring,     sub: '电气连接与当前功率' },
-  { id: 'sim',        name: '仿真',        render: Pages.sim,        sub: '日 / 周 / 月批量仿真' },
   { id: 'devices',    name: '设备管理',    render: Pages.devices,    sub: '台账与点表' },
   { id: 'users',      name: '用户与权限',  render: Pages.users,      sub: '账号 / 审计', minRole: 'admin' },
 ];
 
 const ROLE_LEVEL = { viewer: 1, operator: 2, admin: 3 };
 
-/* 实时引擎状态 → 徽章文案（与 14/src/engine.py 的 live_state 一一对应） */
-const LIVE_STATE = {
-  starting: { t: '启动中', k: 'b-info' },
-  running:  { t: '运行中', k: 'b-ok' },
-  stopped:  { t: '未启动', k: 'b-mute' },
-  stale:    { t: '已停写', k: 'b-warn' },
-  failed:   { t: '异常',   k: 'b-bad' },
-};
-
-/* 运行模式下会自动重刷的页面。
+/* 会自动重刷的页面。
    ★ 刻意不含 策略配置 / 设备管理 / 用户与权限 —— 那三页有输入框与开关，
      定时重渲染会把正在敲的内容冲掉。 */
 /* ★ 「装配视图」与「一次接线图」也在内：两页都是纯展示，没有输入框，
@@ -61,8 +54,6 @@ const LIVE_PAGES = ['overview', 'realtime', 'curves', 'alarms', 'economics', 're
 /* 重刷周期。数据粒度是 10 s（引擎 log_every=10），5 s 足够"看得见在长"，
    又不至于把接口按秒打满。 */
 const LIVE_REFRESH_MS = 5000;
-/* 顶栏数据集分段最多放几个按钮，超出的（老仿真）只出现在仿真页历史台账里 */
-const SEG_SCENARIO_MAX = 4;
 
 const App = (() => {
   let state = { scenario: '', page: 'overview', user: null, health: null,
@@ -128,41 +119,9 @@ const App = (() => {
       localStorage.setItem('ems_sidebar_collapsed', collapsed ? '1' : '0');
     });
 
-    // 数据集切换（按钮是动态生成的，用事件委托，别在 build 时逐个绑）
-    $('#scenario-seg').addEventListener('click', (ev) => {
-      const b = ev.target.closest('button[data-scenario]');
-      if (!b || b.disabled) return;
-      if (b.dataset.scenario === state.scenario) return;
-      $$('#scenario-seg button').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      moveSegInd($('#scenario-seg'));
-      state.scenario = b.dataset.scenario;
-      // 换数据集要丢掉"当前时刻"：live 是墙钟秒、sim 是一天内秒，混着用会取到空拍
-      state.t = null;
-      renderPage();
-    });
-
-    // 引擎模式切换（数据维度；与业务维度 mode-seg 相互独立）
-    $('#engine-seg').addEventListener('click', async (ev) => {
-      const b = ev.target.closest('button[data-engine]');
-      if (!b) return;
-      const eng = b.dataset.engine;
-      if (eng === state.engine) return;
-      if (!canWrite()) { toast('当前角色为只读，无法切换引擎模式（需 operator 及以上）', 'bad'); return; }
-      try {
-        await switchEngine(eng);
-        toast(eng === 'run'
-          ? '已切到运行模式：数据由实时引擎产生（需在状态条里点「启动引擎」）'
-          : '已切到仿真模式：数据来自离线批量仿真结果', 'ok');
-        renderPage();
-      } catch (e) { toast(e.message, 'bad'); }
-    });
-
     // 窗口尺寸变化时指示条重新对位（按钮宽度随字体度量变化）
     window.addEventListener('resize', () => {
-      moveSegInd($('#scenario-seg'), false);
       moveSegInd($('#mode-seg'), false);
-      moveSegInd($('#engine-seg'), false);
     });
 
     // 运行模式切换（独立顶层业务概念，切换即联动启停后端策略）
@@ -259,7 +218,7 @@ const App = (() => {
     //   留在界面里画出「出了什么事」，并 toast 一声。
     try {
       try { state.health = await API.health(); } catch (e) { state.health = null; }
-      await loadEngine();          // 引擎模式 + 数据集清单（决定顶栏两个分段器）
+      await loadDataSource();      // 当前数据集 + 采集状态（决定页面读哪份数据）
       await loadModes();
       drawFooter();
 
@@ -280,27 +239,12 @@ const App = (() => {
     }
   }
 
-  // 切引擎模式必须**成套**做：写后端 → 改本地 → **清空 scenario 让它重解析** → 重载引擎信息。
-  // 少做一步就出"按钮已经切过去了、页面看的还是旧数据集"。
-  // ★ 这条是实跑撞出来的：空状态里的「切到仿真模式」第一次只写了 setEngine，
-  //   结果顶栏显示「仿真模式(当前)」，页面上的提示却还是**运行模式**那句
-  //   （scenario 仍钉在 live）—— 所以这里收成一个入口，两处调用不再各写一遍。
-  async function switchEngine(eng, scenarioId) {
-    await API.setEngine(eng);
-    state.engine = eng;
-    // 切模式必须重新解析默认数据集：运行模式看 live、仿真模式看最近一次成功仿真。
-    // 指定了 scenarioId 就直接用它（"打开某份数据集来看"那条路）。
-    state.scenario = scenarioId || '';
-    state.t = null;
-    await loadEngine();
-  }
-
   /* ------------- 「这一刻没有数据」≠「加载失败」 -------------
-     运行模式下实时引擎还没启动时，后端会以 **404 + 一句人话原因**回绝
+     采集侧还没攒到数据时，后端会以 **404 + 一句人话原因**回绝
      overview / realtime / series 等接口。这不是功能坏了，是**这条路此刻没数据**。
 
-     ★ 2026-10-16 实跑（真后端 + 运行模式 + 引擎未启动 + jsdom 驱动真前端）确认：
-       登录**进得去**、12 个菜单都在，坏的是**呈现** —— 6 个页面显示红字
+     ★ 2026-10-16 实跑（真后端 + jsdom 驱动真前端）确认：
+       登录**进得去**、菜单都在，坏的是**呈现** —— 6 个页面显示红字
        「加载失败：…」，用户读到的是"功能坏了"，而不是"去哪拿数据"。
        排障方向被这句措辞带偏，比报错本身更贵。
 
@@ -313,40 +257,28 @@ const App = (() => {
   function renderNotReady(e, ctx) {
     const canAct = canWrite();
     const acts = [];
-    if (canAct && state.engine === 'run') {
+    // ★ 其他页面是**正式运行页面**：这里不放"启动采集"。
+    //   采集的启停属于接入，统一在设备管理页 —— 一页一个开关，
+    //   而不是每个页面都能把采集拉起来（那样"谁把它停的"就查不清了）。
+    if (canAct) {
       acts.push(h('button', {
-        class: 'btn-sm primary', text: '切到仿真模式看历史数据',
-        onclick: async () => {
-          try {
-            await switchEngine('sim');
-          } catch (err) { toast(err.message, 'bad'); return; }
-          await renderPage();
-        },
-      }));
-      acts.push(h('button', {
-        class: 'btn-sm', text: '启动实时引擎',
-        onclick: async () => {
-          try { await API.liveStart({}); } catch (err) { toast(err.message, 'bad'); return; }
-          await loadEngine();
-          await renderPage();
-        },
-      }));
-    } else if (state.engine === 'sim') {
-      // 仿真模式下还没有数据集：出路是去跑一次（或看已有的），不是原地重试
-      acts.push(h('button', {
-        class: 'btn-sm primary', text: '去仿真页',
-        onclick: () => { ctx.goPage('sim'); },
+        class: 'btn-sm primary', text: '去设备管理接入数据源',
+        onclick: () => { location.hash = '#/devices'; },
       }));
     }
+    acts.push(h('button', {
+      class: 'btn-sm', text: '重新加载',
+      onclick: () => { renderPage(); },
+    }));
     return h('div', { class: 'empty' }, [
-      h('div', { text: '这个数据源此刻还没有数据' }),
+      h('div', { text: '这段时间还没有数据' }),
       h('div', { class: 'muted', style: 'margin-top:8px', text: e.message || '' }),
       acts.length
         ? h('div', { style: 'margin-top:16px;display:flex;gap:10px;justify-content:center' }, acts)
         : null,
       h('div', {
         class: 'muted', style: 'margin-top:14px',
-        text: '接口是通的 —— 这不是加载失败，是「当前模式还没攒到数据」。',
+        text: '接口是通的 —— 这不是加载失败，是采集侧还没攒到这一刻的数据。',
       }),
     ]);
   }
@@ -356,190 +288,32 @@ const App = (() => {
     return MENU.filter(m => !m.minRole || lv >= (ROLE_LEVEL[m.minRole] || 99));
   }
 
-  /* ===================== 引擎模式 / 数据集清单 ===================== */
-  async function loadEngine() {
+  /* ===================== 数据源（唯一解析点） =====================
+     ★ 全站只有这一个地方决定"看哪份数据"。页面一律用 ctx.scenario，
+       自己不再拼、不再猜 —— 两处各解析一次必然漂移，
+       表现就是"顶栏写 A、页面看的是 B"，而且不报错。 */
+  async function loadDataSource() {
     let d = null;
     try { d = await API.engine(); } catch (e) { d = null; }
     state.engineInfo = d;
-    if (d) state.engine = d.engine || 'run';
-    buildEngineSeg();
-    buildScenarioSeg(d);
-    renderEngineBanner();
-  }
-
-  function buildEngineSeg() {
-    const seg = $('#engine-seg');
-    if (!seg) return;
-    const info = state.engineInfo;
-    const list = (info && info.engines) || [
-      { id: 'run', name: '运行模式', desc: '实时引擎按墙钟跑' },
-      { id: 'sim', name: '仿真模式', desc: '离线批量仿真' },
-    ];
-    clear(seg);
-    list.forEach(e => {
-      const rows = e.id === 'run'
-        ? (info && info.live ? info.live.rows : 0)
-        : (e.runs || 0);
-      const unit = e.id === 'run' ? '行实时数据' : '次仿真';
-      const b = h('button', {
-        dataset: { engine: e.id, name: e.name },
-        title: `${e.name} — ${e.desc || ''}（现有 ${rows} ${unit}）`,
-        text: e.name,
-      });
-      if (e.id === state.engine) b.classList.add('active');
-      seg.appendChild(b);
-    });
-    moveSegInd(seg, false);
-  }
-
-  /* 数据集分段：按引擎模式列出"现在能看的那些数据"。
-     运行模式 → 只有 live（实时入库的那一份）；
-     仿真模式 → 最近几次仿真数据集（多的收进仿真页历史台账）+ 全部内置场景。 */
-  function buildScenarioSeg(engineInfo) {
-    const seg = $('#scenario-seg');
-    if (!seg) return;
-    const list = scenarioList(engineInfo);
-    const cur = state.scenario;
-
-    if (cur && !list.some(s => s.id === cur)) {
-      // 正在看的这份不在"最近几次"里（典型情形：从仿真页历史台账点进一个老数据集）。
-      // 补一个按钮，而不是把用户悄悄切走 —— 悄悄切走的表现就是
-      // "点了「查看结果」，界面看起来没变"。
-      const meta = ((state.health && state.health.scenarios) || [])
-        .find(s => s.scenario_id === cur);
-      if (meta || cur === 'live') list.unshift(scenarioEntry(meta, cur));
-      else state.scenario = '';
+    if (d) {
+      state.engine = d.engine || 'run';
+      // 后端按采集状态给出"当前数据集"：实时在跑就是实时那套，否则最近一次入库的。
+      // 前端只接受这个答案，**没有第二个来源**。
+      const sc = d.scenario || '';
+      if (sc && sc !== state.scenario) {
+        state.scenario = sc;
+        state.t = null;   // 换了数据集，原来记住的时刻不再属于这份数据
+      }
     }
-    if (!state.scenario && list.length) {
-      state.scenario = (engineInfo && engineInfo.scenario) || list[0].id;
-    }
-
-    clear(seg);
-    list.forEach(s => {
-      const b = h('button', {
-        dataset: { scenario: s.id },
-        title: `${s.name}（${s.id}）· ${s.rows || 0} 行`,
-        text: s.name,
-      });
-      if (s.id === state.scenario) b.classList.add('active');
-      seg.appendChild(b);
-    });
-    moveSegInd(seg, false);
   }
 
-  /* health.scenarios 里的一行 → 分段按钮用的短条目 */
-  function scenarioEntry(scn, fallbackId) {
-    const id = (scn && scn.scenario_id) || fallbackId;
-    if (id === 'live') return { id, name: '实时数据', rows: 0 };
-    if (id === 'normal') return { id, name: '内置·正常日', rows: (scn && scn.log_rows) || 0 };
-    if (id === 'fault') return { id, name: '内置·故障日', rows: (scn && scn.log_rows) || 0 };
-    if (id === 'stress') return { id, name: '内置·异常日', rows: (scn && scn.log_rows) || 0 };
-    // 入库时写的是「日仿真d001 · 典型日（正常）」这种长名，
-    // 分段按钮只取前面的短名（' · ' 之前那段）。
-    return {
-      id,
-      name: String((scn && scn.name) || id).split(' · ')[0],
-      rows: (scn && scn.log_rows) || 0,
-    };
-  }
-
-  function scenarioList(engineInfo) {
-    const info = engineInfo || {};
-    if ((info.engine || state.engine) === 'run') {
-      const live = info.live || {};
-      return [{ id: 'live', name: '实时数据', rows: live.rows || 0 }];
-    }
-    const all = (state.health && state.health.scenarios) || [];
-    const sims = all.filter(s => String(s.scenario_id).startsWith('sim-'))
-                    .sort((a, b) => String(b.imported_at || '')
-                      .localeCompare(String(a.imported_at || '')))
-                    .slice(0, SEG_SCENARIO_MAX)
-                    .map(s => scenarioEntry(s, s.scenario_id));
-    // ★ 内置数据集 = 既不是实时流（live）、也不是仿真批次（sim-*）的那些。
-    //
-    //   原先这里硬编码 ['normal','fault'] —— 后果是：2026-10-11 新增的 stress
-    //   （异常工况日）在后端有数据、接口 ?scenario=stress 也照常返回 13 条，
-    //   界面上却**没有对应按钮**，用户根本点不到它。
-    //   全链路都通、唯独入口被白名单挡住，是最难发现的一类缺口。
-    //
-    //   改成按前缀排除后，以后新增的内置场景会自动出现在切换器上，
-    //   不用每次回头改这张名单。
-    const builtin = all.filter((s) => {
-      const id = String((s && s.scenario_id) || '');
-      return id !== 'live' && !id.startsWith('sim-');
-    }).map((s) => scenarioEntry(s, s.scenario_id));
-    return sims.concat(builtin);
-  }
-
-  /* ===================== 运行模式的实时引擎状态条 ===================== */
-  function renderEngineBanner() {
-    const el = $('#engine-banner');
-    if (!el) return;
-    const info = state.engineInfo;
-    if (!info || info.engine !== 'run') { el.classList.add('hidden'); clear(el); return; }
-
-    const lv = info.live || {};
-    const st = LIVE_STATE[lv.state] || { t: lv.state || '—', k: 'b-mute' };
-    const src = (info.sources || []).find(s => s.id === lv.source) || {};
-    const csv = String(lv.csv || '').split(/[\\/]/).pop();
-
-    el.classList.remove('hidden');
-    clear(el);
-    el.appendChild(h('div', { class: 'engine-banner-main' }, [
-      h('span', { class: `eb-dot ${lv.running ? 'on' : ''}` }),
-      h('span', { class: 'eb-title', text: '实时引擎' }),
-      badge(st.t, st.k),
-      h('span', { class: 'eb-meta', text:
-        `数据源 ${src.name || '—'} · ${lv.dt_s || '—'} s 一拍 / 每 ${lv.log_every || '—'} 拍记录一行`
-        + ` · 已入库 ${lv.rows || 0} 行`
-        + (lv.started_at ? ` · 启动于 ${lv.started_at}` : '')
-        + (csv ? ` · 实录 ${csv}` : '') }),
-      // ★ 这句话必须由后端的 source_is_model 决定，不能写死：
-      //   写死的话，将来真接上 07/ 的现场设备源，界面还会说"模型源"——
-      //   那是这个项目最不能出现的一种谎。
-      h('span', { class: 'eb-warn', text: lv.source_is_model
-        ? '（模型源，不是真实电站）' : '（现场设备源 · 数据来自真实装置）' }),
-    ]));
-
-    if (lv.error) {
-      el.appendChild(h('div', { class: 'eb-err', text: `引擎告警：${lv.error}` }));
-    }
-
-    const canW = canWrite();
-    const busy = lv.state === 'starting';
-    el.appendChild(h('div', { class: 'engine-banner-act' }, [
-      lv.running
-        ? h('button', { class: 'btn-sm', text: busy ? '启动中…' : '停止引擎',
-                        disabled: !canW || busy, onclick: () => doLive('stop') })
-        : h('button', { class: 'btn-sm primary', text: '启动引擎',
-                        disabled: !canW || busy, onclick: () => doLive('start') }),
-      h('button', { class: 'btn-sm', text: '清空实时数据',
-                    disabled: !canW || lv.running,
-                    title: '清掉已入库的实时数据（不动引擎模式与其它数据集）',
-                    onclick: () => doLive('reset') }),
-      canW ? null : h('span', { class: 'muted', style: 'font-size:12px', text: '只读角色' }),
-    ]));
-  }
-
-  async function doLive(act) {
-    try {
-      if (act === 'reset' && !window.confirm('清空运行模式下已入库的全部实时数据？此操作不可撤销。')) return;
-      if (act === 'start') await API.liveStart({});
-      else if (act === 'stop') await API.liveStop();
-      else await API.liveReset();
-      toast(act === 'start' ? '实时引擎已启动，数据开始逐拍入库'
-          : act === 'stop' ? '实时引擎已停止（剩余数据已收尾入库）'
-          : '实时数据已清空', 'ok');
-      await loadEngine();
-      drawFooter();
-      renderPage();
-    } catch (e) { toast(e.message, 'bad'); }
-  }
-
-  /* ===================== 自动刷新（仅运行模式） ===================== */
+  /* ===================== 自动刷新 ===================== */
   function syncLiveTimer() {
-    const want = state.engine === 'run' && !!state.user
-      && LIVE_PAGES.includes(state.page);
+    // ★ 判据只有"登录着 + 这一页是纯展示页" —— 不再看引擎模式。
+    //   产品界面就是定时刷新；把刷新条件绑在"引擎在跑"上，
+    //   会让同一页在不同数据源下行为不一样，用户看不出为什么。
+    const want = !!state.user && LIVE_PAGES.includes(state.page);
     if (want && !liveTimer) {
       liveTimer = setInterval(liveTick, LIVE_REFRESH_MS);
     } else if (!want) {
@@ -558,10 +332,11 @@ const App = (() => {
     if (document.hidden || refreshing) return;   // 后台标签页 / 上一次还没画完 → 跳过
     refreshing = true;
     try {
-      state.engineInfo = await API.engine();
-      renderEngineBanner();
-      buildEngineSeg();
+      // 走同一个解析入口：采集侧一启动，后端认定的"当前数据集"就可能从历史库
+      // 翻到实时那套。各页自己重取一份 JSON 是不会知道这件事的。
+      await loadDataSource();
       lastRefreshAt = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      drawFooter();
       await renderPage({ keepScroll: true, quiet: true });
     } catch (e) { /* 单次刷新失败不弹窗，避免每 5 秒刷一块红条 */ }
     finally { refreshing = false; }
@@ -570,16 +345,41 @@ const App = (() => {
   function updateLiveBadge() {
     const b = $('#live-badge');
     if (!b) return;
-    if (state.engine !== 'run') { b.classList.add('hidden'); return; }
+    if (!state.user) { b.classList.add('hidden'); return; }
     const lv = (state.engineInfo && state.engineInfo.live) || {};
+    const run = state.engine === 'run';
+    const unhealthy = lv.state === 'stale' || lv.state === 'failed';
+    /* ★ 采集没在跑、但 live 里已经有数据 ⇒ 页面上这批数是**最后一拍**，
+       它不会自己再长。这件事必须写在徽章上：
+       原来这里永远是「每 5 s 自动刷新 · 更新于 <现在>」，而那个"更新于"
+       是**前端刷新时间**、不是**数据时间** —— 关掉采集之后它照样每次刷新都在变，
+       于是"数据已经停了两小时"看起来和"正在实时采"一模一样。
+       （2026-10-19 实测：关掉模拟源后 live 冻结在 01:37:39，概览仍 200
+        有数，页面上没有任何一处说它是旧的。）
+       ★ 判据**不看是哪一页**：设备管理页上同样挂着这个徽章，而它恰恰是
+         "刚把模拟源关掉"的那一页 —— 在这里漏掉，人就会在关完之后
+         看到"每 5 s 自动刷新"而以为还在采。 */
+    const frozen = run && !unhealthy
+      && lv.state !== 'running' && lv.state !== 'starting' && !!lv.rows;
+    const at = String(lv.imported_at || '').slice(-8) || '—';
     b.classList.remove('hidden');
     b.className = `live-badge ${
-      lv.state === 'running' ? 'lv-on'
-      : (lv.state === 'stale' || lv.state === 'failed') ? 'lv-warn' : 'lv-off'}`;
-    b.textContent = `实时数据 · ${LIVE_STATE[lv.state] ? LIVE_STATE[lv.state].t : '—'}`
-      + ` · 已入库 ${lv.rows || 0} 行`
-      + (lastRefreshAt ? ` · 更新于 ${lastRefreshAt}` : '')
-      + (LIVE_PAGES.includes(state.page) ? ` · 每 ${LIVE_REFRESH_MS / 1000} s 自动刷新` : '');
+      !run ? 'lv-off'
+      : (unhealthy || frozen) ? 'lv-warn'
+      : (lv.state === 'running' ? 'lv-on' : 'lv-off')}`;
+    b.textContent = !run
+      ? (LIVE_PAGES.includes(state.page)
+          ? `每 ${LIVE_REFRESH_MS / 1000} s 自动刷新`
+          : '本页不自动刷新')
+        + (lastRefreshAt ? ` · 更新于 ${lastRefreshAt}` : '')
+      : unhealthy
+        ? `采集${lv.state === 'failed' ? '失败' : '中断'} · 数据停在 ${at}`
+          + (lv.rows ? ` · 实时库 ${lv.rows} 行` : '')
+        : frozen
+          ? `采集已停止 · 数据停在 ${at} · 实时库 ${lv.rows} 行`
+          : `每 ${LIVE_REFRESH_MS / 1000} s 自动刷新`
+            + (lastRefreshAt ? ` · 更新于 ${lastRefreshAt}` : '')
+            + (lv.rows ? ` · 实时库 ${lv.rows} 行` : '');
   }
 
   async function loadModes() {
@@ -681,25 +481,7 @@ const App = (() => {
       setSub: (s) => { $('#page-sub').textContent = s; },
       // 页面挂载定时器 / 全局监听时必须走这个，否则换页后它还在跑
       onDispose: (fn) => { disposers.push(fn); },
-      reloadEngine: async () => { await loadEngine(); },
-      goPage: (id) => { location.hash = '#/' + id; },
-      // 「打开某份数据集来看」：仿真页的「查看结果」用它 —— 仿真数据属于仿真模式，
-      // 若当前在运行模式，必须先切引擎模式再选数据集（否则被 resolve_scenario
-      // 按 live 覆盖掉，用户会看到"点了查看结果，界面没变"）。
-      openDataset: async (scenarioId) => {
-        // 看点必须成套：当前在运行模式就**先切引擎模式再选数据集**
-        // （否则被 resolve_scenario 按 live 覆盖掉，用户会看到"点了查看结果，界面没变"）。
-        // 走 switchEngine 而不是自己再写一遍，是为了让"切模式该做哪几件事"只有一个定义。
-        if (state.engine !== 'sim') {
-          await switchEngine('sim', scenarioId);
-        } else {
-          state.scenario = scenarioId;
-          state.t = null;
-          await loadEngine();
-        }
-        if (state.page !== 'overview') location.hash = '#/overview';
-        else await renderPage();
-      },
+      reloadEngine: async () => { await loadDataSource(); },
     };
 
     try {
@@ -751,22 +533,34 @@ const App = (() => {
   function drawFooter() {
     const hh = state.health;
     const info = state.engineInfo;
-    const engName = state.engine === 'run' ? '运行模式（实时引擎）' : '仿真模式（离线批量）';
     if (hh) {
+      // ★ 左右分工：左边回答"这些数从哪来、是不是真机的"，右边回答
+      //   "平台这一侧是什么版本、什么时候灌进来的"。
+      //   ★ "模型源 / 现场设备源"必须**常驻**在这儿，不能只挂在异常状态条里 ——
+      //     否则数据看着正常的时候，反而没人知道它是不是真机来的。
+      const lv = (info && info.live) || {};
+      // ★ 报的是"数据源"这个名字，不是"仿真/正式"这种模式名：
+      //   现场最需要看清的是"这些数是谁给的"。模拟数据源一定带括号说明
+      //   它不是现场装置，因为那才是最容易被误读的一层。
+      const kind = state.engine !== 'run' ? '历史库'
+        : (lv.data_source_name || '数据源')
+          + (lv.source_is_model ? '（模型 · 非现场装置）' : '（现场设备）');
+      const sch = ((hh.scenarios || []).find(x => x.scenario_id === state.scenario) || {});
       $('#foot-left').textContent =
-        `引擎：${engName} · 数据集 ${state.scenario || '—'} · 数据来源 ${hh.import_source || '—'}`;
+        `数据源 ${kind} · 数据集 ${state.scenario || '—'}`
+        + (sch.name ? `（${String(sch.name).split(' · ')[0]}）` : '')
+        + ` · 采集 ${hh.import_source || '—'}`;
       $('#foot-right').textContent =
         `schema v${hh.schema_version} · 平台层 14/`
-        + (hh.imported_at ? ` · 导入于 ${hh.imported_at}` : '')
-        + (info && info.live && state.engine === 'run'
-           ? ` · 实时 ${info.live.rows || 0} 行` : '');
+        + (hh.imported_at ? ` · 入库于 ${hh.imported_at}` : '')
+        + (state.engine === 'run' && lv.rows ? ` · 实时库 ${lv.rows} 行` : '');
     } else {
       $('#foot-left').textContent = '接口未连通';
       $('#foot-right').textContent = '';
     }
   }
 
-  return { boot, state, refreshEngine: loadEngine, refreshFooter: drawFooter };
+  return { boot, state, refreshEngine: loadDataSource, refreshFooter: drawFooter };
 })();
 
 document.addEventListener('DOMContentLoaded', App.boot);

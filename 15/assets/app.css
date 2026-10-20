@@ -303,6 +303,26 @@ html, body {
 .card-head h2 { font-size: 14.5px; margin: 0; font-weight: 600; }
 .card-head .sub { font-size: 11.5px; color: var(--text-3); }
 
+/* ---- 全页弹层：跟页面一样大（逐台编辑的点表 32×9，小窗装不下） ----
+   z-index 90 —— 低于 toast（999）：保存成功的提示必须浮在弹层之上，
+   否则点完「保存点表」看不到反馈，会以为没保存。 */
+.mdl {
+  position: fixed; inset: 0; z-index: 90;
+  display: none; flex-direction: column;
+  background: var(--paper);
+}
+.mdl.on { display: flex; }
+.mdl-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 22px; border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+.mdl-tt { min-width: 0; }
+.mdl-tt h2 { margin: 0; font-size: 16.5px; font-weight: 700; }
+.mdl-sub { margin: 2px 0 0; font-size: 12.5px; color: var(--text-3); }
+.mdl-body { flex: 1; overflow-y: auto; padding: 14px 22px 28px; }
+body.mdl-open { overflow: hidden; }   /* 弹层开着时不让背后的页面跟着滚 */
+
 .kpi { display: flex; flex-direction: column; gap: 3px; }
 .kpi-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .kpi .label { font-size: 12.5px; color: var(--text-2); }
@@ -426,15 +446,8 @@ input:focus, select:focus {
 }
 
 /* --------------------------- 实时监控页 --------------------------- */
-/* 回放控制台：圆播放钮 + 大时钟 + 滑块 + 倍速 */
+/* 时刻查询条：大时钟 + 时间轴 + 跳到最新（产品里没有"播放"，见 pages.js 注释） */
 .rt-console { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 13px 18px; }
-.rt-play {
-  width: 38px; height: 38px; flex: 0 0 38px; border: none; border-radius: 50%;
-  background: var(--accent); color: #fff; cursor: pointer; transition: .15s;
-  display: flex; align-items: center; justify-content: center;
-}
-.rt-play:hover { background: var(--accent-2); }
-.rt-ico { display: flex; align-items: center; }
 .rt-clock-box { display: flex; flex-direction: column; line-height: 1.3; }
 .rt-clock { font-family: var(--mono); font-size: 23px; font-weight: 700; color: var(--text); letter-spacing: .5px; }
 .rt-sub { font-size: 11px; color: var(--text-3); white-space: nowrap; }
@@ -480,7 +493,108 @@ input:focus, select:focus {
 .pm-field { display: flex; flex-direction: column; gap: 5px; }
 .pm-field > span { font-size: 11.5px; color: var(--text-3); }
 .pm-note { margin: 11px 0 0; font-size: 12px; line-height: 1.85; color: var(--text-3); }
+/* 采集告警行：v1.9 顶部状态条整条删除后，告警挪到设备管理页 */
+.pm-err { margin: 11px 0 0; padding: 6px 9px; border-radius: var(--r-sm);
+          background: rgba(220,38,38,.06); color: var(--bad);
+          font-size: 12px; line-height: 1.7; word-break: break-all; }
+/* ★ 空着就不占位：模拟面板的告警 div 是**常驻**的（`err` 先建好、
+   出错才填字），不写这条就会在按钮下面挂一条空的淡红条 ——
+   看起来像"有一条告警没显示出来"，比不显示更让人分心。 */
+.pm-err:empty { display: none; }
 .pm-in { font-size: 12.5px; }
+
+/* ★ 「进行中」条（2026-10-19）：拉起整条链路要 5~10 s，这段时间按钮只是变灰，
+   用户的原话是"点了没反应" —— 灰按钮不构成反馈。这里给出**正在做什么 + 已等
+   多久 + 通常要多久**，并把连接顺序列出来，让人知道还要等哪几步。 */
+.sim-prog { display: flex; align-items: center; gap: 9px; margin: 0 0 11px;
+            padding: 7px 10px; border-radius: var(--r-sm);
+            background: rgba(78,111,168,.08); color: var(--info);
+            font-size: 12.5px; line-height: 1.6; }
+.sim-prog[hidden] { display: none; }
+.sim-prog .sim-t { flex: 1 1 auto; min-width: 0; }
+.sim-prog .sim-sec { margin-left: auto; flex: 0 0 auto;
+                     font-variant-numeric: tabular-nums; color: var(--text-3); }
+.sim-spin { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto;
+            border: 1.5px solid currentColor; border-right-color: transparent;
+            animation: sim-spin .7s linear infinite; }
+@keyframes sim-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sim-spin { animation: none; } }
+
+/* ★ 一句话状态：回答"到底有没有在跑"。
+   上一轮把整片模拟配色撤掉之后，页面上下没有任何地方说"现在是替身还是现场" ——
+   用户只能靠"表变没变紫"判断，而紫色按设计已经不出现了。这条状态行就是
+   那个信号的替代品：形态 / 链路数 / 采集器在不在采 / 实时库多少行。 */
+.sim-state { display: flex; align-items: center; flex-wrap: wrap; gap: 7px;
+             margin: 0 0 12px; font-size: 13px; line-height: 1.7;
+             color: var(--text-2); }
+.sim-state strong { font-weight: 600; }
+.sim-state.is-ok   strong { color: var(--ok); }
+.sim-state.is-warn strong { color: var(--warn); }
+.sim-state.is-bad  strong { color: var(--bad); }
+.sim-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+           background: var(--text-3); }
+.sim-state.is-ok   .sim-dot { background: var(--ok); }
+.sim-state.is-warn .sim-dot { background: var(--warn); }
+.sim-state.is-bad  .sim-dot { background: var(--bad); }
+.sim-sep { color: var(--text-3); }
+
+/* =====================================================================
+   接入装配（v1.7）：两大部分（调度主站接入 / 站内设备接入）
+   ★ 两部分是**两条独立通道**（EMS 一作从站、一作主站），不是两个页签；
+     叠着放是因为它们有先后：先有站内数据，才有东西上送调度。
+   ★ v1.5 的「整站一个开关 + 形态二选一分段器」已删：一个开关写两端，
+     表达不了"一端接真机、另一端接模拟器"这种最常见的调试态。
+   ★ v1.7.x 又把每部分里的「真实/模拟输入源」两块并列卡片删了（`.src-blk`
+     / `.src-hd` / `.src-t` / `.src-row` / `.g-2` 随之删除）：那两块与
+     ① 接入参数 是同一份内容，画两遍只会多出一处"当前生效"标记要人自己对齐。
+     形态改由页尾「模拟输入源」面板统一表达，**不给这些表换配色** ——
+     一个页尾开关的状态画到两张与它无关的表上，人反而分不清"这一列是
+     模拟值"和"整张表都在模拟"（v1.11 撤掉 .sim-mode）。
+   ===================================================================== */
+
+/* 两端形态的组合提示。只有 bad（下端模拟 → 上端真实：替身数据被当现场值
+   上送）才用红；warn 是"还没配全"，info 是常规调试态 —— 都红就等于都不红。 */
+.mix-bad, .mix-warn, .mix-info {
+  margin: 0 0 4px; padding: 9px 12px; border-radius: 8px;
+  font-size: 12.5px; line-height: 1.8;
+}
+.mix-bad { background: rgba(220,38,38,.07); color: var(--bad); font-weight: 500; }
+.mix-warn { background: rgba(217,119,6,.09); color: #b45309; }
+.mix-info { background: var(--card-2); color: var(--text-3); }
+
+/* v1.7.x：一端要填**两份**输入的分节标题（① 接入参数 / ② 点表·转发表）。
+   为什么要有它：图里讲的是"两端各两份"，但表单散在卡片里，人不一定看得出
+   哪几栏是第①份、哪一块是第②份。标题给的是**顺序**（先连得上、再读得对），
+   不是又一个装饰条 —— 所以左右各留一条细线把它从字段里分出来，不加底色。 */
+.phase-hd { display: flex; align-items: baseline; gap: 9px; margin: 22px 0 10px;
+            padding-top: 14px; border-top: 1px solid var(--line); }
+.phase-hd:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.phase-no { font-size: 12px; font-weight: 700; color: var(--accent);
+            font-variant-numeric: tabular-nums; }
+.phase-t { font-size: 13.5px; font-weight: 600; letter-spacing: .2px; }
+.phase-hint { font-size: 12px; color: var(--text-3); }
+
+/* =====================================================================
+   模拟态配色：v1.11 撤掉（原 .sim-mode，v1.7.x 引入）
+   ---------------------------------------------------------------------
+   原来的理由：表在上面、开关在页尾，中间隔着几千像素，所以整片换紫底，
+   眼睛落到表上就知道"这不是真数据"。
+   撤掉的理由：那两张表回答的是"打给谁、问什么"，不是"数从哪来"。
+   一个页尾开关的状态被画到与它无关的表上，实际效果是让人分不清
+   「这一列是模拟值」和「整张表都在模拟」；而模拟源本身的信息（模拟中、
+   套名、端口计划、进程）全在页尾那张卡里，本来就不用去上面找。
+   模拟中仍是**正常的工作状态**，不是告警 —— 所以也不用红/黄。
+   ===================================================================== */
+
+/* 「换一套」按钮：SVG 图标 + 文字要对齐，所以按钮得是 inline-flex。
+   图标继承按钮的文字色 —— 换皮肤不用改两处。 */
+.btn-ico { display: inline-flex; align-items: center; gap: 5px; }
+.ic-cycle { flex: 0 0 13px; }
+@media (prefers-reduced-motion: no-preference) {
+  .btn-ico:hover .ic-cycle { animation: ic-spin .5s ease-in-out; }
+}
+@keyframes ic-spin { to { transform: rotate(360deg); } }
+.ic-cycle { transform-origin: 50% 50%; }
 
 /* 点表编辑表：紧凑输入 + 行内错误定位（红左标 + 淡底） */
 .pm-wrap { max-height: 520px; }
@@ -492,16 +606,14 @@ input:focus, select:focus {
 .pm-tbl .badge { font-size: 11px; }
 
 /* =====================================================================
-   引擎双模式（v1.4）：运行模式（实时引擎）/ 仿真模式（离线批量）
-   顶栏引擎分段器 + 页头实时徽章 + 实时引擎状态条 + 仿真页
+   数据源与采集状态（v1.5 收敛）
+   ★ v1.4 时这里还有"引擎双模式分段器 + 数据集切换器 + 仿真页"三块样式。
+     产品化后数据源只有一个、界面不给选择器，那三块连同它们的类名一起删掉了
+     —— 留着空规则的话，下一个人会以为还有入口可接。
+   现在只剩：页头的刷新徽章 + 采集不正常时的状态条。
    ===================================================================== */
 
-/* 引擎分段器：运行模式下选中的那一格用"实时绿"，与业务模式的蓝区分开 ——
-   两个分段器长得一模一样的话，很容易把"换数据源"点成"换生意"。 */
-.seg-engine button.active { color: #fff; font-weight: 600; }
-.seg-engine .seg-ind { background: var(--c-bat); }
-
-/* 页头：实时徽章靠右对齐 */
+/* 页头：刷新徽章靠右对齐 */
 .page-head { position: relative; }
 .live-badge {
   position: absolute; right: 22px; bottom: 4px;
@@ -519,50 +631,6 @@ input:focus, select:focus {
 .live-badge.lv-off  { background: rgba(91,100,114,.10); color: var(--text-2); }
 @keyframes lv-pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { .live-badge.lv-on::before { animation: none; } }
-
-/* 实时引擎状态条 */
-.engine-banner {
-  margin: 10px 22px 0; padding: 11px 15px;
-  background: var(--card); border: 1px solid var(--line-soft);
-  border-left: 3px solid var(--c-bat);
-  border-radius: var(--r); box-shadow: var(--shadow);
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  font-size: 12.5px;
-}
-.engine-banner-main { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; flex: 1 1 auto; }
-.engine-banner .eb-dot {
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--text-3); flex: 0 0 auto;
-}
-.engine-banner .eb-dot.on { background: var(--c-bat); animation: lv-pulse 1.6s ease-in-out infinite; }
-.engine-banner .eb-title { font-weight: 600; }
-.engine-banner .eb-meta { color: var(--text-2); }
-.engine-banner .eb-warn { color: var(--warn); font-weight: 600; }
-.engine-banner .eb-err {
-  flex: 1 1 100%; padding: 6px 9px; border-radius: var(--r-sm);
-  background: rgba(220,38,38,.06); color: var(--bad);
-  font-size: 12px; word-break: break-all;
-}
-.engine-banner-act { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-
-/* ---------------- 仿真页 ---------------- */
-.sim-fire { display: flex; flex-direction: column; gap: 10px; }
-.sim-fire-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.sim-fire-lb { font-size: 12px; color: var(--text-3); }
-.sim-spec { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12.5px; color: var(--text-2); }
-.sim-spec b { color: var(--text); }
-.sim-warn {
-  padding: 8px 11px; border-radius: var(--r-sm);
-  background: rgba(217,119,6,.07); color: var(--warn);
-  font-size: 12px; line-height: 1.75;
-}
-.sim-runrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
-.sim-err {
-  margin-top: 9px; padding: 8px 11px; border-radius: var(--r-sm);
-  background: rgba(220,38,38,.06); color: var(--bad);
-  font-size: 12px; white-space: pre-wrap; word-break: break-all;
-}
-.sim-src { display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; line-height: 1.75; }
 
 /* =====================================================================
    装配视图（爆炸图） / 一次接线图 —— 共用件
@@ -609,7 +677,7 @@ input:focus, select:focus {
 
   html, body { height: auto; background: #fff; }
   .app-view { height: auto; overflow: visible; display: block; }
-  .sidebar, .topbar, .page-head, .engine-banner, .foot, .toast,
+  .sidebar, .topbar, .page-head, .foot, .toast,
   .no-print { display: none !important; }
   .main { display: block; }
 
@@ -645,3 +713,68 @@ input:focus, select:focus {
 /* 数据边界说明：后端给的"这份数据能代表什么"。字号小但必须上纸，
    否则打印出来的报表看着像真实运行数据。 */
 .print-head .ph-note { margin: 5px 0 0; font-size: 10.5px; color: #9aa3b2; }
+
+/* ==================== 接入调度主站 · 九步向导（v1.14） ====================
+   铺在 .mdl 里（那个弹层本来就是整页大小）。这里只管三件事：
+   步骤条 / 字段网格 / 贴底按钮栏 —— 输入框沿用 .pm-in，不另起一套。
+
+   ★ 贴底按钮栏用 position:sticky 而不是改 .mdl-body 的 flex：
+     .mdl-body 是公共容器（逐台编辑、转发表编辑都在用），
+     为这一处改它的布局会让另外两处跟着变。 */
+.wz-bar { display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+          padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+.wz-pill { min-width: 30px; height: 30px; padding: 0 8px; border-radius: 8px;
+           border: 1px solid var(--line); background: var(--card); color: var(--text-3);
+           font-size: 12.5px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.wz-pill:hover { border-color: var(--text-3); color: var(--text); }
+.wz-pill.done { color: var(--ok); border-color: rgba(22,163,74,.34); background: rgba(22,163,74,.07); }
+.wz-pill.cur  { color: #fff; background: var(--accent); border-color: var(--accent); }
+.wz-conn { width: 12px; height: 1px; background: var(--line); flex: 0 0 12px; }
+.wz-prog { margin-left: auto; font-size: 12px; color: var(--text-3);
+           font-variant-numeric: tabular-nums; }
+
+.wz-head { margin-top: 16px; }
+.wz-head h3 { margin: 0 0 3px; font-size: 17px; }
+.wz-sub { margin: 0; font-size: 12.5px; color: var(--text-3); }
+.wz-resume { margin: 11px 0 0; padding: 9px 13px; font-size: 12.5px; line-height: 1.7;
+             color: var(--accent-2); background: var(--accent-soft); border-radius: 8px; }
+/* 只会出现在第 6 步：九步里唯一写文件的那一步。
+   八步都不写，就不逐页声明"只记台账"了 —— 每页都挂一句，读到第三页就没人看。 */
+.wz-scope { margin: 11px 0 0; font-size: 12.5px; line-height: 1.7;
+            color: var(--text-2); display: flex; gap: 8px; align-items: baseline; }
+.wz-scope b { flex: 0 0 auto; }
+
+/* 每步的卡片栈 —— v1.16 起八步与第 6 步共用这一个容器。
+   原来八步用 .wz-mats（自带圆角外框 + 灰底表头 .wz-tb），第 6 步用 .wz-cfg，
+   同一页里三套边框三重圆角，翻页时卡高与边距都在变 —— 这才是"风格不匹配"
+   的实际观感来源。现在卡片一律走 .card（见「组件」段），间距只这里管。 */
+.wz-cards { display: grid; gap: 14px; margin-top: 14px; }
+.wz-cards > .card { box-shadow: none; }   /* 弹层里已有一层底，卡片再投影会显脏 */
+/* 建议值：一行字 + 一个按钮。解释挂 title，不铺在版面上。 */
+.wz-assist { margin-top: 14px; display: flex; align-items: center; gap: 10px;
+             padding: 9px 13px; border: 1px dashed var(--line); border-radius: 9px;
+             background: var(--card-2); }
+.wz-assist-lb { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
+                font-size: 12.5px; color: var(--text-2); }
+.wz-assist-lb > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.wz-grid { display: grid; gap: 15px 18px; margin-top: 18px;
+           grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+.wz-f { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.wz-f.wide { grid-column: 1 / -1; }
+.wz-lb { font-size: 12px; color: var(--text-3); }
+.wz-lb .rq { color: #DC2626; font-style: normal; margin-left: 3px; }
+.wz-f .pm-in { width: 100%; }
+.wz-hint { font-size: 11.5px; line-height: 1.62; color: var(--text-3); }
+.wz-bad { border-radius: 8px; box-shadow: 0 0 0 2px rgba(220,38,38,.22);
+          padding: 6px; margin: -6px; }
+.wz-bad .wz-lb { color: #DC2626; }
+.wz-multi { display: flex; flex-direction: column; gap: 5px; }
+.wz-cb { display: flex; align-items: center; gap: 7px; font-size: 12.5px;
+         color: var(--text-2); cursor: pointer; }
+
+.wz-foot { position: sticky; bottom: 0; z-index: 3; display: flex; gap: 10px;
+           align-items: center; margin: 24px -22px -28px; padding: 12px 22px 16px;
+           background: var(--paper); border-top: 1px solid var(--line); }
+.wz-grow { flex: 1 1 auto; }
+.wz-hintline { font-size: 12px; color: var(--text-3); }

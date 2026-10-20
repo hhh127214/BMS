@@ -54,10 +54,18 @@ set SRCS=^
  src\iec60870\link_layer\link_layer.c ^
  src\iec60870\link_layer\serial_transceiver_ft_1_2.c
 
+REM  ★ -D_WIN32_WINNT=0x0601（2026-10-19 补）：不定义时 MinGW 按 Win2000 头文件
+REM    裁剪，Win7+ 的三个 API 会变成**隐式声明**，编译器只发一条 warning 就放过，
+REM    运行期按"返回 int"处理：
+REM      · GetTickCount64 —— 只保留低 32 位 ⇒ 每 49.7 天回绕一次，
+REM        而它正是 Hal_getMonotonicTimeInMs() 的底，驱动 104 的 t1/t2/t3 超时；
+REM      · inet_pton / inet_ntop —— 指针参数按无原型传递，属未定义行为。
+REM    实测：加上这条后 time.c 零告警、socket_win32.c 只剩两条无害的
+REM    （#pragma comment 与同名宏重定义）。
 echo === [1/2] compile 23 C sources (gcc -std=gnu99 -O2) ===
 set N=0
 for %%f in (%SRCS%) do (
-    gcc -std=gnu99 -O2 -Wall %INC% -c %%f -o build\obj\%%~nf.o
+    gcc -std=gnu99 -O2 -Wall -D_WIN32_WINNT=0x0601 %INC% -c %%f -o build\obj\%%~nf.o
     if errorlevel 1 (
         echo [FAIL] %%f
         exit /b 1

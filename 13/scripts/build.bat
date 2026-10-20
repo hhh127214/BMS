@@ -11,7 +11,7 @@ REM  modbus_device_io.h），由 07\ 装配层包含使用；probe 只是它的�
 REM  所以这里只需要编一个 exe + 一个 C 目标文件。 
 REM
 REM  ★ 这句「由 07\ 装配层包含使用」已经成真：07/src/main_field.cpp 真的
-REM    include 了 modbus_device_io.h / modbus_point_map.h 并链 -lws2_32，
+REM    include 了 modbus_device_io.h / modbus_point_map.h 并链 -lws2_32， 
 REM    现场进程就是「点表填好后真正去连设备」的那个入口（--device modbus）。 
 REM
 REM  依赖：07\ 点表真相源；WinSock2（-lws2_32）。 

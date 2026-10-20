@@ -44,7 +44,7 @@ if errorlevel 1 ( echo [FAIL] test_dlt645_frame compile error & exit /b 1 )
 build\test_dlt645_frame.exe > build\layer1.log 2>&1
 set L1_RC=%ERRORLEVEL%
 type build\layer1.log
-if not "%L1_RC%"=="0" ( echo [FAIL] test_dlt645_frame tests did not pass & set FAIL=1 )
+if not "%L1_RC%"=="0" ( echo [FAIL] test_dlt645_frame tests did not pass & set "FAIL=1" )
 call :check_summary build\layer1.log test_dlt645_frame
 
 echo.
@@ -55,7 +55,7 @@ if errorlevel 1 ( echo [FAIL] test_dlt645_master compile error & exit /b 1 )
 build\test_dlt645_master.exe > build\layer2.log 2>&1
 set L2_RC=%ERRORLEVEL%
 type build\layer2.log
-if not "%L2_RC%"=="0" ( echo [FAIL] test_dlt645_master tests did not pass & set FAIL=1 )
+if not "%L2_RC%"=="0" ( echo [FAIL] test_dlt645_master tests did not pass & set "FAIL=1" )
 call :check_summary build\layer2.log test_dlt645_master
 
 echo.
@@ -70,7 +70,7 @@ if errorlevel 1 ( echo [FAIL] test_meter645_io compile error & exit /b 1 )
 build\test_meter645_io.exe > build\layer3.log 2>&1
 set L3_RC=%ERRORLEVEL%
 type build\layer3.log
-if not "%L3_RC%"=="0" ( echo [FAIL] test_meter645_io tests did not pass & set FAIL=1 )
+if not "%L3_RC%"=="0" ( echo [FAIL] test_meter645_io tests did not pass & set "FAIL=1" )
 call :check_summary build\layer3.log test_meter645_io
 
 echo.

@@ -24,9 +24,9 @@ if not exist build\fault mkdir build\fault
 build\sim_demo.exe --fault --out build\fault
 echo.
 echo === 运行异常工况日仿真（产物在 build\stress\）===
-rem  这是 SOC / TEMP / TRANSFORMER 三类告警的唯一数据来源：
-rem  典型日里它们恒为 0，因为系统是健康的（关口被需量压在 400、变压器留 100 裕度、
-rem  SOC 稳在带内）—— 那是"调度有效"的证据，不是缺陷。
+rem  这是 SOC / TEMP / TRANSFORMER 三类告警的唯一数据来源： 
+rem  典型日里它们恒为 0，因为系统是健康的（关口被需量压在 400、变压器留 100 裕度、 
+rem  SOC 稳在带内）—— 那是"调度有效"的证据，不是缺陷。 
 if not exist build\stress mkdir build\stress
 build\sim_demo.exe --stress --out build\stress
 

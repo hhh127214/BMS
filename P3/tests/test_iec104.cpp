@@ -51,6 +51,7 @@
 
 #include "iec104_server.h"
 #include "iec104_point_map.h"
+#include "access_link_conf.h"   // T78：上端链路参数（v1.5）
 
 #include "ext_setpoint_sink.h"   // A3.1：IExtSetpointSink / dispatch_ext_setpoint（网关的写口）
 #include "ext_setpoints.h"       // A3.1：ems::load_ext_setpoints / narrow_interval_by_ext（读侧判定）
@@ -1592,6 +1593,114 @@ int main() {
 
         // 收尾：确保回到默认（不污染后续任何依赖默认表的用例）
         reset_point_map();
+    }
+
+    // ------------------------------------------------------------------
+    // T78 上端链路参数文件（v1.5，配置通道②）
+    //
+    // 守的是什么：平台在界面（或库里）把上端配成 sim/2405/CA3，网关读出来
+    // 必须**就是**这一组，而不是"默认 2404 一切正常"。
+    // 三条纪律（不存在 ≠ 错误 / 非法 = 硬失败 / 未知键 = 硬失败）各守一条。
+    // ------------------------------------------------------------------
+    std::printf("-- T78 upstream link conf --\n");
+    {
+        const std::string base =
+            "format=ems-upstream-link/1\nlink_id=dispatch\nkind=sim\n"
+            "protocol=iec104\nbind_host=0.0.0.0\nlisten_port=2405\n"
+            "common_addr=3\nmaster_host=127.0.0.1\nenabled=1\n"
+            "saved_at=2026-10-18 02:00:00\nusername=admin\n";
+        auto write_txt = [](const std::string& path, const std::string& s) {
+            std::ofstream f(path.c_str(), std::ios::binary);
+            if (!f) return false;
+            f.write(s.data(), static_cast<std::streamsize>(s.size()));
+            return true;
+        };
+        const std::string p = "build/_t78_link.upstream";
+
+        // ① 合法（带 BOM）：字段逐一读出来，且 sim 被识别成"模拟调度"
+        EXPECT(write_txt(p, std::string("\xEF\xBB\xBF") + base));
+        {
+            UpstreamLink c;
+            std::string rep;
+            EXPECT(load_upstream_link_path(p, &c, &rep) == LinkLoad::kOk);
+            EXPECT(c.listen_port == 2405);
+            EXPECT(c.common_addr == 3);
+            EXPECT(c.kind == "sim");
+            EXPECT(link_is_sim(c));
+            EXPECT(c.bind_host == "0.0.0.0");
+            // ★ 关键：横幅/--dump-link 必须把"模拟调度"写出来。
+            //   sim 与 real 走的是同一套从站代码，界面上不写清楚的话，
+            //   联调完切真调度时没人会发现"这一端当时还是模拟的"。
+            EXPECT(format_upstream_link(c).find("模拟调度") != std::string::npos);
+            EXPECT(std::string(link_peer_text(c)).find("iec104_master") != std::string::npos);
+        }
+
+        // ② 文件不存在 ≠ 错误（现场还没配是正常状态，且**不编默认端口**）
+        {
+            UpstreamLink c;
+            c.listen_port = 9999;          // 哨兵：若被改写说明擅自填了值
+            std::string rep;
+            EXPECT(load_upstream_link_path("build/_t78_none.upstream", &c, &rep) ==
+                   LinkLoad::kMissing);
+            EXPECT(c.listen_port == 9999);
+        }
+
+        // ③ 未知键 = 硬失败（拼错 listen_port ⇒ 静默用 2404 监听，调度连的是别的口）
+        EXPECT(write_txt(p, [&] {
+            std::string s = base;
+            const std::size_t k = s.find("listen_port=");
+            s.replace(k, std::string("listen_port=").size(), "listen_prot=");
+            return s;
+        }()));
+        {
+            UpstreamLink c;
+            std::string rep;
+            EXPECT(load_upstream_link_path(p, &c, &rep) == LinkLoad::kInvalid);
+            EXPECT(rep.find("listen_prot") != std::string::npos);
+        }
+
+        // ④ kind 只认 real/sim（拼错不许静默当 real）
+        EXPECT(write_txt(p, [&] {
+            std::string s = base;
+            s.replace(s.find("kind=sim"), std::strlen("kind=sim"), "kind=simulate");
+            return s;
+        }()));
+        {
+            UpstreamLink c;
+            std::string rep;
+            EXPECT(load_upstream_link_path(p, &c, &rep) == LinkLoad::kInvalid);
+            EXPECT(rep.find("kind") != std::string::npos);
+        }
+
+        // ⑤ CA 越界（0 是保留值）
+        EXPECT(write_txt(p, [&] {
+            std::string s = base;
+            s.replace(s.find("common_addr=3"), std::strlen("common_addr=3"),
+                      "common_addr=0");
+            return s;
+        }()));
+        {
+            UpstreamLink c;
+            std::string rep;
+            EXPECT(load_upstream_link_path(p, &c, &rep) == LinkLoad::kInvalid);
+        }
+
+        // ⑥ 格式版本不认识（不同版本的端侧）
+        EXPECT(write_txt(p, [&] {
+            std::string s = base;
+            s.replace(s.find("ems-upstream-link/1"), std::strlen("ems-upstream-link/1"),
+                      "ems-upstream-link/9");
+            return s;
+        }()));
+        {
+            UpstreamLink c;
+            std::string rep;
+            EXPECT(load_upstream_link_path(p, &c, &rep) == LinkLoad::kInvalid);
+            EXPECT(rep.find("格式版本") != std::string::npos);
+        }
+
+        // 收尾：别把文件留在 build 里
+        std::remove(p.c_str());
     }
 
     std::printf("\n=== P3 IEC104: PASS=%d FAIL=%d ===\n", g_pass, g_fail);

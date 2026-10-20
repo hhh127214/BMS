@@ -48,6 +48,7 @@
 #include "dlt645_tcp_link.h"     // 21/  TCP 透传链路
 
 #include "rtdb_device_io.h"      // 07/src/rtdb  共享内存实时库适配器
+#include "rtdb_mirror.h"         // 07/src/rtdb  采集值 → 实时库镜像（上端 104 的数据源）
 
 #include <chrono>
 #include <cstdint>
@@ -110,17 +111,40 @@ void print_limits(const DeviceLimits& l) {
 //   ★ 本函数**不创建 EmsRuntime** —— 这是"不下发指令"的结构性保证，
 //     不是靠 if 判断拦住的。runtime 不存在，就没有任何写设备的调用点。
 // ---------------------------------------------------------------------
-int drive_inspect(IDeviceIO& io, const field::Args& a) {
+int drive_inspect(IDeviceIO& io, const field::Args& a, RtdbMirror* mir = nullptr) {
     const int steps = a.steps_or(10);
     std::printf("\n---- 只读巡检：%d 拍 × %.3f s ----\n", steps, a.dt);
     std::printf("  适配器   : %s\n", io.name());
     std::printf("  ★ 本模式不创建 EmsRuntime，代码里不存在能下发指令的路径。\n\n");
 
+    // ---- 实录（--record）：只读巡检也写 ----
+    //   ★ 2026-10-18 起才支持。此前 --record 只在 --control 分支里，
+    //     于是"接上真实设备只看不动"跑得通、却**一行数据都不入库** ——
+    //     平台侧页面全空，而现场看到的是一切的正常（读到了、数值对）。
+    //     「接入后其他页面就该正常运行」这句话，卡的就是这一处。
+    //   record 里的 state 记 INIT + reason 写明"只读巡检"：
+    //     不能记成 RUNNING —— 那会让下游以为闭环在跑，而 p_cmd 恒为 0。
+    record::RecordWriter rec;
+    const bool recording = !a.record_path.empty();
+    if (recording) {
+        if (!rec.open(a.record_path)) {
+            std::printf("\n[FAIL] 打不开实录文件 %s（检查目录是否存在、是否可写）\n",
+                        a.record_path.c_str());
+            return 3;
+        }
+        std::printf("  实录文件 : %s（20 列，与 10/ timeseries.csv 同构）\n",
+                    a.record_path.c_str());
+    }
+
     std::printf("  %-4s %10s %10s %10s %10s %8s  %s\n",
                 "拍", "P_grid", "P_pv", "P_load", "P_bat", "SOC", "状态");
 
     RealtimeSnapshot snap;
-    int ok_cnt = 0, invalid_cnt = 0;
+    // 镜像用的限值缓存：read_limits() 会**真的发一次 Modbus 请求**，
+    // 不能每拍调两次。每 10 拍刷一次（10 Hz 下 1 s）—— BMS 动态降功率
+    // 是秒级事件，这个滞后足够，而通信开销只多 10%。
+    DeviceLimits lim_cache;
+    int ok_cnt = 0, invalid_cnt = 0, fail_streak = 0;
     const auto t_start = std::chrono::steady_clock::now();
 
     for (int i = 0; i < steps; ++i) {
@@ -129,9 +153,67 @@ int drive_inspect(IDeviceIO& io, const field::Args& a) {
         const DeviceStatus st = io.read_status();
         if (!st.data_valid) ++invalid_cnt;
 
+        // ★ 读失败就**不写实录**，连续 3 拍还没读到就退出。
+        //   为什么：实录是平台的唯一数据来源。读失败照样写一行，
+        //   写出来的是一行 0 值 —— 平台页面会显示"一切正常、负荷 0"，
+        //   而现场其实一台设备都没连上。假数据比缺数据贵得多。
+        fail_streak = r ? 0 : (fail_streak + 1);
+        if (fail_streak >= 3) {
+            std::printf("\n[FAIL] 连续 %d 拍没读到数据，退出（不写这些空拍）。\n", fail_streak);
+            std::printf("  处置：① 设备是否上电、网线通不通（ping / 13\\build\\modbus_probe.exe）；\n");
+            std::printf("        ② IP / 端口 / 从站号是否正确；\n");
+            std::printf("        ③ 点表的表类型与地址是否与厂家手册一致。\n");
+            rec.close();
+            return 4;
+        }
+
         std::printf("  %-4d %10.2f %10.2f %10.2f %10.2f %8.3f  %s\n",
                     i + 1, snap.p_grid_kw, snap.p_pv_kw, snap.p_load_kw,
                     snap.p_bat_actual_kw, snap.soc, status_brief(st).c_str());
+
+        if (recording && r) {
+            StepRecord row;
+            row.t        = snap.timestamp > 0.0 ? snap.timestamp : now_seconds();
+            row.state    = EmsState::kInit;   // 未进闭环
+            row.p_load   = snap.p_load_kw;
+            row.p_pv     = snap.p_pv_kw;
+            row.p_grid   = snap.p_grid_kw;
+            row.p_cmd    = 0.0;               // 只读：不存在下发值
+            row.p_actual = snap.p_bat_actual_kw;
+            row.soc      = snap.soc;
+            row.temp     = snap.temperature_c;
+            row.p_lower  = 0.0;
+            row.p_upper  = 0.0;
+            row.plan_target = 0.0;
+            row.correction  = 0.0;
+            row.clamped = row.safety_clip = row.state_gated = row.hold_last = false;
+            int bits = 0;
+            if (!st.bms_comm_ok)   bits |= 1;
+            if (!st.pcs_comm_ok)   bits |= 2;
+            if (!st.meter_comm_ok) bits |= 4;
+            if (st.pcs_fault)      bits |= 8;
+            if (st.device_offline) bits |= 16;
+            row.fault_bits = bits;
+            row.reason = "只读巡检（不下发指令）";
+            rec.write(row, unix_now());
+        }
+
+        // ---- 实时库镜像（上端 IEC104 的数据源）----
+        //   ★ 只在 r == true 时写：读失败还写一行 0，正是本文件一直在防的假数据。
+        //   ★ cmd 传 nullptr：只读巡检不下发指令。写 CMD.P_BAT=0 会被调度
+        //     读成"要求电池 0 kW"，与"没有指令"完全不是一回事。
+        if (mir != nullptr && mir->is_open() && r) {
+            if (i % 10 == 0) io.read_limits(lim_cache);
+            RtdbMirror::Sample ms;
+            ms.p_load = snap.p_load_kw;
+            ms.p_pv   = snap.p_pv_kw;
+            ms.p_bat  = snap.p_bat_actual_kw;
+            ms.p_grid = snap.p_grid_kw;
+            ms.soc    = snap.soc;
+            ms.t_c    = snap.temperature_c;
+            ms.soh    = snap.soh;
+            mir->publish(ms, nullptr, st, lim_cache);
+        }
 
         if (i == 0) {
             DeviceLimits lim;
@@ -148,7 +230,15 @@ int drive_inspect(IDeviceIO& io, const field::Args& a) {
         }
     }
 
+    rec.close();
+
     std::printf("\n  采集成功 : %d/%d 拍；品质无效 %d 拍\n", ok_cnt, steps, invalid_cnt);
+    if (mir != nullptr) {
+        const RtdbMirror::Stats& ms = mir->stats();
+        std::printf("  实时库镜像: %s —— %ld 拍 · 写入 %ld 点 · 失败 %ld\n",
+                    mir->is_open() ? "已写入 MEAS/STA/CFG（不写 CMD）" : "未接通",
+                    ms.steps, ms.wrote, ms.failed);
+    }
     if (a.verbose) {
         const DeviceActuals ac = io.read_actuals();
         std::printf("  实际值   : P_bat %.2f kW | P_grid %.2f kW | SOC %.4f | 温度 %.2f ℃\n",
@@ -166,7 +256,7 @@ int drive_inspect(IDeviceIO& io, const field::Args& a) {
 // ---------------------------------------------------------------------
 // 闭环控制（会真的下发指令）
 // ---------------------------------------------------------------------
-int drive_control(IDeviceIO& io, const field::Args& a) {
+int drive_control(IDeviceIO& io, const field::Args& a, RtdbMirror* mir = nullptr) {
     const int steps = a.steps_or(6000);
 
     // ---- 预读体检：读不到就不许下发 ----
@@ -206,6 +296,16 @@ int drive_control(IDeviceIO& io, const field::Args& a) {
                                          : "否（限值来自装配配置）");
     }
 
+    // SOH 是慢变量（日变化 < 0.1%），StepRecord 里没有它 —— 启动时读一次。
+    // 不每拍读：read_snapshot() 会真的发 Modbus 请求，为一天变不到 0.1% 的
+    // 量付 10 Hz 的代价不值。
+    double soh0 = 1.0;
+    if (mir != nullptr && mir->is_open()) {
+        RealtimeSnapshot pre_soh;
+        if (io.read_snapshot(now_seconds(), pre_soh)) soh0 = pre_soh.soh;
+        mir->set_soh(soh0);
+    }
+
     const auto t_start = std::chrono::steady_clock::now();
 
     // ---- 现场实录（--record）：边跑边把每拍追加写 CSV ----
@@ -222,31 +322,51 @@ int drive_control(IDeviceIO& io, const field::Args& a) {
                     a.record_path.c_str());
     }
 
-    if (a.record_path.empty()) {
-        // 原路径：rt.run + hook 只做墙钟 pacing。改动前请先看 demo_scenario7.h 顶部。
-        rt.run(steps, a.dt, [&](EmsRuntime&, int i) {
-            if (i + 1 < steps) {
-                std::this_thread::sleep_until(
-                    t_start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                                  std::chrono::duration<double>((i + 1) * a.dt)));
-            }
-        });
-    } else {
-        // --record 路径：显式循环，拿到 step() 的 StepRecord 写盘。
-        //   pacing 与上面完全一致（同一套 sleep_until），只是多了写文件。
-        for (int i = 0; i < steps; ++i) {
-            const StepRecord r = rt.step(a.dt);
-            rec.write(r, unix_now());
-            if (i + 1 < steps) {
-                std::this_thread::sleep_until(
-                    t_start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                                  std::chrono::duration<double>((i + 1) * a.dt)));
-            }
+    // ---- 显式单循环（原来分 rt.run / --record 两条）----
+    //   为什么合并：镜像与实录都取"这一拍的 StepRecord"，而 rt.run 的 hook
+    //   在 step() **之前**调用，拿不到本拍结果。两条路径本来就用同一套
+    //   sleep_until pacing，合并后连"第一拍前要不要空等一个 dt"也统一了
+    //   （原来 run 路径会先空等一个 dt，record 路径不会）。
+    for (int i = 0; i < steps; ++i) {
+        const StepRecord r = rt.step(a.dt);
+        if (!a.record_path.empty()) rec.write(r, unix_now());
+
+        // ---- 实时库镜像：MEAS/STA/CFG + CMD ----
+        //   这里写 CMD 不算越区：本进程同时兼任采集与控制，
+        //   r.p_cmd / p_upper / p_lower 就是 EMS 这一拍的决定。
+        if (mir != nullptr && mir->is_open()) {
+            RtdbMirror::Sample ms;
+            ms.p_load = r.p_load;
+            ms.p_pv   = r.p_pv;
+            ms.p_bat  = r.p_actual;
+            ms.p_grid = r.p_grid;
+            ms.soc    = r.soc;
+            ms.t_c    = r.temp;
+            ms.soh    = soh0;
+
+            RtdbMirror::Command mc;
+            mc.p_bat   = r.p_cmd;
+            mc.p_upper = r.p_upper;
+            mc.p_lower = r.p_lower;
+
+            mir->publish(ms, &mc, io.read_status(), rt.device_limits());
+        }
+
+        if (i + 1 < steps) {
+            std::this_thread::sleep_until(
+                t_start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                              std::chrono::duration<double>((i + 1) * a.dt)));
         }
     }
     rec.close();
 
     std::printf("\n  闭环指标：%s\n", rt.metrics().to_string().c_str());
+    if (mir != nullptr) {
+        const RtdbMirror::Stats& ms = mir->stats();
+        std::printf("  实时库镜像: %s —— %ld 拍 · 写入 %ld 点 · 失败 %ld\n",
+                    mir->is_open() ? "已写入 MEAS/STA/CFG + CMD" : "未接通",
+                    ms.steps, ms.wrote, ms.failed);
+    }
     return 0;
 }
 
@@ -288,7 +408,29 @@ int run_modbus(const field::Args& a) {
     cfg.timeout_ms = a.timeout_ms;   // 来自 --timeout（或接入参数文件的 timeout_ms）
     ModbusDeviceIO io(cfg);
 
-    return a.control ? drive_control(io, a) : drive_inspect(io, a);
+    // ---- 实时库镜像（--mirror-rtdb）----
+    //   为什么放在这里、而不是在 simproc 里再起一个写入进程：
+    //   RT_DB 的纪律是「一个进程一条连接」，同一个值也只该有一个写入者。
+    //   让采集进程顺手发布，就不存在「两个进程写同一批点、谁后写谁赢」。
+    RtdbMirror mir;
+    RtdbMirror* m = nullptr;
+    if (a.mirror_rtdb) {
+        std::string why;
+        if (mir.open(&why)) {
+            m = &mir;
+            std::printf("  实时库镜像: 已接通（写 MEAS/STA/CFG%s）\n",
+                        a.control ? " + CMD" : "，不写 CMD");
+        } else {
+            // 不阻断采集：现场"先起采集、后起实时库初始化器"是常见顺序。
+            // 但必须喊出来 —— 否则上端 104 一直发初值，而链路和点表都看着正常。
+            std::printf("\n[WARN] 实时库镜像未接通：%s\n", why.c_str());
+            std::printf("  影响：上端 IEC104 的 MEAS.* 会停在初值（0 / 50%% / 25℃），\n");
+            std::printf("        而链路与点表看起来都正常。\n");
+            std::printf("  处置：确认 rtdb_initializer.exe 已常驻，再重启本进程。\n\n");
+        }
+    }
+
+    return a.control ? drive_control(io, a, m) : drive_inspect(io, a, m);
 }
 
 // ---------------------------------------------------------------------
@@ -431,12 +573,23 @@ int resolve_modbus_target(field::Args& a) {
         return 3;
     }
 
-    a.host       = c.host;
-    a.port       = c.port;
+    // ★ 用 conn_target_host/port()，**不要**用 c.host / c.port。
+    //   v1.5 给接入参数加了「形态」（real/sim），形态决定实际连哪个地址：
+    //     real → host:port（现场设备）   sim → sim_host:sim_port（设备替身）
+    //   这里原来直接取 c.host —— 于是平台把形态切成 sim 之后，
+    //   `13/` 的探针连的是替身、`07/` 的主站却还在连真机地址：
+    //   两处各解析一次，静默漂移，而两边都不报错。
+    a.host       = modbus::conn_target_host(c);
+    a.port       = modbus::conn_target_port(c);
     a.unit       = c.unit_id;
     a.timeout_ms = c.timeout_ms;
     std::printf("  接入参数 : 约定路径 ← %s\n", used.c_str());
     std::printf("             %s\n", modbus::format_device_conn(c).c_str());
+    if (modbus::conn_is_sim(c)) {
+        std::printf("             ★ 形态是模拟源：本进程连的是**设备替身**，"
+                    "不是现场装置（已登记的真实地址 %s:%d 本次不用）\n",
+                    c.host.c_str(), c.port);
+    }
     // 平台配的 poll_period_ms 是**采样节奏**，本进程的 --dt 是**控制周期** ——
     // 两者语义不同（多久采一次 vs 多久算一次），所以这里只报出来，不拿它改 --dt。
     std::printf("             （平台配的采样节奏 %d ms 仅作参考，控制周期仍由 --dt 决定）\n",

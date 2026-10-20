@@ -42,6 +42,18 @@ rem         scripts\build_all.bat --no-test    skip all */tests builds
 rem ====================================================================
 
 setlocal
+rem  ------------------------------------------------------------------
+rem  ★ 必须先切到 UTF-8 代码页（2026-10-18 自检）：本仓库所有 .bat 都是
+rem    UTF-8，而中文 Windows 的控制台默认 CP936。cmd 的 echo 会把字节按 
+rem    CP936 解码再编码输出，于是 UTF-8 的中文要么变成乱码、要么**直接掉 
+rem    字节**（0x84 变成 '?'，build_all.log 里 B组 就成了 B?），
+rem    更糟的是按字节解析批处理时多字节序列会把行尾的 CR 吃掉， 
+rem    导致下一行的 rem/echo 前缀被吞、整行中文被当命令执行 
+rem    （实测报 '产出?normal' 不是内部或外部命令）。 
+rem    切到 65001 后两边一致：echo 字节透明，子进程（C++/Python 输出的 
+rem    本来就是 UTF-8）也一起对齐，日志从此是干净的 UTF-8。 
+rem  ------------------------------------------------------------------
+chcp 65001 >nul
 set BUILD_TESTS=1
 if /I "%1"=="--no-test" set BUILD_TESTS=0
 
@@ -192,9 +204,9 @@ echo ============================================
 if "%BUILD_TESTS%"=="1" (
     call 10\scripts\build_test.bat || set FAIL=1
     rem  ★ 必须在这里重编演示程序：build_test.bat 只编测试程序，磁盘上的 sim_demo.exe
-    rem    一旦是旧的，新加的开关就会**被静默忽略**。2026-10-17 实测踩到：
+    rem    一旦是旧的，新加的开关就会**被静默忽略**。2026-10-17 实测踩到： 
     rem    旧二进制的 --stress 产出与 normal 一模一样（同为 7 条告警、净收益 574.07），
-    rem    而正确产出是 13 条告警、695.66 元 —— 不报错，只是数据不对。
+    rem    而正确产出是 13 条告警、695.66 元 —— 不报错，只是数据不对。 
     call 10\scripts\build.bat || set FAIL=1
 )
 
@@ -285,8 +297,8 @@ rem  14/ 不是 C/C++ 组件（是平台层后端服务 + SQLite），但同样�
 rem  依赖 10\build 的仿真产物；产物不存在时自检显式 SKIPPED 并以 0 退出。 
 rem  ★ 但 stress 场景不同：14/ 的自检**硬性要求**它在库（SOC / TEMP / TRANSFORMER
 rem    三类告警的唯一来源），缺了直接判红。而 10\build 是 gitignore 的产物，
-rem    干净检出里没有 —— 远端那次"全绿"其实是靠磁盘上残留的旧目录。
-rem    这里补跑一次，实测 0.8 s，让这个前置条件可复现。
+rem    干净检出里没有 —— 远端那次"全绿"其实是靠磁盘上残留的旧目录。 
+rem    这里补跑一次，实测 0.8 s，让这个前置条件可复现。 
 if exist 10\build\sim_demo.exe (
     if not exist 10\build\stress mkdir 10\build\stress
     call 10\build\sim_demo.exe --stress --out 10\build\stress >nul || set FAIL=1

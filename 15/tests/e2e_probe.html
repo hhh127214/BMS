@@ -90,15 +90,15 @@ f.addEventListener('load', async () => {
     say('=== 2. admin 登录 ===');
     const okAdmin = await login('admin', 'admin123');
     say('app_visible=' + okAdmin);
-    say('nav_items=' + d.querySelectorAll('#nav button').length + ' (期望 12)');
+    say('nav_items=' + d.querySelectorAll('#nav button').length + ' (期望 11)');
     say('user=' + ($('#user-name') || {}).textContent + ' / ' + ($('#user-role') || {}).textContent);
     say('footer=' + (($('#foot-left') || {}).textContent || '').slice(0, 60));
 
     /* ---------- 3. 逐页渲染 ---------- */
     say('');
-    say('=== 3. 十二页渲染（admin） ===');
+    say('=== 3. 十一页渲染（admin） ===');
     const PAGES = ['overview', 'realtime', 'curves', 'alarms', 'strategies',
-      'economics', 'report', 'structure', 'wiring', 'sim', 'devices', 'users'];
+      'economics', 'report', 'structure', 'wiring', 'devices', 'users'];
     let badPages = 0, emptyPages = 0;
     for (const id of PAGES) {
       const r = await goto(id);
@@ -110,14 +110,16 @@ f.addEventListener('load', async () => {
     }
     say(`小计：含失败标记 ${badPages} 页，内容过短 ${emptyPages} 页`);
 
-    /* ---------- 4. 场景切换 ---------- */
+    /* ---------- 4. 数据源唯一（v1.5：两个切换器都不该存在） ---------- */
     say('');
-    say('=== 4. 场景切换（故障日） ===');
-    const seg = d.querySelectorAll('#scenario-seg button');
-    seg[1].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
-    await sleep(600);
+    say('=== 4. 数据源唯一 ===');
+    say('engine-seg 存在=' + !!d.getElementById('engine-seg') +
+        '  scenario-seg 存在=' + !!d.getElementById('scenario-seg') + '（都应为 false）');
+    say('mode-seg 按钮数=' + d.querySelectorAll('#mode-seg button').length + '（业务模式，应 > 0）');
     const rf = await goto('overview');
-    say('fault: state/head="' + rf.head + '"');
+    say('页脚=' + (($('#foot-left') || {}).textContent || ''));
+    say('页脚含数据源性质=' + /模型源|现场设备源|历史库/.test(($('#foot-left') || {}).textContent || ''));
+    say('页头徽章=' + (($('#live-badge') || {}).textContent || '(隐藏)'));
 
     /* ---------- 5. viewer 角色隔离 ---------- */
     say('');
@@ -126,7 +128,7 @@ f.addEventListener('load', async () => {
     await logout();
     const okViewer = await login('viewer', 'viewer123');
     say('viewer_login=' + okViewer);
-    say('viewer_nav=' + d.querySelectorAll('#nav button').length + ' (期望 8，无「用户与权限」)');
+    say('viewer_nav=' + d.querySelectorAll('#nav button').length + ' (期望 7，无「用户与权限」)');
     const navIds = Array.from(d.querySelectorAll('#nav button')).map(b => b.dataset.id).join(',');
     say('viewer_menu=' + navIds);
     const ru = await goto('users');

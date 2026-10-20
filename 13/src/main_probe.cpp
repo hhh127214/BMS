@@ -277,10 +277,13 @@ int main(int argc, char** argv) {
                     conn_used_path.c_str(), format_device_conn(sc_conn).c_str());
         return 2;
     } else if (conn_load == ConnLoad::kOk) {
-        if (!port_given)    cfg.port       = static_cast<std::uint16_t>(sc_conn.port);
+        // ★ 目标地址按**形态**取（v1.5）：real → host:port；sim → sim_host:sim_port。
+        //   不能再直接取 sc_conn.host —— 那会让"接模拟源"的设备去连真机地址，
+        //   而现场看到的只是"连不上"，没人会想到是形态没生效。
+        if (!port_given)    cfg.port       = static_cast<std::uint16_t>(conn_target_port(sc_conn));
         if (!unit_given)    cfg.unit_id    = static_cast<std::uint8_t>(sc_conn.unit_id);
         if (!timeout_given) cfg.timeout_ms = sc_conn.timeout_ms;
-        cfg.host           = sc_conn.host;
+        cfg.host           = conn_target_host(sc_conn);
         cfg.auto_reconnect = sc_conn.auto_reconnect;
         std::printf("接入参数   : 约定路径 ← %s\n"
                     "             %s\n",

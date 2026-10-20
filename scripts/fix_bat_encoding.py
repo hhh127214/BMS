@@ -172,10 +172,15 @@ def find_block_path_vars(raw: bytes):
                 name = m.group(1).decode("ascii", "replace").upper()
                 if any(w in name for w in PATHISH_WORDS):
                     hits.append((lineno, m.group(0).decode("ascii", "replace")))
-            # %~dp0 / %~nx0 这类修饰符形式：%~ 后面一定跟路径
-            # （%%~nf 是 for 变量，同样是转义，排除）
-            if re.search(rb"(?<!%)%~", s):
-                hits.append((lineno, "%~..."))
+            # %~dp0 / %~nx0 这类**带修饰符**的才是路径（%%~nf 是 for 变量，转义，排除）。
+            # ★ 原来这里一律按 %~ 报，于是把 13/build_test.bat:170 的 `%~2`
+            #   （子程序位置参数，值是步骤名，不含路径）也报成危险 ——
+            #   `--check` 因此永远返回 1，真正的危险被这条噪声盖住。
+            #   判据：有修饰符（d/f/p/n/x/s/a/t/z）或是 %~0（脚本自身路径）才报。
+            for m in re.finditer(rb"(?<!%)%~([a-zA-Z]*)([0-9*])?", s):
+                mods, arg = m.group(1) or b"", m.group(2) or b""
+                if mods or arg == b"0":
+                    hits.append((lineno, m.group(0).decode("ascii", "replace")))
         if _is_comment(s):
             continue
         if s.endswith(b"("):

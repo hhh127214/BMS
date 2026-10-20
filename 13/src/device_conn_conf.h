@@ -61,6 +61,7 @@ inline int conn_poll_min_ms() { return 10; }
 inline int conn_poll_max_ms() { return 60000; }
 inline int conn_tmo_min_ms()  { return 10; }
 inline int conn_tmo_max_ms()  { return 60000; }
+inline int conn_sim_port_default() { return 1502; }  // 17/ 高保真模拟器默认端口
 
 // =====================================================================
 // 结构
@@ -68,8 +69,15 @@ inline int conn_tmo_max_ms()  { return 60000; }
 struct DeviceConn {
     std::string device_id;                 // 设备号（与 15/ 界面一致）
     std::string protocol = "modbus_tcp";
+    // 对端形态（v1.5）：real = 现场设备；sim = 模拟源（连模拟器）。
+    // ★ 两种形态走的是**同一套主站代码**，差别只在目标地址。所以这里只是
+    //   多一个字段 + 一个 target 取值，不是第二条代码路径 —— 现场调试期
+    //   「PCS 接模拟器、电表接真机」才不会变成两份实现。
+    std::string source_kind = "real";
     std::string host;                      // 设备 IP 或主机名
     int  port            = 502;
+    std::string sim_host = "127.0.0.1";    // source_kind=sim 时实际连的模拟器
+    int  sim_port        = 1502;
     int  unit_id         = 1;              // 从站地址
     int  poll_period_ms  = 100;            // 轮询周期（与控制周期对齐）
     int  timeout_ms      = 1000;           // 单次请求超时
@@ -166,7 +174,8 @@ inline bool valid_host(const std::string& s) {
 // 认识的键（顺序 = 落盘顺序，与 14/ 侧一致）
 inline bool known_key(const std::string& k) {
     static const char* kKeys[] = {
-        "format", "device_id", "protocol", "host", "port", "unit_id",
+        "format", "device_id", "protocol", "source_kind",
+        "host", "port", "unit_id", "sim_host", "sim_port",
         "poll_period_ms", "timeout_ms", "auto_reconnect", "enabled",
         "saved_at", "username",
     };
@@ -175,8 +184,9 @@ inline bool known_key(const std::string& k) {
 }
 
 inline std::string known_keys_text() {
-    return "format/device_id/protocol/host/port/unit_id/poll_period_ms/"
-           "timeout_ms/auto_reconnect/enabled/saved_at/username";
+    return "format/device_id/protocol/source_kind/host/port/unit_id/sim_host/"
+           "sim_port/poll_period_ms/timeout_ms/auto_reconnect/enabled/"
+           "saved_at/username";
 }
 
 }  // namespace conn_detail
@@ -209,8 +219,10 @@ inline ConnLoad load_device_conn_path(const std::string& path, DeviceConn* out,
         return ConnLoad::kInvalid;
     }
 
-    std::string seen[12];
-    std::string seen_val[12];
+    // 容量必须 >= known_key 的键数（现 15）。容量不足时新键会被**静默丢弃**，
+    // 表现为"文件里明明有，程序说缺这个键" —— 这类失败最难查。
+    std::string seen[15];
+    std::string seen_val[15];
     std::size_t seen_n = 0;
 
     char buf[512];
@@ -259,7 +271,7 @@ inline ConnLoad load_device_conn_path(const std::string& path, DeviceConn* out,
             why = "第 " + std::to_string(lineNo) + " 行键「" + k + "」重复出现";
             break;
         }
-        if (seen_n < 12) { seen[seen_n] = k; seen_val[seen_n] = v; ++seen_n; }
+        if (seen_n < 15) { seen[seen_n] = k; seen_val[seen_n] = v; ++seen_n; }
     }
     std::fclose(f);
 
@@ -277,8 +289,11 @@ inline ConnLoad load_device_conn_path(const std::string& path, DeviceConn* out,
     };
 
     // ---- 必填键（与 14/ 侧 REQUIRED 逐条对齐）----
+    // ★ host **不在**必填里（v1.5 起）：它的必填性由 source_kind 决定 ——
+    //   真实源必须有地址，模拟源可以没有。若继续列在这里，接模拟源的文件
+    //   会被判成"缺必填键"，而它其实完全合法（见 14/src/connconf.py 同名数组）。
     static const char* kRequired[] = {
-        "format", "device_id", "protocol", "host", "port", "unit_id",
+        "format", "device_id", "protocol", "port", "unit_id",
         "poll_period_ms", "timeout_ms", "auto_reconnect", "enabled",
     };
     std::string missing;
@@ -324,11 +339,38 @@ inline ConnLoad load_device_conn_path(const std::string& path, DeviceConn* out,
         return ConnLoad::kInvalid;
     }
 
+    // 形态（可选键：v1.2 写出的老文件里没有它，缺省 real —— 那时不可能有人
+    // 配过模拟源，所以这个缺省不是猜）。
+    c.source_kind = get("source_kind", &found);
+    if (c.source_kind.empty()) c.source_kind = "real";
+    if (c.source_kind != "real" && c.source_kind != "sim") {
+        if (report) {
+            *report = "source_kind 只支持 real/sim，实际是「" + c.source_kind + "」";
+        }
+        return ConnLoad::kInvalid;
+    }
+
+    // host 的必填性跟着形态走：真实源必须有地址；模拟源可以不填（调试期常见
+    // 「模拟器已经能跑、真机还没到货」），但填了就必须合法。
     c.host = get("host", &found);
-    if (!conn_detail::valid_host(c.host)) {
+    if (c.source_kind == "real" && c.host.empty()) {
+        if (report) *report = "source_kind=real 但 host 为空 —— 真实源没有地址，连不上";
+        return ConnLoad::kInvalid;
+    }
+    if (!c.host.empty() && !conn_detail::valid_host(c.host)) {
         if (report) {
             *report = "host 应是 IPv4 或主机名（只允许字母数字与 . _ -），实际是「"
                       + c.host + "」";
+        }
+        return ConnLoad::kInvalid;
+    }
+
+    c.sim_host = get("sim_host", &found);
+    if (c.sim_host.empty()) c.sim_host = "127.0.0.1";
+    if (!conn_detail::valid_host(c.sim_host)) {
+        if (report) {
+            *report = "sim_host 应是 IPv4 或主机名（只允许字母数字与 . _ -），实际是「"
+                      + c.sim_host + "」";
         }
         return ConnLoad::kInvalid;
     }
@@ -339,10 +381,16 @@ inline ConnLoad load_device_conn_path(const std::string& path, DeviceConn* out,
         {"unit_id",        conn_unit_min(),  conn_unit_max(),  &c.unit_id,        "从站号(unit_id)"},
         {"poll_period_ms", conn_poll_min_ms(), conn_poll_max_ms(), &c.poll_period_ms, "轮询周期(poll_period_ms)"},
         {"timeout_ms",     conn_tmo_min_ms(), conn_tmo_max_ms(), &c.timeout_ms,    "超时(timeout_ms)"},
+        {"sim_port",       conn_port_min(),   conn_port_max(),   &c.sim_port,       "模拟源端口(sim_port)"},
     };
     for (const Num& n : nums) {
-        if (!conn_detail::parse_int(get(n.key, &found), n.lo, n.hi, n.dst,
-                                    report, n.label)) {
+        std::string raw = get(n.key, &found);
+        // sim_port 是 v1.5 新增的**可选**键（老文件没有）⇒ 缺省填默认端口。
+        // 其余键都在 REQUIRED 里，缺了上面已经拒过了，不会走到这条分支。
+        if (!found && std::string(n.key) == "sim_port") {
+            raw = std::to_string(conn_sim_port_default());
+        }
+        if (!conn_detail::parse_int(raw, n.lo, n.hi, n.dst, report, n.label)) {
             return ConnLoad::kInvalid;
         }
     }
@@ -384,9 +432,29 @@ inline ConnLoad load_device_conn_default(DeviceConn* out, std::string* report,
     return load_device_conn_at(default_point_map_dir(), out, report, used_path);
 }
 
+// =====================================================================
+// 实际连接目标 —— **端侧到底连谁**只在这里算一处
+//
+// 与 14/src/connconf.py 的 target() 同一个判据。为什么必须抽出来：
+//   "界面显示的地址"与"端侧连的地址"只要有两处实现，迟早会分叉，
+//   而分叉的表现是「界面写着 .10、设备连的是 .1，两边都不报错」。
+//   ★ 尤其不能直接取 c.host：接模拟源时 c.host 可能是空的，取了就连不上。
+// =====================================================================
+inline bool conn_is_sim(const DeviceConn& c) { return c.source_kind == "sim"; }
+
+inline std::string conn_target_host(const DeviceConn& c) {
+    return conn_is_sim(c) ? c.sim_host : c.host;
+}
+
+inline int conn_target_port(const DeviceConn& c) {
+    return conn_is_sim(c) ? c.sim_port : c.port;
+}
+
 // 打印用（probe 的 --dump-conn / 现场核对）
 inline std::string format_device_conn(const DeviceConn& c) {
-    return "设备号 " + c.device_id + "  协议 " + c.protocol +
+    return std::string(conn_is_sim(c) ? "形态 模拟源(★ 不是真机)" : "形态 现场设备") +
+           "  对端 " + conn_target_host(c) + ":" + std::to_string(conn_target_port(c)) +
+           "  设备号 " + c.device_id + "  协议 " + c.protocol +
            "  地址 " + c.host + ":" + std::to_string(c.port) +
            "  从站 " + std::to_string(c.unit_id) +
            "  轮询 " + std::to_string(c.poll_period_ms) + "ms" +

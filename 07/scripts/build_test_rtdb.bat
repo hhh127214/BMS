@@ -39,6 +39,22 @@ if errorlevel 1 (
 
 build\test_rtdb_device_io.exe
 set RC=%errorlevel%
+if not "%RC%"=="0" (
+    echo.
+    echo === TESTS FAILED ===
+    endlocal & exit /b %RC%
+)
+
+echo === build and run RT_DB mirror tests (T29~T34) ===
+g++ -std=c++17 -Wall -O2 -I src -I src\rtdb -I vendor\rt_db -I ..\04\src ^
+    tests\test_rtdb_mirror.cpp build\rt_db_api.o build\ems_point_table.o build\ems_rt_db_setup.o ^
+    -o build\test_rtdb_mirror.exe
+if errorlevel 1 (
+    echo [FAIL] test_rtdb_mirror compile failed
+    endlocal & exit /b 1
+)
+build\test_rtdb_mirror.exe
+set RC=%errorlevel%
 
 if %RC% == 0 (
     echo.

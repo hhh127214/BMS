@@ -28,6 +28,14 @@ const path = require('path');
 const ROOT15 = path.resolve(__dirname, '..');
 const ROOT = path.resolve(ROOT15, '..');
 const P14 = path.join(ROOT, '14', 'src', 'api.py');
+// v1.10 新增的进程编排模块：这一段的判据要指向**真正实现它的文件**，
+// 不能只看 api.py —— 否则"断言通过"和"功能存在"是两件事。
+const P14SIMPROC = path.join(ROOT, '14', 'src', 'simproc.py');
+const simprocPy = fs.existsSync(P14SIMPROC) ? read(P14SIMPROC) : '';
+// 平台启动路径：链路进程只有在这里被「认领」一次，面板才不会在重启后说反话。
+const P14SERVER = path.join(ROOT, '14', 'src', 'server.py');
+const serverPy = fs.existsSync(P14SERVER) ? read(P14SERVER) : '';
+
 
 /* ------------------------------ 断言器 ------------------------------ */
 class T {
@@ -125,11 +133,25 @@ const cssRefs = [...indexHtml.matchAll(/<link\s+[^>]*href="([^"]+)"/g)].map(m =>
 t.eq(cssRefs, ['assets/app.css'], '样式表引用正确');
 
 // 离线可用：不允许任何外部主机
+/* ★ XML 命名空间**不是**网络资源：
+   createElementNS('http://www.w3.org/2000/svg', 'svg') 里那个 URL 永远不会被
+   fetch —— 它是"这个元素属于哪一套标签"的标识符，写错只是图形画不出来。
+   把它算成外部引用，等于禁止手写 SVG，而本项目不引图标库（"换一套"的循环
+   箭头就是手写的）。真正的离线风险是 <img src="https://..."> / CDN 链接 /
+   外部字体，那些才是这条判据要拦的。 */
+const XML_NS = new Set(['http://www.w3.org/2000/svg',
+                        'http://www.w3.org/1999/xhtml',
+                        'http://www.w3.org/1999/xlink']);
 const externals = [...(indexHtml + css + apiJs + uiJs + asmJs + pagesJs + appJs)
   .matchAll(/https?:\/\/[^\s"'<>)]+/g)]
   .map(m => m[0])
-  .filter(u => !/127\.0\.0\.1|localhost/.test(u));
+  .filter(u => !/127\.0\.0\.1|localhost/.test(u))
+  .filter(u => !XML_NS.has(u));
 t.eq(externals, [], '无外部资源引用（离线可开）');
+t.ok(/const NS = 'http:\/\/www\.w3\.org\/2000\/svg'/.test(pagesJs)
+     && /createElementNS\(NS,\s*'svg'\)/.test(pagesJs)
+     && !/(src|href)\s*=\s*['"]?https?:/.test(pagesJs),
+     '★ SVG 图标走 createElementNS（h() 用 createElement 进不了 SVG 命名空间）');
 
 t.ok(/lang="zh-CN"/.test(indexHtml), 'html lang 为 zh-CN');
 t.ok(/<meta charset="utf-8">/.test(indexHtml), '声明 utf-8');
@@ -204,13 +226,18 @@ t.head('C 页面与权限一致性');
 
 // MENU 项：{ id: 'overview', ... render: Pages.overview ... }
 // ★ 必须**只在 MENU 数组里**取 id：app.js 里其它结构也有一模一样的
-//   `id: 'xxx', name:` 形状（引擎分段的 run/sim、数据集条目的 live），
+//   `id: 'xxx', name:` 形状（运行模式分段的模式、来源条目的 id），
 //   全文扫会把它们当菜单项抓进来，然后报出一串"缺图标"的假失败。
 const MENU_BLOCK = (appJs.match(/const MENU = \[([\s\S]*?)\n\];/) || ['', ''])[1];
 const menuIds = [...MENU_BLOCK.matchAll(/id:\s*'([a-z]+)',\s*name:/g)].map(m => m[1]);
-t.eq(menuIds.length, 12, '菜单项数 = 12（v1.5 新增「装配视图」「一次接线图」两页）');
+t.eq(menuIds.length, 11, '菜单项数 = 11（产品化后去掉「仿真」页）');
 t.ok(new Set(menuIds).size === menuIds.length, '菜单 id 不重复');
-t.ok(menuIds.includes('sim'), '菜单含「仿真」页');
+/* ★ v1.5 起「仿真」不再是产品功能（离线批量仿真是研发侧的验证手段，
+   不是现场用户要按的按钮）。这条是**反向断言**：入口不许悄悄长回来 ——
+   长回来了也没人会报错，只会在评审时被问"业主为什么要按这个"。 */
+t.ok(!menuIds.includes('sim'), '菜单里没有「仿真」页（离线批量仿真不进产品界面）');
+t.ok(!/Pages\.sim\b/.test(appJs) && !/function sim\(/.test(pagesJs),
+  'app.js / pages.js 都没有仿真页的入口与实现');
 t.ok(menuIds.includes('structure'), '菜单含「装配视图」页');
 t.ok(menuIds.includes('wiring'), '菜单含「一次接线图」页');
 // 两页的 render 必须指向 Pages 里的同名函数（不是占位函数）
@@ -222,7 +249,7 @@ const pagesTail = pagesJs.match(/return \{ ([a-z0-9_,\s]+) \};\s*\}\)\(\);\s*$/m
 const pageKeys = pagesTail
   ? pagesTail[1].split(',').map(s => s.trim()).filter(Boolean)
   : [];
-t.ge(pageKeys.length, 12, 'Pages 导出页面数');
+t.eq(pageKeys.length, 11, 'Pages 导出页面数 = 11（与菜单项数一致）');
 t.eq([...pageKeys].sort(), [...menuIds].sort(), '菜单项与页面函数一一对应');
 
 // 每个菜单 id 有图标
@@ -347,27 +374,38 @@ t.ok(/setUnauthorizedHandler/.test(apiJs) && /setUnauthorizedHandler/.test(appJs
   '登录失效回调已接线');
 t.ok(/scenario: sc/.test(apiJs), '接口统一带 scenario 参数');
 
-// v1.4：默认数据集不再硬编码 —— 由引擎模式决定（run→live，sim→最近成功仿真）。
-// 前端必须：
+// v1.5：数据源收敛成**一个**。前端必须：
 //   ① 允许 scenario 为空（交给后端 resolve_scenario 解析）
-//   ② 从 /api/engine 的 scenario 字段取默认值
-//   ③ 数据集分段按钮按引擎模式动态生成（不再写死在 index.html 里）
+//   ② 唯一来源是 /api/engine 的 scenario 字段
+//   ③ 不提供任何"选数据集 / 切引擎"的入口（选了就分不清是真数据还是演示数据）
 t.ok(!/scenario:\s*'normal'/.test(appJs), '前端不硬编码默认场景 normal');
-t.ok(/engineInfo\.scenario/.test(appJs) || /info\.scenario/.test(appJs),
-  '前端默认数据集取自 /api/engine 的 scenario 字段');
-t.ok(!/data-scenario=/.test(indexHtml), '数据集分段按钮不在 index.html 里写死（动态生成）');
-t.ok(/buildScenarioSeg\(/.test(appJs) && /data-scenario/.test(appJs),
-  '数据集分段按钮由 app.js 动态生成');
-t.ok(/'fault'/.test(appJs), '界面仍提供故障工况数据集（内置 fault）');
-t.ok(/scenarioEntry\(/.test(appJs), '内置 normal/fault 有可读短名');
+t.ok(/const sc = d\.scenario \|\| '';/.test(appJs),
+  '★ 当前数据集唯一取自 /api/engine 的 scenario 字段（没有第二个来源）');
+t.ok(/state\.scenario = sc;/.test(appJs), '解析结果落到 state.scenario 供全站共用');
+t.ok(!/data-scenario=/.test(indexHtml) && !/data-scenario/.test(appJs),
+  '★ 界面上没有数据集切换按钮（产品不提供"换一份演示数据"的入口）');
+t.ok(!/buildScenarioSeg|scenarioEntry|scenarioList/.test(appJs),
+  '数据集选择器的三个函数已随入口一起删除（不留半截实现）');
 
-// 时标口径：86400 s / 8640 拍
-t.ok(/8640/.test(pagesJs + appJs + indexHtml), '界面口径提到 8640 拍');
+// 时标口径：一天 86400 s / 每 10 s 一条 = 8640 个记录点。
+// ★ 时间轴的值域是**采样点下标**，不是秒。旧的「按整段时长铺 864 格、
+//   再由后端取 ≤t 的最后一拍」在数据连续时没问题，但 live 是跨会话累积的
+//   （可能横跨几周、中间大段空白），绝大多数位置会落到断档里、一律回落到
+//   同一拍 —— 拖动有反应、画面不动。这条断言钉的是"每个位置都能取到数"。
 t.ok(/86400/.test(apiPy), '后端时标上界 86400 s');
+t.ok(/max: String\(Math\.max\(0, N - 1\)\), step: '1'/.test(pagesJs),
+  '★ 时间轴值域 = 采样点下标（每个位置都落在数据里真实存在的一拍）');
+t.ok(!/tHi - tLo\) \/ 864\)/.test(pagesJs),
+  '★ 已删除"按整段时长铺 864 格"的旧实现（断档时会产出取不到数的位置）');
+t.ok(/N \? Number\(dayT\[tIdx\]\) : -1/.test(pagesJs),
+  '★ 取不到采样点时发 -1（= 最新一拍），不发 0 —— wall 口径下 0 是 1970 年');
 
-// 平台已打通真机实时（07/ --record → live 场景），但默认仍是离线仿真。
-// 界面上必须如实说明两个来源，不能还写着「尚未接入真机」。
-t.ok(/live/.test(pagesJs) && /07\//.test(pagesJs), '界面明示「仿真 + 现场实录」两个来源');
+// 平台已打通真机实时（07/ --record → live 场景）。
+// 界面上必须如实说明来源，不能还写着「尚未接入真机」，也不能把"模型源"藏起来。
+t.ok(/source_is_model/.test(appJs), '界面读后端给的 source_is_model 标记（不写死"模型源"）');
+// v1.6：页脚报的是「数据源 + 是不是现场装置」，不再用"模型源"这个研发口径的称呼。
+t.ok(/非现场装置/.test(appJs) && /现场设备/.test(appJs),
+  '页脚常驻标注数据源性质（模拟的一定带「非现场装置」，现场的一定写「现场设备」）');
 
 /* =====================================================================
    G 能量流图改版契约（2026-09-28）
@@ -465,80 +503,111 @@ t.ok(/已下发到端侧文件/.test(pagesJs) && /尚未下发到端侧文件/.t
 t.ok(/saveConn:\s*\(id, body\)\s*=>\s*put\(`\/api\/devices\/\$\{encodeURIComponent\(id\)\}\/conn`/.test(apiJs),
      'api.js saveConn 仍是一次 PUT /conn（写库 + 落盘由后端同事务完成）');
 
-/* ---------------- I 引擎双模式（run / sim）的界面契约 ----------------
-   后端把"数据从哪来"做成了平台级状态：
-     engine = run → 实时引擎按墙钟跑，数据边跑边入库，界面要跟着长
-     engine = sim → 离线批量仿真，跑完装成一份数据集，界面看的是静态结果
-   界面这一侧最容易犯的错是"看起来在跑"：静态数据配个会动的绿点，
-   或者反过来，实时数据配一行"最后更新"却不刷新。下面这些断言锁死：
-     ① 两种模式都能切，且切换会重新解析数据集
-     ② 运行模式有实时刷新（定时器 + 离开页面必须清掉）
-     ③ 实时引擎的启停/清空有界面入口，且只让 operator 以上点
-     ④ 仿真页能发起日/周/月并轮询进度，跑完能看结果
-     ⑤ 一切"模型 / 真机"的标注如实，不假装接了真机                     */
-t.head('I 引擎双模式（run / sim）');
+/* ---------------- I 单一数据源 + 采集状态 ----------------
+   ★ v1.5 产品化：界面不再有"引擎双模式"与"数据集切换器"。
+     删它的理由不是"简化界面"，是**语义**：
+       · "运行模式 / 仿真模式"描述的是"这些数字是怎么算出来的"——那是研发要
+         区分的事。现场用户只关心"这是不是我这台站的数、新不新"。
+       · 数据源做成开关，就必然出现"界面显示一切正常、其实看的是三天前的
+         仿真结果"，而且没有任何东西会报错 —— 这正是本项目最忌讳的失效方式。
+     所以：数据源由后端单点决定（/api/engine 的 scenario），界面只负责两件事
+     —— 如实标注来源性质、采集不正常时说清楚。本段同时守住"入口不许长回来"。
+   ==================================================== */
+t.head('I 单一数据源与采集状态');
 
-// ① 顶栏引擎分段器 + 切换后重新解析数据集
-t.ok(/id="engine-seg"/.test(indexHtml), 'index.html 有引擎分段器 #engine-seg');
-t.ok(/engines\.forEach|list\.forEach\(e =>/.test(appJs) && /data-engine/.test(appJs),
-  'app.js 按 /api/engine 的 engines[] 生成引擎按钮');
-t.ok(/state\.scenario = scenarioId \|\| '';\s*\n\s*state\.t = null;\s*\n\s*await loadEngine\(\)/
-     .test(sliceFn(appJs, 'async function switchEngine')),
-  '切引擎模式后重新解析数据集与时刻并重载引擎信息（不沿用旧数据集）');
-t.ok(/await API\.setEngine\(eng\)/.test(appJs), 'app.js 调 POST /api/engine 切换模式');
-t.ok(/function canWrite\(\)/.test(appJs) && /if \(!canWrite\(\)\)/.test(appJs),
-  '引擎切换与会话写操作共用一道角色闸门');
+// ① 两个切换器都拆掉了（反向断言：入口长回来不会有人报错，只会让人分不清数据真假）
+t.ok(!/id="engine-seg"/.test(indexHtml), '★ index.html 无引擎模式分段器 #engine-seg');
+t.ok(!/id="scenario-seg"/.test(indexHtml), '★ index.html 无数据集切换器 #scenario-seg');
+t.ok(!/data-engine/.test(appJs), '★ app.js 不再生成引擎切换按钮');
+t.ok(!/API\.setEngine\(/.test(appJs),
+  '★ 界面不改后端引擎模式 —— 改一次全站就换了一份数据，而用户毫不知情');
+// 顶栏仍保留"运行模式"（峰谷套利 / 削峰填谷 / 辅助服务 / 保电备电）——
+// 那是业务维度、是真功能，不能跟数据源一起删掉。
+t.ok(/id="mode-seg"/.test(indexHtml) && /API\.activateMode\(/.test(appJs),
+  '业务维度的运行模式切换仍在（与数据源无关，不能连带删掉）');
 
-// ② 运行模式自动刷新
+// ② 数据源只有一个解析点
+t.ok(/async function loadDataSource\(\)/.test(appJs),
+  '数据源收成唯一入口 loadDataSource()');
+t.ok(/const sc = d\.scenario \|\| '';/.test(appJs) && /state\.scenario = sc;/.test(appJs),
+  '★ 当前数据集只从 /api/engine 的 scenario 取（后端按采集状态决定，前端不猜）');
+t.ok(/state\.t = null;   \/\/ 换了数据集/.test(appJs),
+  '换数据集时清掉记住的时刻（两份数据的时标口径可能不同，混用会取到空拍）');
+
+// ③ 自动刷新：判据只有"登录着 + 纯展示页"
 t.ok(/const LIVE_PAGES = \[[^\]]*'overview'[^\]]*'realtime'[^\]]*\]/.test(appJs),
-  'app.js 定义运行模式下会自刷的页面白名单');
+  'app.js 定义自动重刷的页面白名单');
 t.ok(/'strategies'/.test(appJs) && !/LIVE_PAGES = \[[^\]]*'strategies'/.test(appJs),
   '策略配置等**有输入**的页面不在自刷白名单里（否则会把正在敲的内容冲掉）');
-t.ok(/setInterval\(liveTick, LIVE_REFRESH_MS\)/.test(appJs), '运行模式挂定时刷新');
+t.ok(/setInterval\(liveTick, LIVE_REFRESH_MS\)/.test(appJs), '挂定时刷新');
 t.ok(/function stopLiveTimer|const stopLiveTimer/.test(appJs) && /clearInterval\(liveTimer\)/.test(appJs),
-  '离开运行模式 / 退出登录会清掉定时器');
+  '退出登录会清掉定时器');
 t.ok(/document\.hidden/.test(appJs), '后台标签页不自刷（省接口）');
 t.ok(/keepScroll/.test(appJs) && /content\.scrollTop = keepTop/.test(appJs),
   '自刷保留滚动位置（否则每 5 秒被弹回页顶）');
+t.ok(/const want = !!state\.user && LIVE_PAGES\.includes\(state\.page\);/.test(appJs),
+  '★ 自刷判据不再看引擎模式（同一页在不同数据源下行为必须一致，否则用户不知道为什么）');
 t.ok(/id="live-badge"/.test(indexHtml) && /live-badge/.test(css),
-  '页头有「实时数据」徽章（含样式）');
-t.ok(/lv-on|lv-warn/.test(css), '实时徽章区分运行中 / 已停写两种状态');
+  '页头有刷新徽章（含样式）');
+t.ok(/lv-on|lv-warn/.test(css), '徽章区分正常 / 采集异常两种状态');
+
+// ★ v1.11：采集停了、"数据停在某一拍"这件事必须由徽章说出来
+//   原来是「每 5 s 自动刷新 · 更新于 <现在>」—— 那个"更新于"是**前端刷新时间**，
+//   关掉采集之后它照样每次刷新都在变，于是"数据已经停了两小时"和"正在实时采"
+//   在界面上长得一模一样（2026-10-19 实测：live 冻结在 01:37:39，概览仍 200 有数）。
+t.ok(/采集已停止/.test(appJs) && /数据停在/.test(appJs),
+  '★ 采集停了就说「采集已停止 · 数据停在 xx」—— 不能继续显示「更新于 <现在>」：'
+  + '那是刷新时间，不是数据时间');
+t.ok(/lv\.imported_at/.test(appJs),
+  '★ 那个"数据时间"取自入库时间（imported_at），不是前端时钟');
+t.ok(/const frozen = run && !unhealthy/.test(appJs)
+     && /lv\.state !== 'running'/.test(appJs) && /lv\.state !== 'starting'/.test(appJs),
+  '★ "停住了"的判据要排除 running 与 starting —— starting 是刚起来还没跑第一拍，'
+  + '把它当成"已停止"会在每次启动时误报一次');
+t.ok(/lv\.state === 'failed' \? '失败' : '中断'/.test(appJs),
+  '★ 失败 / 中断要与"用户主动停止"分开说：一个是去查日志，一个是本来就这样');
 t.ok(/onDispose/.test(appJs) && /disposers\.splice\(0\)/.test(appJs),
   '页面可注册清理函数（换页前统一执行，防止定时器泄漏）');
 
-// ③ 实时引擎的界面入口
-t.ok(/id="engine-banner"/.test(indexHtml), 'index.html 有实时引擎状态条');
-t.ok(/API\.liveStart\(/.test(appJs) && /API\.liveStop\(/.test(appJs) && /API\.liveReset\(/.test(appJs),
-  'app.js 覆盖启停与清空三个动作');
-t.ok(/window\.confirm\(/.test(appJs), '清空实时数据前有二次确认（不可撤销）');
-t.ok(/模型源，不是真实电站/.test(appJs), '状态条如实标注「模型源，不是真实电站」');
-t.ok(/source_is_model/.test(appJs), '前端读后端给的 source_is_model 标记（不写死"模型源"）');
+// ④ 顶部采集状态条已整条删除（v1.9，用户要求）—— 三处都要干净，不留残壳
+t.ok(!/id="engine-banner"/.test(indexHtml),
+  '★ index.html 里没有状态条容器（留着空 div 就会有人又往里塞东西）');
+t.ok(!/renderEngineBanner|LIVE_STATE/.test(appJs),
+  'app.js 不再渲染状态条（renderEngineBanner / LIVE_STATE 一并删除，不留死函数）');
+t.ok(!/\.engine-banner|\.eb-dot|\.eb-err/.test(css),
+  '样式里没有残留（死 CSS 会让后来人以为这块还在用）');
+// ★ 启停从 app.js 搬到设备管理页：其他页面是正式运行页面，不提供采集开关。
+t.ok(!/API\.liveStart\(|API\.liveStop\(|API\.liveReset\(/.test(appJs),
+  '★ app.js（页面外壳）不再直接启停采集 —— 开关只在设备管理页');
+t.ok(/API\.liveStart\(/.test(pagesCode) && /API\.liveStop\(/.test(pagesCode)
+     && /API\.liveReset\(/.test(pagesCode),
+  '设备管理页覆盖启停与清空三个动作');
+t.ok(/window\.confirm\(/.test(pagesCode), '清空实时数据前有二次确认（不可撤销）');
+t.ok(/source_is_model/.test(appJs), '来源性质由后端 source_is_model 决定（不写死"模型源"）');
 
-// ④ 仿真页
-t.ok(/'day', 'week', 'month'\]|kinds/.test(pagesJs), '仿真页时长选项来自后端 kinds');
-t.ok(/API\.simStart\(\{ kind, fault \}\)/.test(pagesJs), '仿真页按 时长 + 工况 发起仿真');
-t.ok(/setInterval\(async \(\) =>/.test(pagesJs), '仿真页在有 running 时轮询进度');
-t.ok(/ctx\.onDispose\(\(\) => \{ if \(timer\)/.test(pagesJs),
-  '仿真页把轮询定时器交给 onDispose（换页即停）');
-t.ok(/API\.simDelete\(/.test(pagesJs) && /删除/.test(pagesJs), '仿真页能删掉一次仿真');
-t.ok(/典型日/.test(pagesJs), '仿真页写明「典型日重复」的诚实边界');
-t.ok(/只发生在第 0 天|故障窗/.test(pagesJs), '仿真页写明故障注入只覆盖第 0 天');
-t.ok(/ctx\.openDataset\(/.test(pagesJs) && /openDataset: async \(/.test(appJs),
-  '「查看结果」走 openDataset（会顺带切到仿真模式，不会出现点了没反应）');
-t.ok(/if \(state\.engine !== 'sim'\) \{\s*\n\s*await switchEngine\('sim', scenarioId\)/.test(appJs),
-  'openDataset 在看仿真结果前先确保引擎在仿真模式（与顶栏、空状态共用 switchEngine）');
+// ⑤ 实时监控页：时间轴仍在，但"播放 / 倍速"这类演示控件已去掉
+t.ok(/跳到最新/.test(pagesJs), '实时监控页有「跳到最新」（产品里没有播放键）');
+t.ok(!/rt-play|SPEEDS|icoPlay/.test(pagesJs), '★ 回放控制台（播放键 / 倍速）已删除');
+t.ok(/API\.realtime\(ctx\.scenario, tt\)/.test(pagesJs),
+  '实时监控仍按时刻取快照（查询能力没丢）');
 
-// ⑤ 数据源插拔 + 不假装接真机
+// ⑥ 数据源插拔 + 不假装接真机（这部分后端能力不变，只是界面不再给入口）
 const enginePy = fs.existsSync(path.join(ROOT, '14', 'src', 'engine.py'))
   ? read(path.join(ROOT, '14', 'src', 'engine.py')) : '';
-t.ok(/"available": False/.test(enginePy),
-  '后端把真机数据源标为不可用（如实告知，不开假入口）');
-t.ok(/"id": "device"/.test(enginePy) && /--device modbus/.test(enginePy),
-  '后端写明接真机的入口与前置条件');
+// v1.6：真机源不再是"不可用"—— 它现在是**只读监视**（--record 不再要求
+// --control），所以敢开。这是本轮把"接入后其他页面就能正常运行"落到实处的地方。
+t.ok(/"id": "sim"/.test(enginePy) && /"id": "real"/.test(enginePy),
+  '后端有两个数据源：sim / real');
+t.ok(/"control": True/.test(enginePy) && /"control": False/.test(enginePy),
+  '★ control 标记决定"下不下发"：替身闭环、真机只读');
+t.ok(enginePy.includes('"--device", "modbus"'),
+  '两个源走同一个采集器（07/ --device modbus）');
 t.ok(/"id": "model"/.test(enginePy) && /sim_live\.exe/.test(enginePy),
-  '后端提供模型源（sim_live.exe）');
-t.ok(/record_csv\.h/.test(enginePy),
-  '后端说明实录契约与 07/ 完全一致（换真机时入库与界面不用改）');
+  '降级路径仍保留模型源（sim_live.exe）');
+t.ok(/同一份实录契约/.test(enginePy),
+  '★ 写明两条路走同一份实录契约（换对端时入库与界面不用改）');
+t.ok(/def default_scenario\(conn\)/.test(enginePy),
+  '后端仍按采集状态决定默认数据集（前端删掉的只是"选择器"，不是这套判断）');
 
 /* =====================================================================
    J 装配视图数据与 CSV 一致（爆炸图 / 一次接线图的共用地基）
@@ -709,24 +778,21 @@ t.ok(/def _where\(use_level: bool, use_source: bool\)/.test(apiPy),
 t.ok(!/status = q1\(query, "status"\)/.test(apiPy),
   '★ 后端不开 status 筛选（库里 status 恒为 active，开放即"恒 0 条"假入口）');
 
-/* ★ 数据集切换器的入口守卫（2026-10-11 撞出来的静默缺口）：
-   scenarioList() 里曾硬编码 ['normal','fault'] 当作"内置场景"名单。
-   新增 stress（异常工况日）后：后端有数据、?scenario=stress 也照常返回 13 条，
-   界面上却**没有对应按钮** —— 用户根本点不到它。
-   这类失效全链路都通、接口也 200，只有"入口被名单挡住"这一处，
-   是最难发现的一档。改成按前缀排除后，这里守的就是"名单不许复活"。 */
-//   ★ 匹配 `['normal','fault'].includes(` 这个**整体**，而不只是那个数组字面量：
-//     修复说明的注释里也会提到旧写法（保留历史是有价值的），只匹配数组会误伤注释。
-//     真正的缺陷特征是"把白名单当 includes 的参数用"，锚定它才既挡得住复活、
-//     又不惩罚写在注释里的前因后果。
-t.ok(!/\['normal',\s*'fault'\]\s*\.includes\(/.test(appJs),
-  '★ 数据集切换器不写死内置场景白名单（新增内置场景要自动出现，不能靠回头改名单）');
-t.ok(/id !== 'live' && !id\.startsWith\('sim-'\)/.test(appJs),
-  '内置场景改为按前缀排除（非 live、非 sim-* 即内置）');
-for (const id of ['normal', 'fault', 'stress']) {
-  t.ok(new RegExp("id === '" + id + "'").test(appJs),
-    '内置场景 ' + id + ' 在切换器上有短名（否则按钮显示原始 id）');
-}
+/* ★ 内置场景白名单：现在不是"要授权"，而是**前端根本不许有**。
+   历史（2026-10-11 撞出来的静默缺口）：scenarioList() 里曾硬编码
+   ['normal','fault'] 当"内置场景"名单；新增 stress 后后端有数据、
+   ?scenario=stress 也照常返回 13 条，界面上却没有对应按钮 —— 用户点不到。
+   全链路都通、接口也 200，只有"入口被名单挡住"这一处，是最难发现的一档。
+
+   v1.5 把选择器整个删掉之后，这类缺口的**根**就不存在了：不再有名单，
+   也就不会漏。所以判据从"名单要写对"升级成"不许有名单" ——
+   这是更强的守卫：任何一个新数据集都不需要再改前端。 */
+t.ok(!/\['normal',\s*'fault'\]/.test(appJs),
+  '★ 前端不再出现内置场景白名单（没有名单就没有"漏配"）');
+t.ok(!/scenarioEntry|scenarioList/.test(appJs),
+  '照名字造按钮的那套函数已删（不留半截实现等人接回去）');
+t.ok(/sch\.name/.test(appJs),
+  '数据集的可读名由后端 scenario.name 提供（前端不维护第二份名字表）');
 
 /* =====================================================================
    [L] 脚本语法守卫 —— 每个 .js 都必须能被解析
@@ -1197,23 +1263,17 @@ t.head('[N] renderPage 静默刷新');
        '★ 空状态不把「加载失败」当作要显示的文字（措辞直接决定用户往哪查）');
   t.ok(/这不是加载失败/.test(nrBody),
        '反过来要**显式**告诉用户「接口是通的、不是坏了」，否则他会继续查接口');
-  t.ok(/switchEngine\('sim'\)/.test(nrBody),
-       '出路①「切到仿真模式」走既有接口，不是新造一套');
-  t.ok(/API\.liveStart\(/.test(nrBody),
-       '出路②「启动实时引擎」走既有接口');
+  t.ok(/location\.hash = '#\/devices'/.test(nrBody)
+       && /去设备管理接入数据源/.test(nrBody),
+       '出路①指向设备管理页 —— 采集的启停只有那一个地方，别在这里再造一个入口');
+  t.ok(!/API\.liveStart\(/.test(nrBody),
+       '★ 空状态里不许直接拉采集：那样"谁把它停的/起的"就查不清了');
   t.ok(/canWrite\(\)/.test(nrBody),
        '出路按钮按角色给（viewer 看不到操作入口）');
-  t.ok(/goPage\('sim'\)/.test(nrBody),
-       '仿真模式下没有数据集时，出路是「去仿真页」而不是原地重试');
-
-  // 切模式必须成套（少一步就出「按钮切过去了、看的还是旧数据集」）
-  const swBody = sliceFn(appJs, 'async function switchEngine');
-  t.ok(swBody.length > 0, '切换引擎模式收成一个入口 switchEngine');
-  t.ok(/state\.scenario = scenarioId \|\| ''/.test(swBody) && /await loadEngine\(\)/.test(swBody),
-       '★ 切模式必须重解析数据集（清空 / 换成指定那份）并重载引擎信息'
-       + '（不清就会「顶栏显示仿真模式、文案还是运行模式那句」）');
-  t.ok((appJs.match(/API\.setEngine\(/g) || []).length === 1,
-       '★ setEngine 全文件只在一处调用（空状态与顶栏共用 —— 各写一遍必然漂移）');
+  t.ok(/重新加载/.test(nrBody),
+       '出路②「重新加载」—— 采集侧补上数据后不必退出重登');
+  t.ok(!/switchEngine|goPage\('sim'\)/.test(nrBody),
+       '★ 空状态里不再有「切到仿真模式 / 去仿真页」的出路（产品界面没有这条路）');
 
   // 登录入口不能在「登录框已隐藏」之后把异常抛回去（那会把用户扔进空白页且无处申诉）
   const enterBody = sliceFn(appJs, 'async function enterApp');
@@ -1228,6 +1288,824 @@ t.head('[N] renderPage 静默刷新');
        '★ 静默刷新 + 已有旧屏 → 保留旧屏（一次抖动不该把数据页打空）');
   t.ok(/else if \(notReady\)/.test(rpBody),
        '★ 其余情形下 404 才画「未就绪」（首屏/主动导航不会永远停在"加载中…"）');
+
+  // ------------------------------------------------------------------
+  t.head('[Q] 两端接入：调度主站接入 / 站内设备接入 × 真实/模拟输入源');
+  // ------------------------------------------------------------------
+  // 这一版新增的语义：设备管理页不再只是「一份 Modbus 参数」，而是**两端**：
+  //   上端（调度侧，EMS 是从站）/ 下端（设备侧，EMS 是主站），
+  //   每一端都可以接真实源，也可以接模拟源。
+  // 守的重点不是"画了这张卡"，而是三件容易退化成摆设的事：
+  //   ① 形态要真的能存、能落盘、端侧读得到（否则就是个装饰性开关）；
+  //   ② 「模拟源」必须被说出来（★ 不是真机），否则联调完切真源会忘；
+  //   ③ 上端状态平台查不到，就不许点绿灯。
+  const schemaSql = fs.existsSync(path.join(ROOT, '14', 'schema.sql'))
+    ? read(path.join(ROOT, '14', 'schema.sql')) : '';
+  const connPy = fs.existsSync(path.join(ROOT, '14', 'src', 'connconf.py'))
+    ? read(path.join(ROOT, '14', 'src', 'connconf.py')) : '';
+  const upPy = fs.existsSync(path.join(ROOT, '14', 'src', 'uplinkconf.py'))
+    ? read(path.join(ROOT, '14', 'src', 'uplinkconf.py')) : '';
+  const conn13 = fs.existsSync(path.join(ROOT, '13', 'src', 'device_conn_conf.h'))
+    ? read(path.join(ROOT, '13', 'src', 'device_conn_conf.h')) : '';
+  const linkP3 = fs.existsSync(path.join(ROOT, 'P3', 'src', 'access_link_conf.h'))
+    ? read(path.join(ROOT, 'P3', 'src', 'access_link_conf.h')) : '';
+
+  t.ok(/re\.compile\(r"\/api\/access"\),\s*h_access,\s*"viewer"/.test(apiPy),
+       '后端有 GET /api/access（接入装配总览，viewer 可读）');
+  t.ok(/re\.compile\(r"\/api\/access\/upstream"\),\s*h_access_upstream_put,\s*"operator"/.test(apiPy),
+       '后端有 PUT /api/access/upstream（改上端 = operator）');
+  t.ok(/CREATE TABLE IF NOT EXISTS upstream_link/.test(schemaSql),
+       '上端链路有独立表 —— 两端参数集没有交集，合用一张表只能靠一堆 NULL 列');
+  t.ok(/source_kind\s+TEXT NOT NULL DEFAULT 'real'/.test(schemaSql),
+       '下端形态落在 device_conn 上（按设备记），且老库补列后默认 real');
+
+  // 形态不是假的：它必须真的决定端侧连谁
+  t.ok(/def target\(/.test(connPy) && /sim_host/.test(connPy),
+       '★ 端侧实际连的地址由 target() 统一算出（real→host / sim→sim_host）');
+  t.ok(/kind == "real" and not host/.test(connPy),
+       '★ host 的必填性跟着形态走 —— 接模拟源时允许没有真实设备地址');
+  t.ok(/active\.upstream/.test(upPy),
+       '上端参数落盘成 active.upstream（与 active.csv / active.conn 同目录）');
+
+  // 端侧真的读得懂，否则平台只是写了一个没人看的文件
+  t.ok(/source_kind/.test(conn13) && /conn_target_host/.test(conn13),
+       '13/ 的接入参数 loader 认形态，并据此给出实际目标地址');
+  t.ok(/active\.upstream/.test(linkP3) && /listen_port/.test(linkP3),
+       'P3/ 的网关读 active.upstream（否则界面上配的 2404 只是个摆设）');
+
+  // 前端：两张卡 + 每台设备的形态
+  t.ok(/accessUpSection\(/.test(pagesCode) && /accessDownSection\(/.test(pagesCode),
+       '设备管理页渲染「调度主站接入 / 站内设备接入」两部分（不用「上端/下端」当标题）');
+  t.ok(/API\.access\(/.test(pagesJs) && /API\.saveUpstream\(/.test(pagesJs),
+       '页面走 /api/access 与 /api/access/upstream，不自己拼数据');
+  t.ok(pagesCode.includes("source_kind: $('#pm-kind').value"),
+       '★ 每台设备的接入卡有形态选择，且真的提交到保存接口');
+  t.ok(/title: '接入形态'/.test(pagesCode),
+       '②点表 有「接入形态」列（v1.8 由台账并入）—— 看不出谁是模拟源的话，等于没记');
+  t.ok(/不是真机/.test(pagesCode),
+       '★ 形态为 sim 时必须明说「不是真机」（联调完忘切回来的代价是真数据被当真）');
+  t.ok(/平台不回采上端连接状态/.test(pagesCode),
+       '★ 上端点不出绿灯：网关不回报连接数，界面上就不许画一个查不到的状态');
+  t.ok(/fails\.length/.test(pagesCode) && /ok}\/\$\{ids\.length\}/.test(pagesCode),
+       '★ 下端批量切换必须报「k/N 台成功」—— 改一半时"看起来全成功"最危险');
+  t.ok(/按设备逐台记/.test(pagesCode),
+       '★ 下端形态按设备记（不是整站一个开关）：调试期常是真机与模拟器混用');
+
+  // 2026-10-18 自检修掉的三处（都是"看起来对、其实在编结论"那一类）
+  t.ok(/LEFT JOIN device_conn/.test(apiPy),
+       '★ 下端汇总以 device 为左表 —— 只数 device_conn 会漏掉"一行都没配"的设备，'
+       + '汇总台数少于台账台数且看不出来');
+  t.ok(/kindBadge\(r\.state \|\| 'unknown'\)/.test(pagesCode) && /state: 'unknown'/.test(pagesCode),
+       '★ 拿不到 /api/access 时清册列给「未知」，不降级成「未配置」（查不到 ≠ 未接）');
+  t.ok(!/binarySeg\(/.test(pagesCode) && !/KIND_OPTS/.test(pagesCode),
+       '★ 没有"二选一分段器"了：形态由两块各自的动作按钮切，不存在一个共用的开关');
+  t.ok(pagesCode.includes('把 ${ids.length} 台设备全部改为模拟输入源')
+       && /window\.confirm\(/.test(pagesCode),
+       '★ 整片切到模拟输入源要二次确认 —— 误触会把整站数据换成替身，而界面看上去一切正常');
+  t.ok(!/\*\*从站\*\*|\*\*主站\*\*/.test(pagesCode),
+       '界面文案里的 **强调** 已清掉 —— card()/toast() 走 text，星号会原样显示');
+
+  /* ------------------------------------------------------------------
+     [R] 输入端只长在设备管理页
+
+     产品口径（2026-10-18，v1.7 修订）：
+       仿真/现场**不是模式**，而是「输入源」—— 设备管理页上的开关。
+       ★ v1.7 把它从"整站一个"改成"两端各一个"：调度主站接入与站内设备
+         接入是两条独立通道，对端可以一头真一头假。
+       其他页面是正式运行页面：有数据就渲染，没数据就指向设备管理。
+       所以这一段的判据不是"有没有仿真功能"，而是**开关只长在一个地方**，
+       且**一端的开关不许动另一端**。
+     ------------------------------------------------------------------ */
+  t.head('[R] 输入端只长在设备管理页，且两端互不相干');
+
+  // ---- 后端：一个开关写穿两端 ----
+  t.ok(backRoutes.includes('/api/data-source'), '后端提供 /api/data-source');
+  t.ok(/def h_data_source\b/.test(apiPy) && /def h_data_source_set\b/.test(apiPy),
+       'GET / POST 两个处理函数都在');
+  t.ok(/if end not in ENDS/.test(apiPy) && /一次只切一端/.test(apiPy),
+       '★ 切输入源必须指明 end，没有"两端一并切"的默认值（那一步会静默换掉整站数据源）');
+  t.ok(/UPDATE device_conn SET source_kind = \?/.test(apiPy),
+       '★ 切下端要写穿到 device_conn 的形态（否则界面切了、端侧还连旧对端）');
+  // 上端必须是 **upsert**。原判据钉的是裸 UPDATE 的文本，实现换成 upsert 就假红；
+  // 而真正要证的是语义：**没有行就插、有行就改 kind**。裸 UPDATE 在空表上影响 0 行、
+  // 读侧 `_link_row()` 又回落成默认 `kind='real'` ⇒ 界面「文件说模拟、上端卡说现场」
+  // （CHANGES §79.5）。所以两个方向写进同一条：要 upsert，且不许退回裸 UPDATE。
+  t.ok(/ON CONFLICT\(link_id\) DO UPDATE SET kind = excluded\.kind/.test(apiPy)
+       && !/UPDATE upstream_link SET kind = \?/.test(apiPy),
+       '★ 切数据源要写穿上端（upsert：空表时也登记上；不许回到「空表上静默空操作」的裸 UPDATE）');
+  t.ok(/_rewrite_conn_for_kind\(/.test(apiPy) && /uplinkconf\.save\(/.test(apiPy),
+       '切换后重写 active.conn / active.upstream —— 端侧读的是文件，不是库');
+  t.ok(/先停止采集再切换数据源/.test(apiPy),
+       '★ 采集中拒绝切换（运行中换对端，采集器还在按旧参数读写）');
+
+  // ---- 后端：采集器只有一个，两边只是参数不同 ----
+  t.ok(/"control": True/.test(enginePy) && /"control": False/.test(enginePy),
+       'sim / real 各有一份 control 标记（替身可闭环、真机只读）');
+  t.ok(/--control/.test(enginePy) && /src\["control"\]/.test(enginePy),
+       '★ 是否下发由数据源决定，不在别处再写一遍 if');
+  t.ok(/modbus_slave\.py/.test(enginePy) && /_wait_tcp\(/.test(enginePy),
+       '模拟数据源会拉起 13/ 设备替身，并以"端口能连上"为就绪判据');
+  t.ok(/_loopback\(/.test(enginePy),
+       '外部替身（非本机地址）不去拉，直接连 —— 不能把别人机器上的模拟器也起一遍');
+  t.ok(/现场设备连不上/.test(enginePy),
+       '★ 现场源先做 TCP 预检，连不上直接给结论（而不是"已启动、然后一直没有数据"）');
+  t.ok(/形态是「模拟源」，与所选的「现场数据源」不一致/.test(enginePy),
+       '★ 数据源与下端形态不一致时拒绝启动，不自动改写接入参数');
+
+  // ---- 前端：卡片在设备管理页 ----
+  // api.js 定义方法，pages.js 才是调用点 —— 两处都要在，不然是"定义了没人用"。
+  t.ok(apiJs.includes("dataSource:") && apiJs.includes("setDataSource:")
+       && pagesCode.includes("API.dataSource("),
+       '前端有数据源读写接口，且设备管理页真的在用');
+  t.ok(/setDataSource:\s*\(end, kind\)/.test(apiJs),
+       '★ 切输入源必须带 end（一次只切一端）—— 不存在"两端一并切"的调用形式');
+  const upBody = sliceFn(pagesCode, 'function accessUpSection');
+  const downBody = sliceFn(pagesCode, 'function accessDownSection');
+  /* ★ v1.14：上端那两份输入（① 接入参数 / ② IOA 转发表）搬进了
+     「接入调度主站」九步向导的第 6 步。所以上端的判据要打这里 ——
+     打 accessUpSection 已经打不到了，那里现在只剩一个入口按钮。 */
+  const wzBody = sliceFn(pagesCode, 'function accessWizard');
+  t.ok(upBody.length > 0 && downBody.length > 0,
+       '两大部分各自是一段完整实现（不是一个函数里按参数分叉）');
+  t.ok(/启动采集/.test(downBody) && /停止采集/.test(downBody)
+       && /清空实时数据/.test(downBody),
+       '★ 采集的启停与清空挂在「站内设备接入」上 —— 采集器只属于下端，'
+       + '放到上端会让人以为停采集就断了调度');
+  t.ok(!/启动采集/.test(upBody), '「调度主站接入」里没有采集启停按钮');
+  // ★ v1.7.x 翻转：原来这里守的是"两部分各有一个「切到模拟」按钮"。
+  //   那两个按钮随「真实/模拟输入源」卡片一起删了 —— 端的形态改由页尾
+  //   「模拟输入源」面板**一次管两端**。守的东西因此反过来：区段里不许
+  //   再出现"只切一端"的入口，否则又会出现"只开了一端、页面说模拟中"。
+  t.ok(!/switchSrcBtn|setDataSource/.test(upBody + downBody),
+       '★ 两端区段里没有"只切一端"的入口 —— 形态只在页尾面板切（一次管两端）');
+  t.ok(/API\.saveConn\(id/.test(downBody),
+       '下端仍按台改 /api/devices/{id}/conn（整片切与逐台编辑都用它）');
+  t.ok(/locked/.test(downBody) && /!canWrite \|\| running/.test(downBody),
+       '★ 采集中下端的切换按钮置灰（而不是点了再看 409）');
+  // ★ v1.11：这句话从下端区段的正文挪进了「启用模拟源」按钮的 title ——
+  //   它是"这一页唯一会骗人的地方"，不能因为撤灰字就一起撤掉。
+  t.ok(/不是现场装置，也不是真机/.test(pagesCode),
+       '模拟输入源必须写明「不是现场装置 / 不是真机」—— 那是这一页唯一会骗人的地方'
+       + '（v1.11 起在「启用模拟源」的 title 上）');
+  t.ok(/mixBanner/.test(pagesCode) && /ds\.mix/.test(pagesCode),
+       '★ 两端形态组合的危险提示由后端算（ds.mix），界面不自己再推一遍');
+
+  // ---- 其他页面：正式运行页面，只有"去设备管理" ----
+  // 状态条删除后，采集告警不能跟着消失：它挪到了设备管理页（启停也在那一页）。
+  t.ok(/采集告警：\$\{col\.error\}/.test(pagesCode),
+       '★ 采集异常在设备管理页里显示 —— 状态条删了，异常不能变成没人知道');
+  t.ok(!/API\.liveStart\(|API\.liveStop\(/.test(appJs),
+       '★ 整个 app.js（页面外壳）不再直接启停采集');
+  t.ok(/data_source_name/.test(appJs),
+       '页脚用数据源名字，而不是"仿真/正式"这种模式名');
+  t.ok(!/'仿真模式'/.test(pagesCode) && !/'仿真模式'/.test(appJs),
+       '★ 正式运行页面不出现「仿真模式」字样');
+
+  /* ------------------------------------------------------------------
+     [S] 每端两份输入：① 接入参数 / ② 点表·转发表（v1.7.x）
+
+     用户看图（两端各两份输入）后问的第一句是「网页里怎么看不出来」。
+     所以这一段的判据不是"有没有这两块"，而是**页面上看不看得出来**：
+       · 每一端内部有两个显式分节（① 接入参数 / ② 点表或转发表），
+         不是一个卡片里字段随便排；
+       · 两份都是**真的**：上端的转发表要能读出 24 上送 + 6 下行，
+         下端的每台要有目标 / 从站 / 节奏 / 点数；
+       · 上端转发表**只读**（真相源在 P3/），下端点表可编辑且能跳转。
+     ------------------------------------------------------------------ */
+  t.head('[S] 每端两份输入：接入参数 + 点表 / 转发表');
+
+  // ① 两个显式分节，两部分各有一份
+  t.ok(/function phase\(/.test(pagesCode), '有 phase() 分节标题助手');
+  t.eq((pagesCode.match(/phase\('①', '接入参数'/g) || []).length, 1,
+       '下端的「① 接入参数」用 phase() 分节（每台一份）');
+  /* 这条不许删：对上端来说「接入参数」和「转发表」仍然是两条独立的事，
+     只是搬到了向导里。判据跟着搬，不是把检查去掉。 */
+  t.ok(wzBody.includes('① 接入参数') && wzBody.includes('② IOA 转发表'),
+       '★ 上端的 ① 接入参数 / ② IOA 转发表 在向导第 6 步（不是消失了）');
+  t.ok(/phase\('②', '点表'/.test(downBody), '★ 下端有「② 点表」小节');
+  t.ok(wzBody.includes('全站唯一一份'), '上端参数写明是「全站唯一一份」');
+  t.ge((downBody.match(/每台一份/g) || []).length, 2,
+       '★ 下端两份都写明「每台一份」（地址参数与点表都是逐台的）');
+
+  // ② 上端第二份：转发表，真的读出来，且只读
+  t.ok(backRoutes.includes('/api/upstream/point-map'),
+       '后端提供 GET /api/upstream/point-map');
+  t.ok(/re\.compile\(r"\/api\/upstream\/point-map"\),\s*h_upstream_point_map,\s*"viewer"/.test(apiPy),
+       '转发表接口 viewer 可读（现场对账不需要操作权限）');
+  // ---- v1.6 起**可以写**：这一段整段翻转 ----
+  //   原来守的是「不许有 PUT」。那个担心（怕出现第二个真相源）是对的，
+  //   处置却错了：正确答案是把真相源**收敛成一个文件**（平台写
+  //   active.pointmap.csv、网关按约定路径读它），而不是让界面永远只读。
+  //   所以下面改成正向判据，并补一条**新的**反向守卫：平台绝不回写
+  //   P3/ 仓库里那份默认底本（那只是随包样例）。
+  t.ok(/h_upstream_point_map_put/.test(apiPy) && /h_upstream_point_map_delete/.test(apiPy),
+       '★ 能写也能恢复：PUT 保存 / DELETE 恢复内置默认（两者必须成对 —— '
+       + '只给写不给删，等于只能往前不能回头）');
+  t.ok(/def h_upstream_point_map_put[\s\S]{0,900}upmapconf\.normalize\(raw_rows\)/.test(apiPy),
+       '★ 保存先过 upmapconf 校验**再**落盘（放端侧去拒 = 人在这儿操作、雷在那头炸）');
+  t.ok(/upmapconf\.save\(rows, now, who\)[\s\S]{0,500}emsdb\.executemany/.test(apiPy),
+       '★ 顺序是 落盘 → 写库，失败整体回滚（不会出现"文件新、库里旧"两个答案）');
+  t.ok(apiJs.includes('upstreamPointMap:') && apiJs.includes("get('/api/upstream/point-map')"),
+       'api.js 走 GET /api/upstream/point-map');
+  t.ok(apiJs.includes('saveUpstreamPointMap:') && apiJs.includes("put('/api/upstream/point-map'")
+       && apiJs.includes('resetUpstreamPointMap:') && apiJs.includes("del('/api/upstream/point-map'"),
+       'api.js 有保存与恢复两个方法');
+  t.ok(/upstreamPointMapCsvUrl/.test(apiJs),
+       'api.js 有 CSV 导出直链（模板 / 当前表两个）');
+  t.ok(/API\.upstreamPointMap\(\)/.test(pagesCode), '页面真的读它（不是写了一段没人看的接口）');
+  t.ok(/API\.saveUpstreamPointMap\(st\.rows\)/.test(pagesCode),
+       '★ 界面真的保存（不是只能看 —— 这正是这一次要补的东西）');
+  t.ok(pagesCode.includes('24 上送 + 6 下行'),
+       '★ 界面上写明口径：24 上送 + 6 下行');
+
+  /* ---- 转发表能**导入 CSV**（调度下发那张表进软件的第一步）----
+     这一段守的不是"按钮在不在"，是那三件容易做错的事：
+       ① **导入 ≠ 提交**：只进编辑区，落盘仍只走「保存转发表」；
+       ② **不抄下端的行数约束**：上端行序无意义（按 IOA 定位），
+          照抄"应为 N 行"就是一条不存在的约束，会把人挡在门外；
+       ③ **解析口径必须与 14/ 的 parse 同**：BOM / # 注释 / ioa 表头 /
+          note 含逗号 / 空列补默认，一条都不能自己发明 —— 前端比后端
+          宽容或严格，都会变成「界面导进来 30 行、点保存被拒在第 7 行」。
+     最后几条是**真跑**那个函数（切出来 new Function），不是扫文本。 */
+  t.ok(pagesCode.includes('导入 CSV'), '★ 上端转发表有「导入 CSV」按钮');
+  t.ok(/fileInput\.click\(\)/.test(pagesCode)
+       && /head, tool, fileInput, editorHost/.test(pagesCode),
+       '★ fileInput 真挂进 DOM（不挂上去，点按钮时灵时不灵）');
+  {
+    const m = pagesCode.match(/function importCsv\(file\)\s*\{[\s\S]*?\n    \}\n/);
+    const body = m ? m[0] : '';
+    t.ok(body.length > 300, 'importCsv 函数体抓到（判据要打在真正的实现上）');
+    t.ok(!/API\.saveUpstreamPointMap/.test(body),
+         '★ 导入不落盘（函数体里没有保存调用 —— 导入是编辑动作，不是提交）');
+    t.ok(/dirtyPM\(\)/.test(body),
+         '★ 覆盖编辑区前先问 dirtyPM（只有真有未保存改动才确认，不是每次都弹）');
+    t.ok(!/names\.length|行序即索引/.test(body),
+         '★ 不抄下端的「行数必须相等」——上端行序无意义，多一行少一行都合法');
+  }
+  {
+    const a = pagesCode.indexOf('const UP_KINDS = [');
+    const b = pagesCode.indexOf('function upPmEditor(canWrite, hook) {');
+    let parseCsv = null;
+    if (a >= 0 && b > a) {
+      try { parseCsv = new Function(pagesCode.slice(a, b) + '\nreturn upPmParseCsv;')(); }
+      catch (e) { parseCsv = null; }
+    }
+    t.ok(typeof parseCsv === 'function',
+         '★ upPmParseCsv 能独立执行（切出来那段不依赖页面其它东西，否则没法验它）');
+    if (typeof parseCsv === 'function') {
+      const one = parseCsv('\ufeff# 说明\nioa,kind,group,name,src,scale,offset,unit,note\n'
+        + '4004,MEAS_FLOAT,1,关口功率,MEAS.P_GRID,1,0,kW,购电为正,倒送为负\n');
+      t.eq(one.rows.length, 1, '解析：剥 BOM + 跳 # 注释 + 跳 ioa 表头后 1 行');
+      t.eq(one.rows[0].note, '购电为正,倒送为负',
+           '★ note 可含逗号（取最后一段）—— 与 14/src/upmapconf.parse 同口径');
+      t.eq(one.filled, 0, '九列填全的行不补默认值');
+
+      const blank = parseCsv('4004,MEAS_FLOAT,,关口功率,,,,kW,\n');
+      t.eq([blank.rows[0].group, blank.rows[0].scale, blank.rows[0].offset], ['1', '1', '0'],
+           '★ 空分组/系数/偏置补 1/1/0 —— 后端 _as_int/_as_float 对空串是**报错**，'
+           + '不走默认值；不补就成了「导进来 30 行、点保存被拒在第 1 行」');
+      t.eq(blank.filled, 1, '补过默认值的行数要统计（必须能告诉用户，不能静默改数据）');
+
+      const down = parseCsv('5001,CMD_SINGLE,,PCS 启停,,1,0,,\n');
+      t.eq(down.rows[0].group, '0', '★ 下行点空分组补 0（与内置默认表一致：下行 group=0）');
+
+      const short = parseCsv('4001,MEAS_FLOAT,1,负荷\n'
+        + '4002,MEAS_FLOAT,1,光伏,MEAS.P_PV,1,0,kW,\n');
+      t.eq([short.rows.length, short.errors.length, short.errors[0].line], [1, 1, 1],
+           '★ 列数不足的行跳过、但**记下行号**（静默丢行 = 「导进来 24 行、实际 30 行」）');
+
+      const def = parseCsv(read(path.join(ROOT, 'P3', 'data', 'point_map_default.csv')));
+      const upN = def.rows.filter(r =>
+        /^(MEAS_|SINGLE_POINT|DOUBLE_POINT|COUNTER)/.test(r.kind)).length;
+      t.eq([def.rows.length, def.errors.length, def.filled], [30, 0, 0],
+           '★ 内置默认表整表能导回来：30 行 / 0 错 / 0 补默认');
+      t.eq([upN, def.rows.length - upN], [24, 6], '导回来仍是 上送 24 / 下行 6');
+    }
+  }
+  t.ok(pagesCode.includes('--point-map') && pagesCode.includes('编辑转发表'),
+       '★ 既讲清网关的加载顺序（--point-map → 约定路径 → 内置默认表），'
+       + '也给出现场能动手的入口 —— 只说"改 CSV"等于让人对着命令行想办法');
+  t.ok(/r\.direction === 'down' \? '下行' : '上送'/.test(pagesCode),
+       '转发表逐行标方向 —— 30 行里 6 行是下行，不标等于让人自己数 IOA 区间');
+  t.ok(/不会热更新/.test(pagesCode) || /重启/.test(pagesCode),
+       '★ 明说"改完要重启网关才生效"（不然人会以为存完就生效了）');
+  t.ok(!/open\(UPLINK_PM_CSV[\s\S]{0,20}['"]w/.test(apiPy),
+       '★ 新的反向守卫：平台不写 P3/ 仓库里的默认底本（被回写后，下一次'
+       + '拿它当基准对照就失效了）');
+
+  // ③ 下端两份：每台的地址参数 + 点表，都从 /api/access 来
+  t.ok(/poll_period_ms/.test(downBody), '★ 每台接入参数表带轮询周期');
+  t.ok(/r\.target/.test(downBody), '★ 目标列取 target（端侧实际连的地址），不是把两栏都列一遍');
+  t.ok(/point_rows/.test(downBody), '★ 每台点表表带点数');
+  t.ok(/point_rows/.test(apiPy) && /poll_period_ms/.test(apiPy),
+       '后端 /api/access 的 items 真的带这两个字段');
+  t.ok(/未配置 · 回落内置默认表/.test(downBody),
+       '★ 0 点要说「回落内置默认表」—— 不说的话，人会以为这台没在采');
+  t.ok(/\(id\) => \{ if \(id\) access\.select\(id\); else editorModal\.open\(\); \}/.test(pagesCode),
+       '★ 表里的「编辑」选中那一台；空库时那个「新增第一台设备」直接开弹层');
+  t.ok(/return \{ node: shell, load, select,/.test(pagesCode),
+       'pointAccess 暴露 select（选中与渲染只有它一个所有者）');
+  t.ok(/setTitle\(`逐台编辑 · \$\{id \|\| '未选中'\}\`\)/.test(pagesCode),
+       '★ 弹层页头写出「正在改哪一台」（最晚也得在点开那一刻知道改的是谁）');
+  t.ok(/shell\.appendChild\(root\)/.test(pagesCode) && !/card\(null, null, root\)/.test(pagesCode),
+       '★ 编辑器不再套一层白卡外壳：弹层本身就是一张页，'
+       + '白盒子套白盒子看不出哪一层是内容');
+  t.ok(!/card\(`逐台编辑/.test(pagesCode),
+       '★ 编辑器卡片自己没有标题：设备号只在弹层页头出现一次，'
+       + '两处都写会让人不知道该看哪个、改的是不是同一台');
+  t.ok(/if \(HK\.onOpen\) HK\.onOpen\(\);/.test(pagesCode),
+       '★ 点「编辑」打开弹层（原来是滚到页面末尾 —— 滚过去还得自己在长页面里找）');
+
+  /* ------------------------------------------------------------------
+     2026-10-18 第三次改这一页：台账**不是删掉，是并进 ②点表**。
+       之前：清册（有哪些设备）单独一张卡在最下面，与 ②点表（读哪些寄存器）
+       隔着两屏。判断"这台的点表该不该改"要看"这台是什么型号、有没有在采"，
+       两处分开就只能靠设备号在脑子里对。
+     ★ 判据不是"台账没了"，而是：
+       · 清册八列真的在 ②点表 那张表里，且排在「点数 / 状态 / 编辑」之前；
+       · 逐台编辑不在页面上铺开（9 列 × 32 行会把整页撑成一条缝），
+         改成**跟页面一样大**的弹层，点「编辑」打开、Esc 或「关闭」返回；
+       · 弹层按 key 复用 —— 页面来回切不会每切一次往 body 上多挂一层。
+     ------------------------------------------------------------------ */
+  t.head('[T] 台账并入 ②点表 + 逐台编辑改成全页弹层');
+
+  const devBody = sliceFn(pagesCode, 'async function devices');
+
+  // ① 台账并进去了（判据是"八列在点表里"，不只是"卡片没了"）
+  t.ok(!/card\('台账'/.test(pagesCode), '台账不再单独占一张卡');
+  t.ok(/const LEDGER_COLS = \[/.test(downBody), '★ 清册八列集中定义（列单一处，不在两处各写一遍）');
+  ['设备号', '类型', '接入形态', '额定功率', '额定容量', '状态', '当前功率', '说明']
+    .forEach(c => t.ok(downBody.includes(`title: '${c}'`),
+                       `★ ②点表 带清册列「${c}」`));
+  const pmSeg = downBody.slice(downBody.indexOf('const pmTable'));
+  t.ok(pmSeg.indexOf("title: '说明'") < pmSeg.indexOf("title: '点数'")
+       && pmSeg.indexOf("title: '点数'") < pmSeg.indexOf("title: '动作'"),
+       '★ 列序是 清册八列 → 点数 → 点表状态 → 编辑（先知道"是什么"才知道"该不该改"）');
+  t.ok(/rt\[r\.device_id\]/.test(downBody) && /rtPower/.test(downBody),
+       '★ 当前功率跟着一起并进去（清册与点表合一，功率才跟得上）');
+  t.ok(/accItems\.length \? accItems/.test(downBody),
+       '★ acc 缺失时用设备清册兜底 —— 点表空着等于"整页没设备"，那是编结论');
+
+  // ② 逐台编辑在弹层里，不在页面上
+  t.ok(/srcHost,\s*\n\s*card\('点表口径'/.test(pagesCode),
+       '★ 页面只留两路输入源 + 点表口径（逐台编辑不在页面上铺开）');
+  t.ok(/editorModal\.body\.appendChild\(access\.node\)/.test(pagesCode),
+       '★ 编辑器真的住进弹层（不是页面上留一份、弹层里再复制一份）');
+
+  // ③ 弹层与页面一样大 —— 32 行 × 9 列的点表塞进小窗等于在邮票上看表格
+  t.ok(/function modal\(opts\)/.test(uiCode), '有 modal() 全页弹层助手');
+  t.ok(/position: fixed; inset: 0/.test(css), '★ 弹层跟页面一样大（铺满视口，不是居中小窗）');
+  t.ok(/\.mdl-body \{ flex: 1; overflow-y: auto;/.test(css),
+       '★ 弹层内部自己滚（内容比一屏高时不顶死、也不撑长背后的页面）');
+  t.ok(/body\.mdl-open \{ overflow: hidden/.test(css),
+       '弹层开着时背后的页面不跟着滚（否则关掉之后位置不对）');
+  t.ok(/z-index: 90/.test(css) && /right: 22px; bottom: 22px; z-index: 999/.test(css),
+       '★ 弹层 z-index 低于 toast：保存成功的提示必须浮在弹层之上，'
+       + '不然点完「保存点表」看不到反馈，会以为没存上');
+
+  // ④ 开与关都要有，且弹层不会一页一挂
+  t.ok(/text: '关闭'/.test(uiCode), '★ 有关闭按钮（不依赖键盘，鼠标也能出去）');
+  t.ok(/e\.key === 'Escape'/.test(uiCode), '★ Esc 可关');
+  t.ok(/mdl-' \+ o\.key/.test(uiCode) && /key: 'dev-editor'/.test(devBody),
+       '★ 弹层按 key 复用 —— 页面来回切不会每切一次往 body 上多挂一层');
+  t.ok(/body\.scrollTop = 0/.test(uiCode), '每次打开都从头看（别停在上一次滚到的地方）');
+  t.ok(/ctx\.onDispose\(\(\) => editorModal\.close\(\)\)/.test(pagesCode),
+       '★ 换页时把弹层收起来 —— 它挂在 body 上、不在 #content 里，'
+       + '不显式关就会盖在新页面上，看着像"点菜单没反应"');
+
+  // ⑤ 空库不是死路：0 台设备时两条入口都要通
+  const paBody = sliceFn(pagesCode, 'function pointAccess');
+  t.ok(paBody.indexOf('const newCtl') > 0
+       && paBody.indexOf('const newCtl') < paBody.indexOf('if (!st.id)'),
+       '★ 新增三件套建在 st.id 判空**之前** —— 否则空库时弹层里只剩一句'
+       + '「请先新增一台」，而页面上又没有行可点，第一台设备永远建不出来');
+  t.ok(/text: '新增第一台设备'/.test(downBody),
+       '★ ②点表 是空表时留了新增入口（0 台设备时这一页没有任何「编辑」可点）');
+  t.ok(/else editorModal\.open\(\)/.test(pagesCode),
+       '★ 那个入口直接开弹层（不是把空 id 丢给 select 然后什么都不发生）');
+
+  // =================================================================
+  t.head('[U] 模拟输入源：页尾一个面板管两端 · 一键填好 · 一键换一套 · 关掉不留痕');
+  // =================================================================
+  /* ★ 这一段守的是"界面上那四个动作真的存在，且各自只用自己的那条接口"：
+
+       启用 / 关闭  →  POST /api/sim-source {enable}      ← **一次管两端**
+       换一套       →  POST /api/sim-source {rotate}      ← 只换数据，不换形态
+       整片切       →  PUT  /api/devices/{id}/conn        ← 按台调，另一个粒度
+       逐台切一端   →  POST /api/data-source {end, kind}
+
+     四个动作分属三个接口，是因为它们的**粒度不同**，不是随手拆的：
+     "下端模拟 + 上端真实"是最危险的一种组合（替身数据被当现场值上送），
+     所以**进模拟必须一次点两端**；而"PCS 接真机、电表先接模拟器"是调试常态，
+     所以按台调的口子要留着。
+  */
+  const simBody = sliceFn(pagesCode, 'function simSourcePanel');
+  const apiSim = /simSource:\s*\(\)\s*=>\s*get\('\/api\/sim-source'\)/.test(apiJs);
+  const apiSetSim = /setSimSource:\s*\(body\)\s*=>\s*post\('\/api\/sim-source'/.test(apiJs);
+  t.ok(apiSim && apiSetSim, '★ api.js 有 simSource / setSimSource 两个方法'
+       + '（与 setDataSource 分工不同：那个按端调，这个一键管两端）');
+  t.ok(simBody.length > 0, '页尾「模拟输入源」是一段独立实现');
+  // 两个按钮都走同一个 act() → API.setSimSource(body)，只是 body 不同。
+  // 这样"点了哪个按钮"与"发了什么请求"只在一处对应，不会各写一遍。
+  t.ok(/API\.setSimSource\(body\)/.test(simBody),
+       '★ 启用 / 关闭 / 换一套 都收在 act() 里的一个 setSimSource(body)');
+  t.ok(/act\(\{ enable: !on \}\)/.test(simBody),
+       '★ 启用 / 关闭发 {enable}（一个开关管两端）');
+  t.ok(/act\(\{ rotate: true \}\)/.test(simBody),
+       '★ 换一套发 {rotate: true}（不是把 enable 再发一遍）');
+  t.ok(!/API\.setDataSource/.test(simBody),
+       '★ 面板里没有 setDataSource —— 它一次只切一端，混进来就会出现'
+       + '「只开了一端、页尾却说模拟中」');
+
+  // ⑥ 在飞期间不许再点（2026-10-19 体检：一次「启用」落了 5 条相同审计）
+  //    拿掉这几条守卫，"用户看没反应就连点"会重新变成 5 次配置写入 + 5 条审计。
+  t.ok(/let busy = false;/.test(simBody) && /if \(busy\) return;/.test(simBody),
+       '★ act() 开头有 busy 闸门 —— 连点直接吞掉，不再发第二条请求');
+  const iAct = simBody.indexOf('async function act');
+  const iDisable = simBody.indexOf('b.disabled = true', iAct);
+  const iReq = simBody.indexOf('API.simProc(body)', iAct);
+  const iSet = simBody.indexOf('API.setSimSource(body)', iAct);
+  t.ok(iAct >= 0 && iDisable > iAct && iDisable < Math.min(iReq, iSet),
+       '★ 先禁用按钮、再发请求（顺序反了等于没防住：请求已经出去了才禁用）');
+  /* ★ 判据对准**行为**，不锁代码形状（2026-10-19 改过一次才明白）：
+     原来写的是正则 `btns.forEach(b => { b.disabled = !canWrite; })`，
+     finally 里一改成多行（顺带把 toggle 文案恢复）它就误报。
+     要证的只有一件事：**恢复时 disabled 取决于角色，而不是一律放开**。 */
+  const iFin = simBody.indexOf('} finally {', iAct);
+  const finBody = iFin >= 0 ? simBody.slice(iFin, iFin + 700) : '';
+  t.ok(/b\.disabled = !canWrite;/.test(finBody) && !/b\.disabled = false/.test(finBody),
+       '★ 结束后按角色恢复 —— 恢复成"全部可点"等于把 viewer 也放开了');
+
+  /* ⑦ 点击后必须立刻有反馈（2026-10-19 现场反馈："点了没反应"）
+     ★ 两个坑各自都有独立判据，少一条就会漏：
+        ① 只改按钮文字、没有进度条 —— 面板在页尾，用户视线不在按钮上；
+        ② **节点建好了却没插进 DOM** —— 本版第一次实现就踩了这个：
+           `.sim-prog` 只 new 出来、没 insertBefore，DOM 里 progCount=0，
+           屏幕上什么都没有，而代码看起来"全都写了"。 */
+  const iProgCall = simBody.indexOf('progShow(msg);', iAct);   // 带分号：否则会命中 progShow 的定义
+  t.ok(iProgCall > iAct && iProgCall < Math.min(iReq, iSet),
+       '★ 请求发出**之前**就挂进度条 —— 等到返回再显示等于没有反馈');
+  t.ok(/host\.insertBefore\(progEl/.test(simBody),
+       '★ 进度条必须真的插进 DOM（只创建不插入 = progCount 0，屏幕上看不见）');
+  t.ok(/dataset: \{ role: 'toggle' \}/.test(simBody)
+       && /b\.dataset\.role === 'toggle'/.test(simBody),
+       '★ 在飞期间按钮文字变「正在…」，且只改 toggle 那一颗（另两颗是名词）');
+  t.ok(/class: 'sim-state ' \+ sCls/.test(simBody)
+       && /is-bad/.test(simBody) && /is-warn/.test(simBody) && /is-ok/.test(simBody),
+       '★ 状态行四态齐全 —— 只有"好"和"坏"会把「链路在跑但采集器没起」说成好');
+  t.ok(/采集器未运行|COLL_TXT/.test(simBody) && /coll\.state/.test(simBody),
+       '★ 状态行必须报采集器状态 —— 9/9 全绿但采集器没起时，页面是不动的');
+  t.ok(/SIM_RETRY_N/.test(simBody) && /setTimeout\(\(\) => \{ SIM_RETRY = null; load\(\); \}/.test(simBody),
+       '★ 过渡态补刷：重启刚返回时报 stopped，几秒后要自己再看一眼（有次数上限）');
+
+  // ★ 2026-10-19 实测：模拟源明明启用着、链路 8/9，数据却越等越旧。
+  //   后端 error 里写着「OperationalError: attempt to write a readonly database」，
+  //   界面上一个字没提 —— 用户只读到「点了没反应」。
+  //   「采集器失败」是结论，**原因**才是能动手修的东西。
+  t.ok(/coll\.error/.test(simBody) && /cerr/.test(simBody),
+       '★ 状态行必须把后端给的失败原因带出来 —— 只写「采集器失败」等于没说');
+  const iNotOk = simBody.indexOf('} else if (!cOk) {');
+  t.ok(iNotOk > 0 && /coll\.error/.test(simBody.slice(iNotOk, iNotOk + 700)),
+       '★ 原因要挂在「采集器没在采」那个分支里（正常态不需要解释）');
+  t.ok(/cstate === 'failed'\) \? 'is-bad' : 'is-warn'/.test(simBody),
+       '★ failed 与 stale 要分色：写库彻底断是红的，还在重试是黄的');
+  t.ok(/stale:\s*'数据已停止更新'/.test(simBody),
+       '★ stale 文案写「数据已停止更新」—— 写「采集器在采」会和「写库失败」自相矛盾');
+
+  /* ⑧ §92b：后端改成"收下就算"（HTTP 202）之后，前端必须**跟到 job 说完了**为止。
+     ★ 为什么单列：拿第一帧返回就画面板，会出现"进度条刚收、下面写着还在拉起"
+       —— 那比"点了没反应"更伤：界面在明明白白地说一件假的事。
+       反过来，无限轮询也不行：真卡住时"到底好了没有"就永远悬着。 */
+  t.ok(/v\.chain && v\.chain\.job/.test(simBody),
+       '★ POST 202 只是"收下了" —— 必须盯着 chain.job，不能直接拿首帧收尾');
+  t.ok(/const JOB_WAIT_MS = \d+/.test(simBody) && /Date\.now\(\) < deadline/.test(simBody),
+       '★ 轮询要有**上限** —— 到点就如实说"还在办"，不许一直转下去');
+  t.ok(/jf && jf\.ok === false/.test(simBody),
+       '★ job.ok === false 才算办砸 —— 后台跑失败了，界面不许报「已切换」');
+  /* ★ 这条不能靠注释里的字眼（pagesCode 是**剥过注释**的），要对准行为：
+       轮询那次 GET 的 catch 里不许出现 throw / break / 报错 ----
+       一旦有，就是"一次没回应就把整件事判失败"，而后端此刻多半正在起进程。 */
+  const iPollTry = simBody.indexOf('API.simSource()', iAct);
+  const iPollCatch = iPollTry > 0 ? simBody.indexOf('catch', iPollTry) : -1;
+  const pollCatch = iPollCatch > 0 ? simBody.slice(iPollCatch, iPollCatch + 160) : '';
+  t.ok(iPollCatch > iPollTry && /catch/.test(pollCatch)
+       && !/throw|break|toast|progHide/.test(pollCatch),
+       '★ 轮询中一次 GET 没回应不算失败（后端正在起进程），留着上一次继续等');
+
+  // ① 面板必须在页尾：它管的是**整页的状态**，放在两端各自的块里，
+  //    人会以为可以只开一端。
+  const dvBody = sliceFn(pagesCode, 'async function devices');
+  t.ok(/simPanel,\s*\n\s*\]\)/.test(dvBody),
+       '★ 面板挂在设备管理页的**最后一张卡**（上面四块表都在它之前）');
+  t.ok(dvBody.indexOf('const simPanel = simSourcePanel') >
+       dvBody.indexOf('await redrawAll();'),
+       '★ 面板在两端区段渲染完之后才建（它读的是两端重画后的状态）');
+
+  // ② 两端区段里**不再**各自带一个「模拟输入源」块
+  const upBody2 = sliceFn(pagesCode, 'function accessUpSection');
+  const dnBody2 = sliceFn(pagesCode, 'function accessDownSection');
+  const wzBody2 = sliceFn(pagesCode, 'function accessWizard');
+  t.ok(!/simBlk/.test(upBody2) && !/simBlk/.test(dnBody2),
+       '★ 两端区段里没有各自的「模拟输入源」块（一个面板管两端）');
+  t.ok(!/switchSrcBtn|sourceBlock/.test(pagesCode),
+       '★ 「真实/模拟输入源」并列卡片连同它们的两个助手函数一起删干净了'
+       + '（留着不调用就是两个假入口，下一个人会去找它为什么没显示）');
+  // ★ 扫**剥注释后**的 CSS：app.css 里保留了一段说明"这些类已删"的注释，
+  //   不剥注释就会把说明文字当成仍然存在规则。
+  const cssCode = stripComments(css);
+  t.ok(!/\.src-(blk|hd|t|row)\b/.test(cssCode) && !/\.g-2\s*\{/.test(cssCode),
+       '★ 对应的 CSS（.src-blk / .src-hd / .src-row / .g-2）也删了');
+
+  // ③ 模拟值填在**原来的表里**，并在原位可改（用户选的是"能改，改的是模拟值"）
+  /* 上端这块搬进向导后，局部字段助手叫 fld（原来叫 field）——
+     判据跟着改到实现上，而不是把这条删掉。 */
+  t.ok(/fld\('模拟主站地址（模拟源时生效）', simHost\)/.test(wzBody2),
+       '★ 上端的模拟主站地址并入 ① 接入参数（会自动填好，也能手改）');
+  t.ok(/field\('替身地址（模拟源时生效）', simHost\)/.test(dnBody2)
+       && /field\('替身端口（模拟源时生效）', simPort\)/.test(dnBody2),
+       '★ 下端的替身地址 / 端口并入 ① 接入参数（会自动填好，也能手改）');
+  t.ok(/改的是模拟值/.test(wzBody2) || /改的是模拟值/.test(simBody),
+       '★ 面板上写明「改的是模拟值」，不是改真实地址');
+
+  // ④ v1.11：模拟态**不收在面板之外** —— 上面的表不再换配色
+  //   原来是给 srcHost 贴 .sim-mode，让上端 ①② / 下端 ①② 四张卡整体变紫。
+  //   撤它的理由见 app.css 里那段注释：那两张表回答的是"打给谁、问什么"，
+  //   不是"数从哪来"；一个页尾开关的状态画上去，人反而分不清
+  //   「这一列是模拟值」和「整张表都在模拟」。
+  //   这里守的是**别再长回来**：类名、帮手函数、CSS 规则一个都不许留。
+  t.ok(!/sim-mode/.test(pagesCode),
+       '★ pages.js 不再给上面的表贴 .sim-mode（模拟态只由页尾面板表达）');
+  t.ok(!/applySimTint|setSimOn/.test(pagesCode),
+       '★ 配色开关与两个帮手函数一起删干净 —— 留着不调用就是假入口，'
+       + '下一个人会去找它为什么没生效');
+  t.ok(!/\.sim-mode/.test(cssCode),
+       '★ CSS 里 .sim-mode 的规则也删了（只删 JS 会留下一段没人用的紫底样式）');
+
+  // ⑤ 「关掉不留痕」这个承诺不能丢，但也不必常驻 —— 它挂在按钮 title 上
+  t.ok(/不会被清零/.test(simBody),
+       '★ 真实值不会被清零这句话仍在（收进「启用/关闭」按钮的 title，悬停可见）');
+  t.ok(/sim_host/.test(simBody) && /sim_port/.test(simBody)
+       && /master_host/.test(simBody),
+       '★ 仍写明模拟只改哪几列（下端 sim_host / sim_port + 上端 master_host）'
+       + ' —— 写成中文"模拟那一列"只有写代码的人看得懂');
+  // ⑤b v1.11：正文只留状态，不留常驻解释
+  //   ★ 判据要对着 simBody（面板那一段），不是整份 pages.js ——
+  //     别的卡片里还有 pm-note，那是别处的说明，不该被这条算进来。
+  t.ok(!/class: 'pm-note'/.test(simBody),
+       '★ 模拟面板正文没有常驻解释段（原来那四段灰字全收进按钮 title）：'
+       + '每天看四遍的解释活不过两天就只剩一片灰，'
+       + '真出事时反而找不到那句要紧的红字告警');
+  t.ok(/不是现场装置，也不是真机/.test(simBody)
+       && /当实测值/.test(simBody),
+       '★ 「不是现场装置 / 不是真机」仍在页面上（在「启用模拟源」的 title 里，'
+       + '连带"把编的数当实测值"那句风险提示）—— 撤灰字时不能连它一起撤');
+
+  // ⑥ 「已停用」与「未配置」不塌成同一个状态（后端 2026-10-18 修）
+  t.ok(/state === 'off'/.test(pagesCode),
+       '★ kindBadge 有「已停用」分支 —— 地址齐了但停用 ≠ 没配过，'
+       + '塌成「未配置」就会和「目标」列打架');
+
+  // ⑦ 后端那条最容易复发的错：rotate 时 kind 不能落到 real
+  t.ok(/kind = None if want is None else \("sim" if want else "real"\)/
+       .test(apiPy),
+       '★ 后端 rotate 时 kind=None（沿用两端各自形态）—— 写成 '
+       + '`"sim" if want else "real"` 会让 want=None 落到 real，'
+       + '那一下「换一套」等于把模拟源关了');
+  t.ok(/up_kind = kind or _upstream_kind\(conn\)/.test(apiPy)
+       && /dn_kind = kind or engine\.get_data_source\(conn\)/.test(apiPy),
+       '★ kind=None 时两端各自沿用当前形态（不强行把两端拉齐）');
+
+  // ⑧ v1.10：表与进程分开 —— 「换一个进程」是另一条通道
+  //   守的是：**别再把"改配置"当成"让链路跑起来"**。
+  //   v1.7~v1.9 的面板只有 setSimSource，用户点完启用，表全填好了、
+  //   颜色也变了，可页面上仍然一行数据都没有 —— 因为没有任何进程在应答。
+  t.ok(/simProc:\s*\(body\)\s*=>\s*post\('\/api\/sim-source\/proc'/.test(apiJs),
+       '★ api.js 有 simProc（POST /api/sim-source/proc）—— 改进程与改表是两条通道');
+  t.ok(/act\(\{ action: 'restart' \}, true\)/.test(simBody),
+       '★ 「换一个进程」发 {action:restart} 并走**进程那条通道**'
+       + '（走 issetSimSource 就又变成改表了）');
+  t.ok(/useProc \? await API\.simProc\(body\) : await API\.setSimSource\(body\)/
+       .test(simBody),
+       '★ act() 按通道分流，两条接口不混用');
+  t.ok(/换一个进程/.test(simBody), '面板上有「换一个进程」按钮');
+  t.ok(/s\.chain/.test(simBody),
+       '★ 面板读 s.chain 拿进程状态 —— 不另抄一份 collector 字段（两个真相源）');
+
+  // 进程表：计划 vs 现实。上面那张是"表上写的端口"，这张是"谁真的在听"。
+  t.ok(/r\.alive\s*\n?\s*\?\s*badge\('运行中'/.test(simBody),
+       '★ 进程状态以 alive 为准渲染（不是按"曾经起过"）');
+  // skip 行（该台停用 / 程序未构建）不能显示成「掉了」：一个是"去查日志"，
+  // 一个是"什么都不用做"，混在一起就是让人白忙。
+  t.ok(/r\.skip \? badge\('不适用'/.test(simBody)
+       && /badge\('掉了', 'b-bad'\)/.test(simBody),
+       '★ skip 行显示「不适用」，只有真的该起没起才显示「掉了」');
+  t.ok(/cn\.expected/.test(simBody),
+       '★ 链路分母用 expected（不含停用/未构建）—— 否则「9/10」看起来像掉了一个');
+  t.ok(/链路进程/.test(simBody),
+       '★ 面板上把「计划 / 现实」两张表标开 —— 只有计划表时，'
+       + '人会以为端口真的有人在听');
+  t.ok(/采集器一次只连一台/.test(simBody),
+       '★ 写明采集器一次只连一台（架构边界，不是故障）');
+
+  // 表与进程不同套时必须看得见：否则两套并行、都自称正常
+  t.ok(/preset_matches/.test(simBody) && /进程还在/.test(simBody),
+       '★ 「换一套」改表后，若进程没跟，面板明说"进程还在上一套"');
+  t.ok(/换一个进程/.test(simBody) && /它改的是\*\*表\*\*/.test(simBody),
+       '★ 面板上写清「换一套」改的是表、「换一个进程」才让进程搬过去'
+       + '（位置在「换一套」的 title 上：这句是解释，不是状态）');
+
+  // SVG 走 createElementNS（h() 用 createElement，进不了 SVG 命名空间）
+  t.ok(/function iconSwap\(\)/.test(pagesCode)
+       && /createElementNS\(NS, 'svg'\)/.test(sliceFn(pagesCode, 'function iconSwap')),
+       '★ 「换一个进程」的双向箭头是手写 SVG，且走 createElementNS');
+
+  // 后端两处硬判据（写错会静默"看起来在跑"）
+  t.ok(/re\.compile\(r"\/api\/sim-source\/proc"\)/.test(apiPy),
+       '★ 后端注册了 POST /api/sim-source/proc');
+  t.ok(simprocPy.length > 0, '进程编排模块 14/src/simproc.py 存在');
+  t.ok(/spawn_peer=False/.test(simprocPy),
+       '★ 采集器经 engine 起且要求不要重复拉替身'
+       + '（同一端口两个替身会互踢，后者启动即退出 —— 看起来像"替身坏了"）');
+  t.ok(/collector_alive/.test(simprocPy),
+       '★ 采集器存活以 engine 状态机为准（服务器重启后子进程对象是 None，'
+       + '但采集器可能还在跑）');
+  // ★ 主站 `--seconds 0` 是个真踩过的坑：网关 0=一直跑，主站 0=一拍都不跑。
+  t.ok(/MASTER_RUN_S/.test(simprocPy) && !/MASTER_EXE, "--seconds", "0"/.test(simprocPy),
+       '★ 模拟主站的 --seconds 不能写 0（它的循环条件是 now-t0 < seconds*1000，'
+       + '0 会让它立刻退出，而日志里其实已经收到 ASDU —— 排障方向全跑偏）');
+
+  // ★ 平台重启 ≠ 现场进程退出。启动路径里必须主动认领一次，
+  //   靠「打开面板时懒触发」不够 —— 启动那一下面板还没人打开。
+  t.ok(/simproc\.CHAIN\.attach\(conn\)/.test(serverPy),
+       '★ 平台启动时按 PID 认领遗留链路进程（否则面板说「未启动」而数据在涨，'
+       + '再点「换一个进程」会拉起第二套抢同一个端口）');
+  t.ok(/sim_chain_procs/.test(simprocPy) && /tasklist/.test(simprocPy),
+       '★ 认领靠 meta 里的 pid 表 + tasklist 判活，不是凭"上次起过"');
+
+  // =================================================================
+  t.head('[V] 时刻标签：末一拍不许折回 00:00 · 页面要说清"在看哪份数据"');
+  // =================================================================
+  /* ★ 起因是用户原话「实时检控永远是 0:00」（2026-10-19）：
+       ① 默认数据集跟引擎模式走，引擎在仿真模式 ⇒ 看的是离线日仿真 sim-d002；
+       ② 那份数据的末一拍 t_s = 86400，被 %24 折成 "00:00"，与当天第一拍同标签
+          ⇒ 读数不动、轴最右端也是 0:00，第一反应是"系统卡了"；
+       ③ 页面上从头到尾没写"你在看哪份数据"，于是无处消解这个误会。
+
+     ★ 判据因此必须是"真跑一遍算出什么"，不是"函数里有没有某个字"：
+       源码注释里为了说明这个问题，本身就得写出那个旧式子。 */
+  {
+    const m = /hhmm\(t_s\) \{[\s\S]*?\n  \},/.exec(uiJs);
+    let hhmm = null;
+    if (m) {
+      try {
+        // _bad 是 ui.js 模块内的私有函数，这里按它的语义塞一份同义实现。
+        const fake = (v) => v === null || v === undefined
+          || (typeof v === 'number' && !Number.isFinite(v));
+        hhmm = new Function('_bad', `return {${m[0].replace(/,\s*$/, '')}}`)(fake).hhmm;
+      } catch (e) { hhmm = null; }
+    }
+    t.ok(typeof hhmm === 'function', 'ui.js 的 fmt.hhmm 能被独立取出来跑');
+    if (typeof hhmm === 'function') {
+      t.eq(hhmm(86400), '24:00',
+        '★ 24 h 仿真末一拍 t_s=86400 → 24:00（老写法折回 00:00，与首拍一样）');
+      t.eq(hhmm(0), '00:00', '第 0 拍仍是 00:00（起点没被改坏）');
+      t.eq(hhmm(43200), '12:00', '12:00 不受影响');
+      t.eq(hhmm(86401), 'D2 00:00',
+        '★ 跨过午夜带 D 前缀（周 / 月仿真不能被压进同一天）');
+      t.eq(hhmm(604800), 'D7 24:00', '★ 周仿真末拍 = 第 7 天 24:00');
+      t.eq(hhmm(null), '—', '空值走 —（没有 NaN / undefined 漏到界面上）');
+    }
+  }
+
+  const rtBody = sliceFn(pagesCode, 'function realtime');
+  t.ok(/这一页在看哪份数据/.test(rtBody),
+       '★ 实时监控页有一张「这一页在看哪份数据」说明卡'
+       + '（不写就默认用户在看实时，0:00 不动会被读成"系统卡了"）');
+  t.ok(/othEng\.dataset/.test(rtBody) && /ei\.live/.test(rtBody),
+       '★ 说明卡写了"另一边实时在写多少行"—— 数据来自同一个 /api/engine，'
+       + '不与后端 default_scenario 各推一套');
+  t.ok(!/'仿真模式'/.test(rtBody) && !/'运行模式'/.test(rtBody),
+       '★ 说明卡不写「运行模式 / 仿真模式」：那是研发语境，'
+       + '且「运行模式」已被业务侧（峰谷套利…）占用');
+  t.ok(/curEng\.dataset \|\| ctx\.scenario/.test(rtBody),
+       '数据集 id 直接取自 /api/engine 的 engines[]，页面上不重算');
+
+  /* ------------------------------------------------------------------
+     [W] 「接入调度主站」九步向导（v1.14）
+
+     这一段守的不是"有没有向导"，是那几件**做错了会骗人**的事：
+
+       · 九步的标题与必填清单**只在后端一份**（accessconf.STEPS）。
+         前端写死一份，加一格往后就只改一边，导出件与界面对不上。
+       · 「下一步」不校验必填 —— 现场资料常有没拿到的，逼人填假日期更坏。
+         校验只发生在「完成填报」那一下。
+       · 按钮**不写「已完成」**：九步里通道、证书、联调、传动都不在软件里，
+         写「已完成」等于软件替人宣布接入完成。
+       · 「完成填报」要求必填全齐（后端判），缺项要指出**第几步缺什么**，
+         并且弹层**不关** —— 只说"还有没填的"，人要自己一页页找。
+       · 只有第 6 步标「会改配置」：它是九步里唯一写文件的那一步。
+         不多不少 —— 八步都挂一句，读到第三页就没人看了。
+       · 重置只清草稿，**不动**链路参数与转发表，且必须先确认。
+       ------------------------------------------------------------------ */
+  t.head('[W] 接入调度主站九步向导');
+
+  const wzW = sliceFn(pagesCode, 'function accessWizard');
+  t.ok(wzW.length > 2000, 'accessWizard 是一段完整实现（判据打在实现上）');
+
+  // ① 字段清单只在后端
+  t.ok(!/管辖权与接入方案/.test(wzW) && !/报送资料/.test(wzW),
+       '★ 九步的标题不写在前端（字段清单只有后端 accessconf 一份）');
+  t.ok(/API\.accessDraft\(\)/.test(wzW),
+       '向导真的从 /api/access-draft 取 schema + 草稿 + 缺项');
+  t.ok(/r\.steps \|\| \[\]/.test(wzW) && /r\.missing/.test(wzW),
+       '★ 步骤与缺项都来自后端，前端不自己算放行');
+
+  // ② 填了就存；「下一步」不拦
+  t.ok(/setTimeout\(\(\) => \{ flush\(\); \}, 500\)/.test(wzW)
+       || /setTimeout\([^)]*flush/.test(wzW),
+       '输入即存（防抖），不靠「保存草稿」按钮');
+  t.ok(!/'保存草稿'/.test(wzW),
+       '★ 没有「保存草稿」按钮 —— 多一个按钮就多一个"忘了点"的理由');
+  t.ok(/lastStep === cur\) return true/.test(wzW),
+       '★ 翻页也算改动（current_step 要跟着存），否则断点续填永远回到保存内容那一页');
+
+  // ③ 完成才校验，且必须指出缺在哪
+  t.eq((wzW.match(/completed: true/g) || []).length, 1,
+       '★ completed=true 只在「完成填报」那一处发出');
+  t.ok(/list\[0\]\.step/.test(wzW) && /已跳到那一页/.test(wzW),
+       '★ 缺项时跳到第一个缺的那一步，并说清缺什么（不是只说"还有没填的"）');
+  t.ok(/还有 \$\{lst\.length\}|\$\{list\.length\} 项必填没填/.test(wzW)
+       || /项必填没填/.test(wzW),
+       '错误提示带缺项条数');
+  t.ok(!/'已完成'/.test(wzW),
+       '★ 按钮与状态都不写「已完成」：九步里大半不在软件里，写它就是替人宣布接入完成');
+  t.ok(/'完成填报'/.test(wzW) && /last \? '完成填报' : '下一步'/.test(wzW),
+       '最后一页的按钮是「完成填报」，别的页是「下一步」');
+
+  // ④ 只有第 6 步亮明"会改配置"；步骤头的灰底解释段不再占版面
+  t.ok(/'会改配置'/.test(wzW) && !/'只记台账'/.test(wzW),
+       '★ 只有第 6 步标「会改配置」—— 八步不再逐页写声明（每页都挂一句，读到第三页就没人看）');
+  t.ok(!/wz-why/.test(wzW) && /title: s\.why/.test(wzW),
+       '★ 步骤头的灰底解释段（s.why）不再渲染；文案没丢，挂在 h3 的 title 上');
+  t.ok((wzW.match(/refreshStars\(\);/g) || []).length >= 2,
+       '★ 星号首屏就要收敛一次（只在 touch() 里调 = 没敲过键的那屏挂着满屏假必填）');
+  t.ok(/if \(s\.config\) configPanel\(\)\.forEach/.test(wzW),
+       '配置区只在标了 config 的那一步渲染（第 6 步），不是每步都有');
+
+  // ⑤ 断点续填：不静默跳
+  t.ok(/resumeNote/.test(wzW) && /上次填到第 \$\{cur\} 步/.test(wzW),
+       '★ 续填时明说「上次填到第几步、什么时候、谁填的」（静默跳会被读成"上次填的丢了"）');
+  t.ok(/resumeNote = '';/.test(wzW),
+       '那句说明只在刚打开时显示一次，翻页不重复');
+
+  // ⑥ 关窗路径都要落地
+  t.ok(/e\.key === 'Escape'\) flush\(\)/.test(wzW),
+       '★ Esc 关弹层前先 flush（走的是 modal 自己的监听，不经过「退出」按钮）');
+  t.ok(/await flush\(\);\n        downloadFile\(API\.accessDraftCsvUrl\(\)/.test(wzW)
+       || /flush\(\)[\s\S]{0,80}accessDraftCsvUrl/.test(wzW),
+       '★ 导出前先 flush：不先存就会导出上一版（"导出件少了两格"最容易被当成丢数据）');
+  t.ok(/await flush\(\);\n        if \(o\.close\) o\.close\(\)/.test(wzW)
+       || /flush\(\)[\s\S]{0,60}o\.close\(\)/.test(wzW),
+       '「退出」先把当前输入存下来再关');
+  t.ok(/wizard\.flush\(\); wzModal\.close\(\)/.test(pagesCode),
+       '★ 切页时也 flush（弹层挂在 body 上，不 flush 就会丢掉刚敲的那一下）');
+
+  // ⑦ 不预填：替用户断言比留空更坏
+  t.ok(!/default: 'pass'|default: "pass"/.test(pagesCode),
+       '★ 不预填「通过」这类结论（预填就是系统替人签字）');
+
+  // ⑧ 重置的边界
+  t.ok(/window\.confirm/.test(upBody) && /链路参数/.test(upBody) && /转发表/.test(upBody),
+       '★ 「重置」先确认，并写明不动链路参数与转发表（混着清会把线上配置一起抹掉）');
+  t.ok(/API\.resetAccessDraft\(\)/.test(upBody), '「重置」真的调 DELETE，不只是弹个框');
+
+  // ⑩ 每步的材料清单 / 建议值 / 本步导出（v1.15：八步不再只是空表单）
+  t.ok(/function matsBlock/.test(wzW) && /s\.doc\.mats/.test(wzW),
+       '★ 材料清单从后端 doc.mats 渲染 —— 前端不写死「报送 10 项」这类内容');
+  /* ★ v1.16：向导里不许再出现自造的表格/框体类。
+     整站所有表格都是 card() + table()（table.tbl：表头无底色、11px 大写小字距），
+     向导原来另起了一套 .wz-tb（表头灰底、12.5px）与 .wz-mats（外面再套圆角框），
+     两套并排放在同一屏就是"风格不匹配"的全部来源。 */
+  t.ok(/card\(\s*\n?\s*m\.title/.test(wzW) && /table\(tcols/.test(wzW),
+       '★ 材料清单用整站的 card() + table() 画，不另起一套 wz-tb');
+  t.ok(!/wz-mats|wz-tb|wz-cfg/.test(wzW),
+       '★ 向导里已无 wz-mats / wz-tb / wz-cfg —— 同一件东西只画一遍');
+  t.ok(!/\.wz-mats|\.wz-tb|\.wz-cfg/.test(cssCode),
+       '★ app.css 里对应的老样式也删干净了（留着就是下次又被人捡起来用）');
+  t.ok(!/DL\/T 516-2017 7\.2/.test(wzW),
+       '★ 规程口径不写死在前端：文案归 accessconf.DOCS，前端只负责画');
+  t.ok(/wz-assist/.test(wzW) && /按建议填好/.test(wzW),
+       '★ 建议值是一键填进字段（不是弹一句提示让人自己抄）');
+  t.ok(/s\.assist \|\| \[\]/.test(wzW), '建议值也来自后端（assist），前端不自己推');
+  t.ok(/API\.accessDraftCsvUrl\(st\.num\)/.test(wzW),
+       '★ 导出按步走：URL 带 step，列顺序与文件名由后端 export_step 决定');
+  t.ok(/st\.export \|\| \{\}/.test(wzW), '按钮文案取后端 export.label');
+  t.ok(/\?step=' \+ step/.test(apiJs), 'api.js 的导出 URL 支持 ?step=N（本步那份）');
+
+  // ⑨ 接口齐不齐
+  for (const m of ['accessDraft', 'saveAccessDraft', 'resetAccessDraft', 'accessDraftCsvUrl']) {
+    t.ok(new RegExp(m + '\\s*:').test(apiJs), 'api.js 有 ' + m);
+  }
 
   const okAll = t.report();
   process.exit(okAll ? 0 : 1);

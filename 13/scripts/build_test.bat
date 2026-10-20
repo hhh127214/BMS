@@ -81,11 +81,11 @@ echo === [1/4] test_modbus_tcp.exe (T01~T15 协议层) ===
 g++ -std=c++17 -Wall -O2 %INC% ^
     tests\test_modbus_tcp.cpp %LNK% -o build\test_modbus_tcp.exe
 if errorlevel 1 ( echo [FAIL] test_modbus_tcp compile error & exit /b 1 )
-REM  ★ 输出**先落文件再 type**，而且必须查汇总行 —— 理由见文件尾 :check_summary。
+REM  ★ 输出**先落文件再 type**，而且必须查汇总行 —— 理由见文件尾 :check_summary。 
 build\test_modbus_tcp.exe > build\layer1.log 2>&1
 set L1_RC=%ERRORLEVEL%
 type build\layer1.log
-if not "%L1_RC%"=="0" ( echo [FAIL] test_modbus_tcp tests did not pass & set FAIL=1 )
+if not "%L1_RC%"=="0" ( echo [FAIL] test_modbus_tcp tests did not pass & set "FAIL=1" )
 call :check_summary build\layer1.log test_modbus_tcp
 
 REM ---------- [2/4] 适配器契约 ----------
@@ -97,7 +97,7 @@ if errorlevel 1 ( echo [FAIL] test_modbus_device_io compile error & exit /b 1 )
 build\test_modbus_device_io.exe > build\layer2.log 2>&1
 set L2_RC=%ERRORLEVEL%
 type build\layer2.log
-if not "%L2_RC%"=="0" ( echo [FAIL] test_modbus_device_io tests did not pass & set FAIL=1 )
+if not "%L2_RC%"=="0" ( echo [FAIL] test_modbus_device_io tests did not pass & set "FAIL=1" )
 call :check_summary build\layer2.log test_modbus_device_io
 
 REM ---------- [3/4] 跨语言联调 ----------
@@ -116,7 +116,7 @@ REM  先删旧状态文件：否则上一轮留下的 SKIPPED=0 会让本轮被�
 del /q build\bridge_status.txt 2>nul
 build\test_modbus_bridge.exe
 set BRIDGE_RC=%ERRORLEVEL%
-if not "%BRIDGE_RC%"=="0" ( echo [FAIL] test_modbus_bridge tests did not pass & set FAIL=1 )
+if not "%BRIDGE_RC%"=="0" ( echo [FAIL] test_modbus_bridge tests did not pass & set "FAIL=1" )
 
 REM  ---------- 判定第三层是否真的跑了 ----------
 REM  读 exe 落的纯 ASCII 状态行（不是去 grep 中文输出，避免编码问题）。 
@@ -146,29 +146,29 @@ endlocal & exit /b 0
 REM =====================================================================
 REM  :check_summary <logfile> <name>
 REM
-REM  断言汇总行（PASS=n）必须存在 —— 否则按「未通过」处理，而不是静默计 0。
+REM  断言汇总行（PASS=n）必须存在 —— 否则按「未通过」处理，而不是静默计 0。 
 REM
 REM  ★ 为什么必须要有这道闸：这两个 exe 用 std::printf 往 stdout 写，而 stdout
 REM    **一旦重定向到文件就是全缓冲的**（默认 4 KB）。实测协议层那份输出总共
-REM    只有 2408 字节，一个缓冲区装得下 —— 于是**整份输出都要等进程退出时那
-REM    一次 flush 才落盘**。只要那次 flush 没发生（异常终止 / 被外部结束），
-REM    整份输出连同 `PASS=597` 一起消失，**而退出码仍然是 0**。
-REM    实测：连续 20 次里有 1 次输出 0 字节（也出现过 3149 / 3656 这种只丢一截的）。
+REM    只有 2408 字节，一个缓冲区装得下 —— 于是**整份输出都要等进程退出时那 
+REM    一次 flush 才落盘**。只要那次 flush 没发生（异常终止 / 被外部结束）， 
+REM    整份输出连同 `PASS=597` 一起消失，**而退出码仍然是 0**。 
+REM    实测：连续 20 次里有 1 次输出 0 字节（也出现过 3149 / 3656 这种只丢一截的）。 
 REM
-REM    危害在于它是**静默**的：构建日志里的表现只是"这一步一条断言都没有"，
-REM    而 scripts/baseline.py 对 13\ 正是按「各 exe 汇总行相加」取值的 ——
-REM    于是全量基线凭空少 597，从日志上完全看不出少了什么。
+REM    危害在于它是**静默**的：构建日志里的表现只是"这一步一条断言都没有"， 
+REM    而 scripts/baseline.py 对 13\ 正是按「各 exe 汇总行相加」取值的 —— 
+REM    于是全量基线凭空少 597，从日志上完全看不出少了什么。 
 REM
-REM    两道防线：
+REM    两道防线： 
 REM      ① exe 里 setvbuf(stdout, nullptr, _IONBF, 0) —— 写一条落一条；
-REM      ② 就是这里 —— 汇总行不存在就显式报 FAIL。
-REM    删掉这道闸，那个洞会立刻重新变成静默的。
+REM      ② 就是这里 —— 汇总行不存在就显式报 FAIL。 
+REM    删掉这道闸，那个洞会立刻重新变成静默的。 
 REM =====================================================================
 :check_summary
 findstr /B /C:"PASS=" %~1 >nul 2>nul
 if errorlevel 1 (
     echo [FAIL] %~2 的输出里没有汇总行 PASS= —— 视为未通过
-    echo        常见原因：stdout 缓冲区没被 flush（见本文件 :check_summary 注释）。
+    echo        常见原因：stdout 缓冲区没被 flush（见本文件 :check_summary 注释）。 
     set FAIL=1
 )
 goto :eof

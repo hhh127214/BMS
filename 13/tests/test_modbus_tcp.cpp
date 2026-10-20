@@ -1160,6 +1160,55 @@ static void test_38_conn_dir_matches_point_map_dir() {
 }
 
 // =====================================================================
+static void test_39_conn_source_kind_target() {
+    std::printf("T39 对端形态（v1.5）：sim 时端侧连 sim_host:sim_port，不是 host\n");
+    ensure_dir(kConnDir);
+    const std::string path = std::string(kConnDir) + "/active.conn";
+    DeviceConn c;
+    std::string rep;
+
+    // ① 老文件（v1.2 写的，没有 source_kind）⇒ 必须按 real 读，目标 = host:port。
+    //    这一条守的是"不把存量配置读成模拟源"。
+    EXPECT(write_text_file(path.c_str(), conn_text()));
+    EXPECT(load_device_conn_at(kConnDir, &c, &rep, nullptr) == ConnLoad::kOk);
+    EXPECT(c.source_kind == "real");
+    EXPECT(!conn_is_sim(c));
+    EXPECT(conn_target_host(c) == "192.168.1.10");
+    EXPECT_EQ(conn_target_port(c), 502);
+
+    // ② 接模拟源：host 可以空（调试期真机还没到货），目标换成模拟器。
+    std::string sim = replace_first(conn_text(), "host=192.168.1.10\n", "");
+    sim = replace_first(sim, "protocol=modbus_tcp\n",
+                        "protocol=modbus_tcp\nsource_kind=sim\n"
+                        "sim_host=127.0.0.1\nsim_port=1602\n");
+    EXPECT(write_text_file(path.c_str(), sim));
+    EXPECT(load_device_conn_at(kConnDir, &c, &rep, nullptr) == ConnLoad::kOk);
+    EXPECT(c.source_kind == "sim");
+    EXPECT(conn_is_sim(c));
+    EXPECT(conn_target_host(c) == "127.0.0.1");
+    EXPECT_EQ(conn_target_port(c), 1602);
+    EXPECT(format_device_conn(c).find("模拟源") != std::string::npos);
+    // ★ 两个坑一起守：sim 时若还按 c.host 连，会连到空地址；
+    //   若忽略 sim_port 而用 port，会连到真机端口 502。
+    EXPECT(conn_target_port(c) != c.port);
+
+    // ③ real 却没有 host ⇒ 硬失败（不能拿空地址去连一台"没人以为在连"的设备）
+    DeviceConn keep;
+    keep.host = "SENTINEL";
+    EXPECT(write_text_file(path.c_str(),
+                           replace_first(conn_text(), "host=192.168.1.10\n", "")));
+    EXPECT(load_device_conn_at(kConnDir, &keep, &rep, nullptr) == ConnLoad::kInvalid);
+    EXPECT(keep.host == "SENTINEL");
+    EXPECT(rep.find("host") != std::string::npos);
+
+    // ④ 形态值不认识 ⇒ 硬失败（拼错不许静默当 real）
+    EXPECT(write_text_file(path.c_str(),
+                           replace_first(conn_text(), "protocol=modbus_tcp\n",
+                                         "protocol=modbus_tcp\nsource_kind=simulater\n")));
+    EXPECT(load_device_conn_at(kConnDir, &keep, &rep, nullptr) == ConnLoad::kInvalid);
+    EXPECT(rep.find("source_kind") != std::string::npos);
+}
+
 int main() {
     // ★ stdout 必须**无缓冲**。构建脚本会把本进程输出重定向到文件，而 stdio
     //   一旦重定向就改成**全缓冲**（4 KB）。本测试整份输出约 2.4 KB，一个缓冲区
@@ -1199,6 +1248,7 @@ int main() {
     test_36_conn_invalid_is_hard_failure();
     test_37_disabled_is_readable();
     test_38_conn_dir_matches_point_map_dir();
+    test_39_conn_source_kind_target();
 
     std::printf("\n");
     if (g_fail == 0) {

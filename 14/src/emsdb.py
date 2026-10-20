@@ -27,7 +27,7 @@ SCHEMA_PATH = os.path.join(MODULE_ROOT, "schema.sql")
 META_SCHEMA_VERSION = "schema_version"
 META_IMPORT_SOURCE = "import_source"
 META_IMPORT_AT = "import_at"
-SCHEMA_VERSION = "1.4"
+SCHEMA_VERSION = "1.6"
 
 # ---------------------------------------------------------------------
 # 增量迁移（v1.2）
@@ -50,6 +50,11 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("economics", "cost_demand_base_cny", "REAL DEFAULT 0"),
     ("economics", "revenue_feed_in_cny", "REAL DEFAULT 0"),
     ("economics", "revenue_feed_in_base_cny", "REAL DEFAULT 0"),
+    # 下端对端形态（v1.5）：真实设备 / 模拟源。老库补列后一律 'real' ——
+    # 老库里没有任何"这是模拟"的痕迹，回填 sim 等于凭空造事实。
+    ("device_conn", "source_kind", "TEXT NOT NULL DEFAULT 'real'"),
+    ("device_conn", "sim_host", "TEXT"),
+    ("device_conn", "sim_port", "INTEGER DEFAULT 1502"),
 ]
 
 
@@ -187,6 +192,8 @@ TABLES = [
     "device_conn", "device_point_map",
     # v1.4 运行 / 仿真双模式
     "sim_run",
+    # v1.5 上端（调度侧）装配：链路参数 + IOA 转发表（两条通道同源同生）
+    "upstream_link", "upstream_point_map",
 ]
 
 

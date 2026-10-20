@@ -30,6 +30,7 @@ import api  # noqa: E402
 import auth  # noqa: E402
 import emsdb  # noqa: E402
 import engine  # noqa: E402
+import simproc  # noqa: E402
 
 PROJECT_ROOT = os.path.dirname(emsdb.MODULE_ROOT)
 DEFAULT_STATIC = os.path.join(PROJECT_ROOT, "15")
@@ -50,6 +51,23 @@ INDEX_FALLBACK = """<!DOCTYPE html>
 <p>前端在 <code>15/</code> 目录。生成后刷新本页即可。</p>
 </div></body></html>
 """
+
+
+def _cd(filename: str) -> str:
+    """Content-Disposition —— 中文文件名必须走 RFC 5987。
+
+    ★ 踩过一次：导出件叫「远动信息参数表_第2步.csv」，直接塞进响应头时
+      send_header 按 latin-1 编码，抛 UnicodeEncodeError —— 浏览器那边看到的是
+      空响应，服务端日志里只有一条 Traceback。
+    ★ 做法：ASCII 的照原样；非 ASCII 给一个 ASCII 兜底名 + filename*=UTF-8''。
+      现代浏览器都取 filename*，用户拿到的仍是中文名。
+    """
+    try:
+        filename.encode("latin-1")
+        return 'attachment; filename="%s"' % filename
+    except UnicodeEncodeError:
+        return ("attachment; filename=\"export.csv\"; filename*=UTF-8''"
+                + urllib.parse.quote(filename))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -151,8 +169,7 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(payload, dict) and payload.get("__raw__"):
             data = payload["body"].encode("utf-8")
             self._send(200, data, payload.get("content_type", "text/plain"),
-                       {"Content-Disposition":
-                        f'attachment; filename="{payload.get("filename", "export.csv")}"'})
+                       {"Content-Disposition": _cd(payload.get("filename", "export.csv"))})
             return
         self._send_json(status, payload)
 
@@ -170,8 +187,13 @@ class Handler(BaseHTTPRequestHandler):
         if rel in ("", "index.html"):
             rel = "index.html"
         # 目录穿越防护
-        full = os.path.normpath(os.path.join(root, rel))
-        if not full.startswith(os.path.normpath(root)):
+        # ★ 只判 startswith(root) 是**不够**的：`15` 与 `15_backup` 这种
+        #   前缀相同的兄弟目录也能过 —— `/../15_backup/x` 归一化后确实以
+        #   `...\15` 开头。必须再要求下一个字符是分隔符（或正好等于 root）。
+        #   2026-10-19 体检发现，判据见 14/tests/selftest.py [G12]。
+        root_n = os.path.normpath(root)
+        full = os.path.normpath(os.path.join(root_n, rel))
+        if full != root_n and not full.startswith(root_n + os.sep):
             self._send_json(403, {"error": "非法路径"})
             return
         if os.path.isfile(full):
@@ -206,6 +228,35 @@ def _ctype_of(p: str) -> str:
     }.get(ext, "application/octet-stream")
 
 
+class ApiServer(ThreadingHTTPServer):
+    """多线程服务 + 不制造噪声的报错。
+
+    ★ 为什么要单独一层：`ThreadingHTTPServer` 继承自 `socketserver.BaseServer`，
+      它的 `handle_error()` 会把**每一个**请求异常打成一整屏堆栈。而客户端
+      先断开（关标签页 / 浏览器取消请求 / 预检被撤）是正常的日常行为，
+      Windows 上表现为 WinError 10054，每来一次就是 ~20 行。
+      实测一轮巡检的日志：**1228 行里 52 个 Traceback，100% 是它** ——
+      真正值得看的错误被淹没在一屏屏噪声里，等于日志不可用。
+      与 `Handler.log_message` 同一个纪律：日常噪声关掉，真异常照样留。
+    """
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def handle_error(self, request, client_address) -> None:
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+            if os.environ.get("EMS_API_VERBOSE"):
+                sys.stderr.write("[api] 客户端先断开了 %s\n" % (client_address,))
+            return
+        if isinstance(exc, TimeoutError):
+            return
+        sys.stderr.write("-" * 40 + "\n")
+        sys.stderr.write("[api] 处理来自 %s 的请求出错\n" % (client_address,))
+        import traceback
+        traceback.print_exc()
+        sys.stderr.write("-" * 40 + "\n")
+
+
 def create_server(host: str, port: int, db_path: str | None = None,
                   static_dir: str | None = None,
                   allow_origin: str | None = None) -> ThreadingHTTPServer:
@@ -220,15 +271,25 @@ def create_server(host: str, port: int, db_path: str | None = None,
         live_state = st.get("state")
     except Exception as e:      # 引擎接不上不该拦住整个平台启动
         n_attach, live_state = 0, f"attach-failed: {type(e).__name__}: {e}"
+    # 按 PID 接管遗留的模拟链路进程（平台重启 ≠ 现场进程退出）。
+    # 不做这一步，面板会说「链路未启动」而数据在涨，再点「换一个进程」会拉起
+    # 第二套抢同一个端口。引擎只认「实录还在长」，链路的其余四个角色
+    # （实时库 / 替身 / 网关 / 主站）只能靠 pid 认回来 —— 见 simproc.attach()。
+    try:
+        simproc.CHAIN.attach(conn)
+        n_chain = simproc.CHAIN.status(conn).get("counts", {}).get("up", 0)
+    except Exception:
+        n_chain = 0
     conn.close()
 
-    srv = ThreadingHTTPServer((host, port), Handler)
+    srv = ApiServer((host, port), Handler)
     srv.daemon_threads = True
     srv.db_path = db_path or emsdb.DEFAULT_DB_PATH          # type: ignore[attr-defined]
     srv.static_dir = static_dir or DEFAULT_STATIC           # type: ignore[attr-defined]
     srv.new_users = n_new                                   # type: ignore[attr-defined]
     srv.engine_attached = n_attach                          # type: ignore[attr-defined]
     srv.engine_live_state = live_state                      # type: ignore[attr-defined]
+    srv.chain_attached = n_chain                            # type: ignore[attr-defined]
     # None = 不回 Access-Control-Allow-Origin（同源模式，默认，最安全）
     srv.allow_origin = allow_origin or None                 # type: ignore[attr-defined]
     return srv
@@ -277,6 +338,9 @@ def main() -> int:
               "  ← 外部页面要调测就加 --allow-origin <origin>")
     if srv.engine_attached:                                 # type: ignore[attr-defined]
         print("   [引擎] 已接上仍在跑的实时引擎，继续增量入库")  # type: ignore[attr-defined]
+    if srv.chain_attached:                                  # type: ignore[attr-defined]
+        print(f"   [模拟链路] 已按 PID 接管 {srv.chain_attached} 个仍在跑的进程"  # type: ignore[attr-defined]
+              "（不会重复拉起）")
     if srv.new_users:                                       # type: ignore[attr-defined]
         print(f"   [首次初始化] 已建 {srv.new_users} 个默认账号："  # type: ignore[attr-defined]
               "admin/admin123 · operator/operator123 · viewer/viewer123")

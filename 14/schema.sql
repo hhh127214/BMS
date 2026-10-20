@@ -21,6 +21,9 @@
 -- 本文件在 v1.4 追加（「运行模式 / 仿真模式」双模式）：
 --   sim_run   仿真运行台账（谁在什么时候跑了多长的仿真、产出了哪个场景）
 --
+-- 本文件在 v1.5 追加（上端第二份输入闭环）：
+--   upstream_point_map  IOA 转发表的平台侧存档（全站一张，见本文件 §表定义处）
+--
 -- 约定
 --   * 时刻一律用仿真时刻 t_s（秒，REAL）；time_str 是 "HH:MM" 便于展示
 --     **例外（v1.2）**：scenario.time_base = 'wall' 的场景（真机实时），
@@ -69,6 +72,15 @@ CREATE TABLE IF NOT EXISTS device (
 CREATE TABLE IF NOT EXISTS device_conn (
     device_id       TEXT PRIMARY KEY,
     protocol        TEXT NOT NULL DEFAULT 'modbus_tcp',
+    -- 对端形态（v1.5）：'real' = 现场设备；'sim' = 模拟源。
+    -- ★ 为什么形态要落在**每台设备**上而不是整站一个开关：
+    --   下端是主站，EMS 一轮询一个从站地址。"这台接的是真机、那台接的是模拟器"
+    --   在调试期是**常态**（PCS 已到货、电表还在等），整站一个开关表达不了。
+    -- ★ 两种形态走的是**同一套 Modbus 主站代码**，差别只在连谁 —— 所以
+    --   'sim' 不是另一条代码路径，只是把目标地址换成模拟器。
+    source_kind     TEXT NOT NULL DEFAULT 'real',   -- real / sim
+    sim_host        TEXT,                  -- source_kind='sim' 时端侧实际连的模拟器
+    sim_port        INTEGER DEFAULT 1502,  -- 17/ 高保真模拟器默认端口
     host            TEXT,                  -- 设备 IP（厂家协议文档里给）
     port            INTEGER DEFAULT 502,
     unit_id         INTEGER DEFAULT 1,     -- 从站号
@@ -82,6 +94,37 @@ CREATE TABLE IF NOT EXISTS device_conn (
     updated_at      TEXT,
     note            TEXT,
     FOREIGN KEY (device_id) REFERENCES device(device_id)
+);
+
+-- ---------------------------------------------------------------------
+-- upstream_link —— 上端（调度侧）链路装配（v1.5）
+--
+-- 为什么不与 device_conn 合用一张表：
+--   两端**结构不同**，合用只能靠一堆 NULL 列，读的人分不清哪列对哪端有意义：
+--     · 下端 EMS 是**主站**：主动连设备，一台设备一份参数（一对多）；
+--     · 上端 EMS 是**从站**：在 2404 上等调度连进来，全站只有**一条**链路，
+--       参数是「监听口 / 公共地址 / 允许谁连」（一对一）。
+--
+-- kind：'real' = 上级调度主站连进来；'sim' = P3/iec104_master.exe 当模拟调度。
+--   两者跑的是**同一套从站代码**，差别只在"谁来连" —— 与下端的处理一致。
+--
+-- ★ 必须落盘（active.upstream）而不是只存库：
+--   P3/ 的 iec104_gateway 是独立进程，只认命令行 --port/--ca 或这份文件。
+--   只存库就会出现「界面上 2404、现场敲 2405，两边都不报错」—— 与 v1.2
+--   引入 active.conn 时一模一样的处境（见 14/src/connconf.py 文件头）。
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS upstream_link (
+    link_id      TEXT PRIMARY KEY DEFAULT 'dispatch',  -- 全站唯一：一个从站一条链路
+    kind         TEXT NOT NULL DEFAULT 'real',         -- real / sim
+    protocol     TEXT NOT NULL DEFAULT 'iec104',
+    bind_host    TEXT DEFAULT '0.0.0.0',               -- 监听网卡（现场双网时填指定网卡）
+    listen_port  INTEGER DEFAULT 2404,                 -- 2404 = IEC 60870-5-104 标准端口
+    common_addr  INTEGER DEFAULT 1,                    -- ASDU 公共地址 CA，须与调度转发表一致
+    master_host  TEXT,                                 -- kind='sim' 时模拟主站地址
+    enabled      INTEGER DEFAULT 1,
+    updated_at   TEXT,
+    username     TEXT,
+    note         TEXT
 );
 
 -- ---------------------------------------------------------------------
@@ -371,6 +414,34 @@ CREATE TABLE IF NOT EXISTS invariant (
     safety_ok           INTEGER,
     all_ok              INTEGER
 );
+
+-- ---------------------------------------------------------------------
+-- v1.5 上端第二份输入：IOA 转发表（IEC104「IOA ↔ EMS 点名」的平台侧存档）
+--
+-- ★ 与 device_point_map（每台一份、行序即索引）不同：这张表**全站只有一张**，
+--   且行序没有意义 —— IEC104 靠 IOA 定位，所以可以任意增删排序。
+--
+-- ★ 为什么既要库又要文件：`config/point-map/` 整个目录是 gitignore 的运行时
+--   产物，丢掉重来要拿着调度给的纸质转发表重填 30 行；而文件是 P3 网关真的
+--   会去读的那一份，两者都要有（这与下端点表的处理方式一致：库是存档，
+--   文件是通道）。二者不一致时界面会把不一致显示出来，而不是默认哪个对。
+--
+-- ★ grp / offset_v：group 与 offset 在 SQL 里是保留字/易混词，换名字比到处
+--   加引号可靠 —— 与 device_point_map 把 table 列存成 table_kind 同理。
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS upstream_point_map (
+    ioa      INTEGER PRIMARY KEY,   -- IEC104 信息对象地址，全表唯一
+    kind     TEXT    NOT NULL,      -- 9 个 token 之一，见 upmapconf.KINDS
+    grp      INTEGER NOT NULL DEFAULT 1,
+    name     TEXT    NOT NULL,      -- 中文名（给人看）
+    src      TEXT    NOT NULL DEFAULT '',   -- EMS 点名；下行点留空
+    scale    REAL    NOT NULL DEFAULT 1.0,  -- 工程量 × scale + offset = 协议值
+    offset_v REAL    NOT NULL DEFAULT 0.0,
+    unit     TEXT    NOT NULL DEFAULT '',
+    note     TEXT    NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_uppm_src ON upstream_point_map(src);
 
 -- ---------------------------------------------------------------------
 -- app_user / session / audit_log —— 用户与权限

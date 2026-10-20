@@ -42,7 +42,7 @@
       <p class="warn">本页不回填任何口令、也不列出演示账号；现场部署前必须改掉默认口令。</p>
     </div>
   </div>
-  <p class="login-foot">两种模式：运行模式（引擎按墙钟实时跑，数据边跑边入库）· 仿真模式（离线批量仿真，日 / 周 / 月）</p>
+  <p class="login-foot">站级监控 · 策略配置 · 告警与事件 · 收益核算 · 报表归档，一处入口</p>
 </div>
 
 <!-- ============================ 主界面 ============================ -->
@@ -81,10 +81,9 @@
         <input id="nav-search" type="text" placeholder="搜索页面，回车跳转…" autocomplete="off">
       </label>
       <div class="topbar-right">
-        <!-- 引擎模式（数据维度）：运行模式 = 引擎实时在跑；仿真模式 = 离线批量仿真 -->
-        <div class="seg seg-engine" id="engine-seg" role="tablist" aria-label="引擎模式切换"></div>
-        <!-- 数据集切换：按钮由 app.js 按引擎模式与库内数据集动态生成 -->
-        <div class="seg" id="scenario-seg" role="tablist" aria-label="数据集切换"></div>
+        <!-- ★ 数据源由平台后端按当前采集状态决定（/api/engine 的 scenario），
+             界面**不提供**数据集选择器 —— "看哪份演示场景"是研发调试概念，不是产品功能。
+             顶栏这里只留业务维度：运行模式（峰谷套利 / 削峰填谷 / 辅助服务 / 保电备电）。 -->
         <div class="seg" id="mode-seg" role="tablist" aria-label="运行模式切换"></div>
       </div>
     </header>
@@ -94,9 +93,6 @@
       <p id="page-sub">—</p>
       <span id="live-badge" class="live-badge hidden" role="status"></span>
     </div>
-
-    <!-- 运行模式下的实时引擎状态条（启停 / 清空；仿真模式下隐藏） -->
-    <div id="engine-banner" class="engine-banner hidden"></div>
 
     <section id="content" class="content"></section>
     <footer class="foot">

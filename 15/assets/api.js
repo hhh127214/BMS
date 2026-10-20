@@ -99,6 +99,29 @@ const API = (() => {
     alarmSummary:    (sc, p)     => get('/api/alarms/summary', Object.assign({ scenario: sc }, p)),
 
     devices:         ()          => get('/api/devices'),
+
+    // ---- 接入装配（v1.5）：上端 = 调度侧 IEC104 从站；下端 = 设备侧 Modbus 主站 ----
+    access:          ()          => get('/api/access'),
+    saveUpstream:    (body)      => put('/api/access/upstream', body),
+    // 上端第二份输入：IOA 转发表（v1.6 起**可保存**：平台校验后原子落盘到
+    // config/point-map/active.pointmap.csv，网关启动时按约定路径读它）
+    upstreamPointMap:()          => get('/api/upstream/point-map'),
+    saveUpstreamPointMap:(rows)  => put('/api/upstream/point-map', { rows }),
+    resetUpstreamPointMap:()     => del('/api/upstream/point-map'),
+    upstreamPointMapCsvUrl:(tpl) => url('/api/upstream/point-map.csv',
+                                        tpl ? { template: 1 } : undefined),
+
+    // ---- 「接入调度主站」九步向导（v1.14） ----
+    // ★ 字段定义（哪步有哪些格、哪些必填）由后端 GET 一起返回，前端**不写死**。
+    //   前端只按 schema 画；完成校验也只由后端判，前端把 400 的消息原样给它看。
+    //   理由见 CHANGES.md §94：同一份清单两处分头维护，迟早不一致。
+    accessDraft:     ()          => get('/api/access-draft'),
+    saveAccessDraft: (body)      => put('/api/access-draft', body),
+    resetAccessDraft:()          => del('/api/access-draft'),
+    /* step = 第几步：带上是「本步那份」，不带是九步总台账。
+       每一份的文件名与列都由后端 export_step 决定，前端不拼。 */
+    accessDraftCsvUrl:(step)      => url('/api/access-draft.csv'
+                                          + (step ? ('?step=' + step) : '')),
     device:          (id)        => get(`/api/devices/${encodeURIComponent(id)}`),
 
     // ---- 设备接入（schema v1.2）：通信参数 + 点表 ----
@@ -126,6 +149,24 @@ const API = (() => {
     liveStart:       (body)      => post('/api/engine/live/start', body || {}),
     liveStop:        ()          => post('/api/engine/live/stop', {}),
     liveReset:       ()          => post('/api/engine/live/reset', {}),
+
+    // ---- 数据源（设备管理页唯一的开关）----
+    // 一次决定两端：模拟数据源 = 下端设备替身 + 上端模拟调度；
+    // 现场数据源 = 下端真实设备 + 上端上级调度。
+    // 其他页面**不调用**这两个接口 —— 它们只认"有没有数据"。
+    dataSource:      ()          => get('/api/data-source'),
+    // 两端是各自独立的开关：一次只切一端（end 必填，后端会拒掉没带 end 的请求）
+    setDataSource:   (end, kind) => post('/api/data-source', { end, kind }),
+    // 模拟源**总开关**（v1.7）：一个开关管两端 + 一键换一套。
+    //   enable=true  两端一起切 sim，并把①的模拟专用字段按当前套填好
+    //   enable=false 两端一起切回 real（真实值一直在，不会被清）
+    //   rotate=true  套号 +1（循环）
+    // ★ 与 setDataSource 的分工：那个是"逐端微调"，这个是"一键进入联调态"。
+    simSource:       ()          => get('/api/sim-source'),
+    setSimSource:    (body)      => post('/api/sim-source', body),
+    // ★ 进程与配置分开两条通道：simProc 改的是"谁在跑"，setSimSource 改的是"表"。
+    //   合成一条就会重演「点了启用、表变了、进程没变、页面还是空的」。
+    simProc:         (body)      => post('/api/sim-source/proc', body),
 
     simRuns:         (limit)     => get('/api/sim/runs', { limit }),
     simStart:        (body)      => post('/api/sim/runs', body),

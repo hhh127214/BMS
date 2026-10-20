@@ -11,7 +11,7 @@ REM    scripts\import_sim.bat        （把 10\ 的 24h 仿真产物导进库）
 REM
 REM  例：
 REM    scripts\run_ui.bat                  默认 http://127.0.0.1:8765/
-REM    scripts\run_ui.bat --port 9000      换端口（少用；本项目固定 8765）
+REM    scripts\run_ui.bat --port 9000      换端口（少用；本项目固定 8765） 
 REM    scripts\run_ui.bat --host 0.0.0.0   仅限内网演示，注意先改默认口令 
 REM
 REM  界面默认账号：admin/admin123 · operator/operator123 · viewer/viewer123

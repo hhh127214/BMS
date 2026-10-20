@@ -66,9 +66,18 @@ const fmt = {
     return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: nd, maximumFractionDigits: nd });
   },
   hhmm(t_s) {
+    /* ★ 与后端 14/src/api.py::_hhmm 同一套口径，改一处两边都要改：
+       `t_s = 86400`（24 h 仿真的最后一拍）必须写 "24:00" —— 以前取 %24
+       会折回 "00:00"，时间轴最右端和第一拍长得一样，看着就是"永远 0:00"。
+       跨天数据（周 / 月）加 `Dn ` 前缀标明第几天。 */
     if (_bad(t_s)) return '—';
-    const m = Math.floor(Number(t_s) / 60);
-    return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const sec = Math.floor(Number(t_s));
+    const day = Math.floor(sec / 86400), rem = sec % 86400;
+    const mm = Math.floor(rem / 60);
+    const hm = `${String(Math.floor(mm / 60)).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')}`;
+    if (day === 0) return hm;
+    if (rem === 0) return day === 1 ? '24:00' : `D${day} 24:00`;
+    return `D${day + 1} ${hm}`;
   },
   int(v) { return _bad(v) ? '—' : String(Math.round(Number(v))); },
 };
@@ -159,6 +168,62 @@ function card(title, sub, body, extraClass) {
     ]) : null,
     body,
   ]);
+}
+
+/* ---------------------------- 全页弹层 ----------------------------
+   逐台编辑里有点表 32 行 × 9 列，塞进一个居中小对话框等于让人在邮票上
+   看表格。所以这层**跟页面一样大**：铺满视口、内部自己滚，关掉回到原处。
+   ★ 不用 <dialog>：原生 dialog 自带 ::backdrop 与顶层渲染，与本项目
+     .content 的滚动容器叠在一起时焦点行为不一致（ESC 有时吞、有时不吞）。
+   ★ 按 key 复用：页面来回切时不会每切一次就往 body 上多挂一层。 */
+function modal(opts) {
+  const o = opts || {};
+  if (o.key) {
+    const old = document.getElementById('mdl-' + o.key);
+    if (old && old._modal) { clear(old._modal.body); return old._modal; }
+  }
+  const tt = h('h2');
+  const sub = h('p', { class: 'mdl-sub' });
+  const body = h('div', { class: 'mdl-body' });
+  const closeBtn = h('button', { class: 'btn-sm', text: '关闭', title: '关闭（Esc）' });
+  const root = h('div', { class: 'mdl' }, [
+    h('div', { class: 'mdl-head' }, [
+      h('div', { class: 'mdl-tt' }, [tt, sub]),
+      h('div', { class: 'pm-grow' }),
+      closeBtn,
+    ]),
+    body,
+  ]);
+  tt.textContent = o.title || '';
+  sub.textContent = o.sub || '';
+
+  let on = false;
+  const api = {
+    node: root, body,
+    isOpen: () => on,
+    setTitle(t) { tt.textContent = t; },
+    setSub(s) { sub.textContent = s; },
+    open() {
+      if (on) return;
+      on = true;
+      root.classList.add('on');
+      document.body.classList.add('mdl-open');
+      body.scrollTop = 0;   // 每次打开都从头看，别停在上一次滚到的位置
+    },
+    close() {
+      if (!on) return;
+      on = false;
+      root.classList.remove('on');
+      document.body.classList.remove('mdl-open');
+    },
+  };
+  closeBtn.addEventListener('click', () => api.close());
+  document.addEventListener('keydown', (e) => {
+    if (on && e.key === 'Escape') api.close();
+  });
+  if (o.key) { root.id = 'mdl-' + o.key; root._modal = api; }
+  document.body.appendChild(root);
+  return api;
 }
 
 function kpi(label, value, unit, note, kind, opts) {

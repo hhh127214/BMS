@@ -13,9 +13,10 @@
 | 演示 | `src/main.cpp` → 场景 C：阶跃跟随 + 抖动治理三档对照 + 变化率对照 |
 | 关键常量 | 控制周期 `dt = 100 ms`；实时层纠偏上限 `l2_correction_max_kw = ±100 kW`；输出死区 `2 kW` / 滞环 `3` 拍 |
 | 设备 I/O 抽象 | 接口在 `04/src/device_io.h`（P0）；本模块提供 3 个实现：`src/sim_device_io.h`（仿真）、`src/memory_device_io.h`（P0.5 进程内点表）、`src/rtdb/rtdb_device_io.h`（RT_DB 共享内存） |
-| RT_DB 接入测试 | `tests/test_rtdb_device_io.cpp`，**T25~T29 / 554 断言，全过**（`scripts\build_test_rtdb.bat`） |
-| **现场进程入口** | `src/main_field.cpp` → `build\main_field.exe`：`--device sim\|rtdb\|modbus`（**默认 sim**）。接真机时**默认只读**，下发指令必须显式 `--control`；闭环实录用 `--record` |
-| 现场入口测试 | `tests/test_field_entry.cpp`（T-F1~T-F9 / 124 断言）+ 输出等价性 P-F1，全过（`scripts\build_test_field.bat`） |
+| RT_DB 接入测试 | `tests/test_rtdb_device_io.cpp`，**T25~T29 / 554 断言，全过**（`scripts\build_test_rtdb.bat` 第一步） |
+| RT_DB 镜像测试 | `tests/test_rtdb_mirror.cpp`，**T35~T40 / 44 断言，全过**（同上脚本第二步）—— 采集值写 MEAS/STA/CFG，**只读路径不写 CMD** |
+| **现场进程入口** | `src/main_field.cpp` → `build\main_field.exe`：`--device sim\|rtdb\|modbus\|dlt645`（**默认 sim**）。接真机时**默认只读**，下发指令必须显式 `--control`；闭环实录用 `--record`；`--mirror-rtdb` 把每拍采集值写进共享内存实时库（**上端 IEC104 的唯一数据源**，仅 modbus） |
+| 现场入口测试 | `tests/test_field_entry.cpp`（T-F1~T-F11 / 159 断言）+ 输出等价性 P-F1，全过（`scripts\build_test_field.bat`） |
 
 ---
 
@@ -25,9 +26,10 @@
 cd 07
 scripts\build.bat          :: 编 test_realtime_loop.exe + loop_demo.exe
 scripts\build_test.bat     :: 编 + 跑 T11~T16（应输出 PASS=6050 FAIL=0 / ALL TESTS PASSED）
-scripts\build_test_rtdb.bat:: 编 + 跑 RT_DB 接入 T25~T29（应输出 PASS=554 FAIL=0）
+scripts\build_test_rtdb.bat:: 编 + 跑 RT_DB 接入 T25~T29 与镜像 T35~T40
+                           :: 应输出 PASS=554 FAIL=0 与 PASS=44 FAIL=0
 scripts\build_field.bat    :: 编现场入口 main_field.exe（--device sim|rtdb|modbus）
-scripts\build_test_field.bat:: 编 + 跑现场入口 T-F1~T-F9 + 输出等价性 P-F1
+scripts\build_test_field.bat:: 编 + 跑现场入口 T-F1~T-F11 + 输出等价性 P-F1
 scripts\run_demo.bat       :: 跑场景 C，输出 → build\demo_output.txt
 ```
 
@@ -216,8 +218,8 @@ P0.5 只用 `MemoryDeviceIO` 证明了「换数据源不改算法」在**进程�
 
 ```bat
 cd 07
-scripts\build_test_rtdb.bat    :: gcc 编 C 实时库 → g++ 编适配器与测试 → 跑 T25~T29
-                               :: 期望 PASS=554 FAIL=0 / ALL TESTS PASSED
+scripts\build_test_rtdb.bat    :: gcc 编 C 实时库 → g++ 编适配器与测试 → 跑 T25~T29 与 T35~T40
+                               :: 期望 PASS=554 FAIL=0 与 PASS=44 FAIL=0
 ```
 
 | 用例 | 覆盖点 | 结论 |
