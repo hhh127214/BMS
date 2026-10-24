@@ -1,0 +1,48 @@
+{
+  "_comment": "Linux 部署进程清单（XM3568 / aarch64 Debian12）。由 19/scripts/install_systemd.sh 复制到 <root>/conf/supervisor.json。路径相对 --root 解析，去 .exe。内置 default_config 只含 11/ 三进程（带 .exe），本清单补齐 iec104_gateway 并去掉 .exe。★ 参数语义不对称：11/ 三进程的 --seconds/--steps 传 0 会立即退出（循环条件 0<N），必须用大值（864000≈10天/24h）；而 iec104_gateway 的 --seconds 0 才是永久运行。别把网关的 0 套到 11/ 上。",
+  "poll_s": 0.5,
+  "backoff": {"base_s": 1.0, "factor": 2.0, "max_s": 30.0, "stable_s": 60.0},
+  "log_dir": "log",
+  "processes": [
+    {
+      "name": "rtdb_initializer",
+      "exe": "11/build/rtdb_initializer",
+      "args": ["--seconds", "864000"],
+      "cwd": ".",
+      "ready_pattern": "\\[INITIALIZER\\] segment",
+      "ready_timeout_s": 15.0,
+      "depends_on": [],
+      "essential": true
+    },
+    {
+      "name": "device_side",
+      "exe": "11/build/device_side",
+      "args": ["--steps", "864000", "--dt", "0.1", "--speed", "1", "--report", "19/build/device_report.txt"],
+      "cwd": ".",
+      "ready_pattern": "\\[DEVICE\\] connected",
+      "ready_timeout_s": 20.0,
+      "depends_on": ["rtdb_initializer"],
+      "essential": true
+    },
+    {
+      "name": "ems_side",
+      "exe": "11/build/ems_side",
+      "args": ["--steps", "864000", "--dt", "0.1", "--speed", "1", "--report", "19/build/ems_report.txt"],
+      "cwd": ".",
+      "ready_pattern": "\\[EMS\\] connected",
+      "ready_timeout_s": 30.0,
+      "depends_on": ["device_side"],
+      "essential": true
+    },
+    {
+      "name": "iec104_gateway",
+      "exe": "P3/build/iec104_gateway",
+      "args": ["--seconds", "0", "--periodic", "5", "--stale-ms", "5000", "--ext-rt-db", "--ext-stale", "300"],
+      "cwd": ".",
+      "ready_pattern": "从站已监听",
+      "ready_timeout_s": 20.0,
+      "depends_on": ["rtdb_initializer"],
+      "essential": true
+    }
+  ]
+}

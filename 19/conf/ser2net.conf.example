@@ -1,0 +1,131 @@
+# =====================================================================
+# ser2net 4.x 配置模板（Debian 12 / XM3568 默认格式：YAML）
+#
+# ★ 设备节点按《XM3568-2U-GW 系统使用说明书》第 4 页硬件资源表 / 第 6-7 页串口节：
+#   16 路串口 = /dev/COM1 .. /dev/COM16（大写 COM、从 1 数），均支持 RS232/RS485。
+#   （不是 /dev/ttyS0 那套——那是 x86 习惯，本机内核映射为 /dev/COMx。）
+#   说明书示例：sudo stty -F /dev/COM1 9600 cs8 -cstopb -parenb
+#
+# 作用：把 16 路 RS485（/dev/COM1..COM16）变成 TCP 端口，
+#      让 EMS 设备侧经 127.0.0.1:<port> 走 TCP 连接，无需改任何 C++ 代码。
+#      （EMS 这边的 Modbus TCP / DL/T645 TCP 透传，连的是 TCP 端口，不是串口本身。）
+#
+# ★ 重要前提（务必读）：
+#   当前 11/src/main_device.cpp 用的是 DeviceSideSim —— 六路数据源在进程内
+#   模拟，并不真实连接 13/ Modbus 主站 / 21/ DL/T645 主站。因此**现阶段
+#   device_side 不会连这些 ser2net 端口**，本模板是"为真实设备接入做准备"，
+#   不是"已接通"。真实接入 = 把 13/21 主站接进 device_side 进程（独立工作流）。
+#
+# 安装（需 root；设备默认无 ser2net，先 sudo apt install ser2net）：
+#   sudo cp 19/conf/ser2net.conf.example /etc/ser2net/ser2net.yaml
+#   sudo systemctl restart ser2net
+# 验证：
+#   ss -ltnp | grep -E ':201(0[0-9]|1[0-5])$'
+#   python3 -c "import socket;s=socket.socket();s.connect(('127.0.0.1',20100));print('ok')"
+#
+# 速率/校验按设备铭牌改；下方为常见 9600/8N1。
+# RS485 半双工方向由硬件（自动换向 485 模块）处理，软件无需 RTS 拨向。
+# =====================================================================
+
+define: &rs485
+  baud: 9600
+  parity: none
+  databits: 8
+  stopbits: 1
+  flow-control: none
+
+connection: &COM1
+  accepter: tcp,127.0.0.1,20100
+  connector: serialdev,/dev/COM1,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM2
+  accepter: tcp,127.0.0.1,20101
+  connector: serialdev,/dev/COM2,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM3
+  accepter: tcp,127.0.0.1,20102
+  connector: serialdev,/dev/COM3,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM4
+  accepter: tcp,127.0.0.1,20103
+  connector: serialdev,/dev/COM4,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM5
+  accepter: tcp,127.0.0.1,20104
+  connector: serialdev,/dev/COM5,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM6
+  accepter: tcp,127.0.0.1,20105
+  connector: serialdev,/dev/COM6,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM7
+  accepter: tcp,127.0.0.1,20106
+  connector: serialdev,/dev/COM7,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM8
+  accepter: tcp,127.0.0.1,20107
+  connector: serialdev,/dev/COM8,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM9
+  accepter: tcp,127.0.0.1,20108
+  connector: serialdev,/dev/COM9,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM10
+  accepter: tcp,127.0.0.1,20109
+  connector: serialdev,/dev/COM10,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM11
+  accepter: tcp,127.0.0.1,20110
+  connector: serialdev,/dev/COM11,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM12
+  accepter: tcp,127.0.0.1,20111
+  connector: serialdev,/dev/COM12,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM13
+  accepter: tcp,127.0.0.1,20112
+  connector: serialdev,/dev/COM13,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM14
+  accepter: tcp,127.0.0.1,20113
+  connector: serialdev,/dev/COM14,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM15
+  accepter: tcp,127.0.0.1,20114
+  connector: serialdev,/dev/COM15,9600n81,local
+  options:
+    max-connections: 1
+
+connection: &COM16
+  accepter: tcp,127.0.0.1,20115
+  connector: serialdev,/dev/COM16,9600n81,local
+  options:
+    max-connections: 1

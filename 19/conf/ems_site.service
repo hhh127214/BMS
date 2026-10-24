@@ -1,0 +1,24 @@
+[Unit]
+Description=EMS site deployment supervisor (19/)
+Documentation=https://github.com/hhh127214/BMS
+# 串行服务器（ser2net）应先于本服务起来：设备侧经 TCP 连 RS485，
+# 若端口还没监听，device_side 会一直连不上。
+Wants=ser2net.service
+After=network.target ser2net.service
+
+[Service]
+Type=simple
+# 生产应建专用低权用户并改这里；示例用 root 仅示意。
+User=root
+WorkingDirectory=__EMS_ROOT__
+# 守护器按 <root>/conf/supervisor.json 拉起子进程（initializer/device_side/
+# ems_side/iec104_gateway），并做退避 + 级联重启；systemd 只负责守护器本身。
+ExecStart=/usr/bin/python3 __EMS_ROOT__/19/src/ems_supervisor.py --root __EMS_ROOT__ run
+Restart=on-failure
+RestartSec=5
+# 停服务时把整组子进程一起清掉（避免孤儿进程占着共享内存段）
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
