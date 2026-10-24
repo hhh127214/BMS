@@ -188,6 +188,16 @@ void usage() {
 } // namespace
 
 int main(int argc, char** argv) {
+    // ★ stdout 行缓冲（systemd/supervisor 部署的生命线，不是风格问题）：
+    //   stdout 接管道/文件时 C 标准库默认**全缓冲**，本进程起从站后进入主循环
+    //   永不退出，"[OK] 从站已监听"这类就绪横幅会一直留在缓冲区里不落盘；
+    //   19/ 守护器按日志匹配就绪横幅 → 永远等不到 → 20s ready_timeout 杀掉重启，
+    //   网关在「已监听」与「被杀」之间抖动（ss 能看到 LISTEN 但 TCP 偶发 refused，
+    //   日志里却只见失败路径冲刷出来的 FATAL——成功横幅反而永远不出现）。
+    //   设成行缓冲后每个 \n 即刻落盘，就绪横幅必达。11/ 三进程用 std::endl
+    //   （C++ 流自带冲刷）没踩这坑，唯独本文件用 printf 裸奔，在此统一修。
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+
     iec104::ServerConfig cfg;
     double seconds   = 60.0;
     int    utc_hours = 8;
