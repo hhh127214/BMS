@@ -1,5 +1,5 @@
 {
-  "_comment": "Linux 部署进程清单（XM3568 / aarch64 Debian12）。由 19/scripts/install_systemd.sh 复制到 <root>/conf/supervisor.json。路径相对 --root 解析，去 .exe。内置 default_config 只含 11/ 三进程（带 .exe），本清单补齐 iec104_gateway 并去掉 .exe。★ 参数语义不对称：11/ 三进程的 --seconds/--steps 传 0 会立即退出（循环条件 0<N），必须用大值（864000≈10天/24h）；而 iec104_gateway 的 --seconds 0 才是永久运行。别把网关的 0 套到 11/ 上。",
+  "_comment": "Linux 部署进程清单（XM3568 / aarch64 Debian12）。由 19/scripts/install_systemd.sh 复制到 <root>/conf/supervisor.json。路径相对 --root 解析，去 .exe。内置 default_config 只含 11/ 三进程（带 .exe），本清单补齐 iec104_gateway 并去掉 .exe。★ 参数语义不对称：11/ 三进程的 --seconds/--steps 传 0 会立即退出（循环条件 0<N），必须用大值（864000≈10天/24h）；而 iec104_gateway 的 --seconds 0 才是永久运行。别把网关的 0 套到 11/ 上。★ 端口 2405（非标准 2404）：XM3568 出厂自带的 PowerCommMonitor 服务常驻占用 2404（2026-10-25 在 1U 实测 ss 确认），网关 bind 必败；故固定 --port 2405，demo 调度主站连设备 IP:2405（CA=1）。1U 已按此配置实测跑通（需配合 7ed696c 的网关 stdout 行缓冲修复，否则就绪横幅不落盘会被守护器 20s ready_timeout 周期误杀）。",
   "poll_s": 0.5,
   "backoff": {"base_s": 1.0, "factor": 2.0, "max_s": 30.0, "stable_s": 60.0},
   "log_dir": "log",
@@ -37,7 +37,7 @@
     {
       "name": "iec104_gateway",
       "exe": "P3/build/iec104_gateway",
-      "args": ["--seconds", "0", "--periodic", "5", "--stale-ms", "5000", "--ext-rt-db", "--ext-stale", "300"],
+      "args": ["--seconds", "0", "--periodic", "5", "--stale-ms", "5000", "--ext-rt-db", "--ext-stale", "300", "--port", "2405"],
       "cwd": ".",
       "ready_pattern": "从站已监听",
       "ready_timeout_s": 20.0,
