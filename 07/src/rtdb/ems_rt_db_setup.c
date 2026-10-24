@@ -25,6 +25,9 @@
 
 #include <stdio.h>
 #include <string.h>
+#ifndef _WIN32
+#include <unistd.h>   // Linux: getpid()（Windows 分支走 _getpid，见下方 _WIN32 块）
+#endif
 
 // ---------------------------------------------------------------------
 // 共享内存「存活句柄」

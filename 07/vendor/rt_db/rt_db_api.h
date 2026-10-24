@@ -60,6 +60,17 @@ bool rt_db_set_multiple_values(rt_db_handle_t* handle, const size_t* indices, si
 size_t rt_db_get_max_data_points(void);
 size_t rt_db_get_command_queue_size(void);
 
+// --- 共享内存底层原语（供 ems_rt_db_setup.c 调用）---
+// ⚠ 必须在此声明：否则调用方按"隐式 int"处理其返回值，64 位指针被截断成 32 位，
+//    在 aarch64 mmap 高位地址（bit31=1）上符号扩展成非法地址 → memset SIGSEGV。
+//    Linux=SysV shm，Windows=文件映射，两侧 rt_db_api.c 均已实现，声明可无条件放这里。
+int   get_shm_key(void);
+int   create_shared_memory(size_t size);
+int   open_shared_memory(void);
+void* map_shared_memory(int shm_id, size_t size);
+bool  unmap_shared_memory(void* addr, size_t size);
+bool  destroy_shared_memory(int shm_id);
+
 #ifdef __cplusplus
 }
 #endif

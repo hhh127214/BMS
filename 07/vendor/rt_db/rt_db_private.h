@@ -21,6 +21,7 @@ void* map_shared_memory(int shm_id, size_t size);
 bool unmap_shared_memory(void* addr, size_t size);
 bool destroy_shared_memory(int shm_id);
 #else
+#include <sys/types.h>   // key_t（SysV IPC 键类型，POSIX/XSI 扩展）
 // Linux特定的共享内存函数
 key_t get_shm_key(void);
 #endif

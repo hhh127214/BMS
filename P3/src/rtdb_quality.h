@@ -38,9 +38,10 @@
 #error "rtdb_quality.h 必须在任何 C++ 标准库头之前 include —— 否则 rt_db_structs.h 的 C11 原子宏会破坏 libstdc++ 的声明"
 #endif
 
-extern "C" {
+// rt_db_structs.h 在 C++ 分支会 #include <atomic> 并用 using 引入 std::memory_order_*，
+// 这些 C++ 构造**不能**落在 extern "C" 块内（否则报 "template with C linkage"）。
+// 该头只声明类型/枚举，没有任何函数需要 C 链接，故此处不再包 extern "C"。
 #include "rt_db_structs.h"
-}
 
 // --- 擦掉 C11 原子宏（Windows 分支是一批宏，Linux 分支来自 <stdatomic.h>）---
 // 我们只需要 data_quality_t 这个枚举；原子操作在 C++ 侧一律用 std::atomic。
@@ -68,6 +69,12 @@ extern "C" {
 #endif
 #ifdef atomic_store_explicit
 #undef atomic_store_explicit
+#endif
+#ifdef atomic_fetch_add_explicit
+#undef atomic_fetch_add_explicit
+#endif
+#ifdef atomic_fetch_sub_explicit
+#undef atomic_fetch_sub_explicit
 #endif
 #ifdef atomic_exchange
 #undef atomic_exchange

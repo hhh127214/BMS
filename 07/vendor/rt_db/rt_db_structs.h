@@ -42,7 +42,42 @@ typedef enum {
 #define atomic_init(ptr, val) (*(ptr) = (val))
 
 #else
-// Linux/Unix平台使用标准C11原子操作
+// Linux/Unix 平台
+#ifdef __cplusplus
+// C++ 翻译单元：<stdatomic.h> 里的 _Atomic 是 C 关键字，在 C++（本工程 -std=c++17）
+// 下不是保留字，直接包含会触发 "does not name a type"。改用 C++11 <atomic>
+// ★ 调用方注意：本头（C++ 分支）含 <atomic> 与 using std::...，切勿将其置于
+//   extern "C" 块内，否则报 "template with C linkage"（参见 P3/src/rtdb_quality.h 的修正）。
+// （std::atomic）重定义同一批类型；并把原子操作宏命名成与 Windows 分支完全一致
+// 的 atomic_*_explicit / atomic_thread_fence / atomic_init，保证 Win / Linux-C /
+// Linux-C++ 三侧暴露同名 API，C++ 侧调用 rt_db API 时不会遇到未定义标识符。
+//
+// 布局等价性（关键）：std::atomic<T> 与 _Atomic T 在 GCC/glibc 下 size/alignment
+// 完全一致，因此共享内存结构体在 C 进程写入、C++ 进程读出时成员偏移一致，不会错位。
+#include <atomic>
+typedef std::atomic<size_t>  atomic_size_t;
+typedef std::atomic<bool>    atomic_bool;
+typedef std::atomic<double>  atomic_double;
+typedef std::atomic<long>    atomic_long;
+typedef std::atomic<int>     atomic_int;
+
+#define atomic_load_explicit(ptr, order)            std::atomic_load_explicit((ptr), (order))
+#define atomic_store_explicit(ptr, val, order)      std::atomic_store_explicit((ptr), (val), (order))
+#define atomic_fetch_add_explicit(ptr, val, order)  std::atomic_fetch_add_explicit((ptr), (val), (order))
+#define atomic_fetch_sub_explicit(ptr, val, order)  std::atomic_fetch_sub_explicit((ptr), (val), (order))
+#define atomic_thread_fence(order)                  std::atomic_thread_fence(order)
+#define atomic_init(ptr, val)                       (*(ptr) = (val))
+
+// memory_order 常量：C++ 放在 std 命名空间，提到全局保持裸名可用
+using std::memory_order;
+using std::memory_order_relaxed;
+using std::memory_order_acquire;
+using std::memory_order_release;
+using std::memory_order_acq_rel;
+using std::memory_order_seq_cst;
+
+#else
+// 纯 C 翻译单元（如 rt_db_api.c，-std=c11）：使用标准 C11 原子操作
 #include <stdatomic.h>
 
 // 标准原子类型重定义
@@ -51,6 +86,7 @@ typedef _Atomic bool atomic_bool;
 typedef _Atomic double atomic_double;
 typedef _Atomic long atomic_long;
 typedef _Atomic int atomic_int;
+#endif
 
 #endif
 

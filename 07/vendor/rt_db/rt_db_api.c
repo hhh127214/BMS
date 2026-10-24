@@ -15,10 +15,12 @@
 static HANDLE g_shared_memory_handle = NULL;
 static const char* SHARED_MEMORY_NAME = "RT_DB_SHARED_MEMORY";
 #else
+#include <sys/types.h>
 #include <sys/shm.h>
 #include <sys/ipc.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <time.h>        // clock_gettime / CLOCK_REALTIME（POSIX 高精度时钟）
 #endif
 
 // 全局映射表（用于点ID查找）
@@ -136,9 +138,114 @@ int get_shm_key(void) {
 }
 
 #else
-// Linux实现
+// Linux实现（SysV 共享内存）
+//
+// 平移语义对齐（关键决策，不是照抄函数名）：
+//   · Windows：段随最后一个句柄关闭而消失 → 初始化器进程必须持柄存活；
+//   · SysV：段在 IPC_RMID 之前一直驻留内核，shmdt 不销毁它。
+// 因此本平台五个函数只围绕"记录/使用 shmid"，**绝不 IPC_RMID** ——
+// ems_rt_db_setup 退出后，rt_db_init 还要靠同一个 key shmget 到这段
+// （ems_rt_db_setup.c 头注释依赖的就是这个行为）。
+// 段的手工清理：ipcs -m 查看 / ipcrm -m <shmid> 删除（下次启动重建）。
+static int g_shm_id = -1;   // 对应 Windows 的 g_shared_memory_handle
+
 key_t get_shm_key(void) {
     return ftok("/tmp", 'R');
+}
+
+int create_shared_memory(size_t size) {
+    // 1) 独占新建（首次由本进程建段，与 Windows 行为对齐）
+    int id = shmget(get_shm_key(), size, IPC_CREAT | IPC_EXCL | 0666);
+    if (id != -1) {
+        g_shm_id = id;
+        return 0;              // 本次新建
+    }
+    if (errno != EEXIST) {
+        return -1;             // 真实错误（EINVAL / ENOMEM ...），非"已存在"
+    }
+
+    // 2) 段已存在 → 打开，但先核对内核实际尺寸。
+    //    陈旧段常来自旧构建 / 字段扩容前的残留：其尺寸 < 当前
+    //    sizeof(SharedMemorySegment)，会让 initialize_segment 的 memset 越界
+    //    → SEGV。此时删旧建新，避免把小段挂上去再越界写。
+    id = shmget(get_shm_key(), 0, 0666);
+    if (id == -1) {
+        return -1;
+    }
+    struct shmid_ds ds;
+    if (shmctl(id, IPC_STAT, &ds) == 0 && (size_t)ds.shm_segsz != size) {
+        fprintf(stderr,
+                "[ems_rt_db] stale segment: kernel size %zu != expected %zu; "
+                "removing & recreating\n",
+                (size_t)ds.shm_segsz, size);
+        shmctl(id, IPC_RMID, NULL);   // 标记删除（若仍被持有，等最后分离才真正消失）
+        id = shmget(get_shm_key(), size, IPC_CREAT | IPC_EXCL | 0666);
+        if (id == -1) {
+            // 仍被其他进程持有（EXCL 失败）→ 退回打开现有段，至少不崩
+            id = shmget(get_shm_key(), 0, 0666);
+            if (id == -1) return -1;
+            fprintf(stderr,
+                    "[ems_rt_db] WARN: could not recreate (still held), "
+                    "reusing existing segment\n");
+        }
+        g_shm_id = id;
+        return 0;              // 视为（尝试）新建
+    }
+    g_shm_id = id;
+    return -2;                 // 已存在且尺寸吻合
+}
+
+int open_shared_memory(void) {
+    int id = shmget(get_shm_key(), 0, 0666);
+    if (id == -1) {
+        return -1;
+    }
+    g_shm_id = id;
+    return 0;
+}
+
+void* map_shared_memory(int shm_id, size_t size) {
+    (void)shm_id;   // 与 Windows 一致：调用方传 0，实际用内部记录的 shmid
+    if (g_shm_id == -1) {
+        return NULL;
+    }
+    void* addr = shmat(g_shm_id, NULL, 0);
+    if (addr == (void*)-1) {
+        perror("shmat failed");
+        return NULL;
+    }
+    // [调试/防御] 核对内核实际分配的段大小与请求大小：
+    //   · 打印出来定位 memset 越界根因；
+    //   · 若内核段 < 请求大小，直接拒绝映射，绝不让 initialize_segment
+    //     拿去 memset 越界（那正是确定性 SEGV 的来源）。
+    struct shmid_ds ds;
+    if (shmctl(g_shm_id, IPC_STAT, &ds) == 0) {
+        fprintf(stderr,
+                "[ems_rt_db] mapped=%p requested_size=%zu kernel_shm_segsz=%zu\n",
+                addr, size, (size_t)ds.shm_segsz);
+        if ((size_t)ds.shm_segsz < size) {
+            fprintf(stderr,
+                    "[ems_rt_db] ERROR: kernel segment smaller than struct "
+                    "(%zu < %zu) -> refusing memset to avoid SEGV\n",
+                    (size_t)ds.shm_segsz, size);
+            shmdt(addr);
+            return NULL;
+        }
+    }
+    return addr;
+}
+
+bool unmap_shared_memory(void* addr, size_t size) {
+    (void)size;     // 与 Windows 一致：分离不需要 size
+    return shmdt(addr) == 0;
+}
+
+bool destroy_shared_memory(int shm_id) {
+    (void)shm_id;   // 与 Windows 一致：调用方传 0
+    // 只丢弃内部 shmid，不做 IPC_RMID（理由见上方块注释：
+    // 段必须在 setup 退出后继续存活，供 rt_db_init shmget 打开）。
+    g_shm_id = -1;
+    return true;
 }
 #endif
 
